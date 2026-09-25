@@ -1,0 +1,39 @@
+{
+  "name": "cyethack-hr-portal-server",
+  "version": "1.0.0",
+  "description": "MERN backend for the Cyethack HR Portal — Express + MongoDB/Mongoose + JWT (access & refresh) + RBAC.",
+  "type": "commonjs",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "dev:mem": "node tests/dev-server-mem.js",
+    "seed": "node seeds/seed.js",
+    "test": "node tests/e2e.test.js"
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.4.1",
+    "express-validator": "^7.2.1",
+    "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.9.5",
+<<<<<<< HEAD
+    "multer": "^2.3.0"
+=======
+    "multer": "^2.3.0",
+    "node-cron": "^3.0.3",
+    "nodemailer": "^6.9.14"
+>>>>>>> 0f31467 (intial Update HRM 1.1)
+  },
+  "devDependencies": {
+    "mongodb-memory-server": "^10.1.3"
+  }
+}

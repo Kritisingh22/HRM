@@ -1,0 +1,21 @@
+{
+  "name": "cyethack-hr-portal-client",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "React (Vite) client scaffold for the Cyethack HR Portal — AuthContext + API service with auto-refresh. Incremental migration target; the existing HTML portal remains the primary UI.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.28.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^6.0.7"
+  }
+}

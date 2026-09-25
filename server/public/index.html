@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cyethack HRM — Dashboard</title>
+<!-- The only external resource: IBM Plex fonts. Offline, the system fallbacks below take over. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   CYETHACK HRM — design tokens (Section 2 of the specification)
+   Change the whole look here, in one place.
+   ============================================================ */
+:root{
+  --bg:#0F172A;            /* page background */
+  --sidebar:#0B1120;       /* sidebar background */
+  --surface:#172238;       /* card surface */
+  --border:#243352;        /* card borders & dividers */
+  --hover:#1E2B47;         /* hover surface */
+  --hover-border:#34456B;  /* hover border */
+  --text:#E6EDF7;          /* primary text */
+  --text-2:#94A3B8;        /* secondary text */
+  --muted:#64748B;         /* muted text / placeholders */
+  --teal:#509888;          /* brand teal */
+  --teal-bright:#7FD4C1;   /* bright teal highlight */
+  --teal-tint:rgba(80,152,136,.15);
+  --green:#22C55E;  --green-tint:rgba(34,197,94,.15);
+  --amber:#F59E0B;  --amber-tint:rgba(245,158,11,.15);
+  --red:#EF4444;    --red-tint:rgba(239,68,68,.15);
+  --blue:#3B82F6;   --blue-tint:rgba(59,130,246,.15);
+  --violet:#8B5CF6; --violet-tint:rgba(139,92,246,.15);
+  --orange:#F97316;
+  --scrim:rgba(3,7,18,.6);
+  --font:"IBM Plex Sans",system-ui,"Segoe UI",Arial,sans-serif;
+  --mono:"IBM Plex Mono","Consolas","Courier New",monospace;
+  --radius:12px; --radius-s:8px;
+  --shadow:0 4px 16px rgba(0,0,0,.25);
+  --shadow-pop:0 12px 32px rgba(0,0,0,.45);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--bg); color:var(--text);
+  font-family:var(--font); font-size:14px; line-height:1.4;
+  overflow:hidden;
+}
+button{font-family:inherit;font-size:inherit;color:inherit;background:none;border:none;cursor:pointer}
+:focus{outline:none}
+:focus-visible{outline:2px solid var(--teal-bright);outline-offset:2px;border-radius:4px}
+.app{display:flex;height:100vh}
+
+/* ---- Sidebar (spec 4.1) ---- */
+.sidebar{
+  width:248px;flex:0 0 248px;height:100%;
+  background:var(--sidebar);border-right:1px solid var(--border);
+  display:flex;flex-direction:column;
+  transition:width .15s ease,flex-basis .15s ease;
+  position:relative;z-index:40;
+}
+.logo{display:flex;align-items:center;gap:10px;height:64px;padding:0 20px;flex:0 0 auto}
+.logo-img{height:34px;width:auto;flex:0 0 auto}
+.logo-text{display:flex;flex-direction:column;line-height:1.15;min-width:0}
+.logo-name{font-size:15px;font-weight:600;letter-spacing:.05em;line-height:1.15;white-space:nowrap}
+.logo-sub{font-size:8.5px;font-weight:600;color:var(--teal-bright);letter-spacing:.08em;text-transform:uppercase;white-space:nowrap}
+.collapse-btn{
+  position:absolute;top:20px;right:-12px;width:24px;height:24px;border-radius:50%;
+  background:var(--surface);border:1px solid var(--border);display:grid;place-items:center;
+  color:var(--text-2);z-index:5;transition:background .15s ease;
+}
+.collapse-btn:hover{background:var(--hover);color:var(--text)}
+.nav{flex:1;overflow-y:auto;padding:8px 12px}
+.nav-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);padding:14px 12px 6px}
+.nav-item{
+  display:flex;align-items:center;gap:12px;width:100%;height:40px;padding:0 12px;
+  border-radius:var(--radius-s);color:var(--text-2);font-size:14px;font-weight:500;
+  position:relative;transition:background .15s ease,color .15s ease;white-space:nowrap;text-align:left;
+}
+.nav-item svg{flex:0 0 auto}
+.nav-item:hover{background:var(--hover);color:var(--text)}
+.nav-item[aria-current="page"]{background:var(--teal-tint);color:var(--teal-bright)}
+.nav-item[aria-current="page"]::before{
+  content:"";position:absolute;left:0;top:8px;bottom:8px;width:3px;border-radius:2px;background:var(--teal);
+}
+.profile{
+  flex:0 0 auto;margin:16px;padding:10px;border:1px solid var(--border);border-radius:var(--radius);
+  display:flex;align-items:center;gap:10px;background:var(--surface);
+}
+.profile .who{flex:1;min-width:0}
+.profile .who b{display:block;font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.profile .who span{font-size:12px;color:var(--text-2)}
+.icon-btn{
+  width:40px;height:40px;flex:0 0 auto;border-radius:50%;display:grid;place-items:center;
+  color:var(--text-2);transition:background .15s ease,color .15s ease;position:relative;
+}
+.icon-btn:hover{background:var(--hover);color:var(--text)}
+.avatar{
+  border-radius:50%;background:var(--teal);color:#fff;font-weight:600;
+  display:grid;place-items:center;font-size:13px;flex:0 0 auto;font-family:var(--font);
+}
+/* Collapsed icon-rail mode */
+body.rail .sidebar{width:72px;flex-basis:72px}
+body.rail .logo-text,body.rail .nav-label,body.rail .profile .who,body.rail .profile .icon-btn{display:none}
+body.rail .logo{justify-content:center;padding:0}
+body.rail .nav-item{justify-content:center;padding:0}
+body.rail .nav-item .nav-text{display:none}
+body.rail .profile{justify-content:center;padding:10px 0;margin:16px 8px}
+
+/* ---- Main column & top bar (spec 4.2) ---- */
+.main{flex:1;min-width:0;display:flex;flex-direction:column;height:100%}
+.topbar{
+  flex:0 0 64px;display:flex;align-items:center;gap:16px;padding:0 24px;
+  background:var(--bg);border-bottom:1px solid var(--border);position:relative;z-index:30;
+}
+.hamburger{display:none}
+.page-head h1{font-size:20px;font-weight:600;line-height:1.15}
+.page-head .date{font-size:12px;color:var(--text-2)}
+.search{
+  display:flex;align-items:center;gap:8px;width:360px;height:40px;padding:0 12px;
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-s);color:var(--muted);
+}
+.search input{
+  flex:1;min-width:0;background:none;border:none;color:var(--text);font-family:var(--font);font-size:13px;
+}
+.search input::placeholder{color:var(--muted)}
+.topbar .spacer{flex:1}
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;height:40px;padding:0 16px;
+  border-radius:var(--radius-s);font-size:14px;font-weight:600;transition:all .15s ease;white-space:nowrap;
+}
+.btn-primary{background:var(--teal);color:#fff}
+.btn-primary:hover{background:var(--teal-bright);color:var(--sidebar)}
+.btn-outline{border:1px solid var(--teal);color:var(--teal-bright);background:none}
+.btn-outline:hover{background:var(--teal-tint)}
+.btn-ghost{color:var(--text-2)}
+.btn-ghost:hover{background:var(--hover);color:var(--text)}
+.btn-danger-outline{border:1px solid var(--red);color:var(--red);background:none}
+.btn-danger-outline:hover{background:var(--red-tint)}
+.btn-sm{height:28px;padding:0 10px;font-size:12px;border-radius:6px}
+.badge{
+  position:absolute;top:5px;right:5px;min-width:16px;height:16px;padding:0 4px;border-radius:999px;
+  background:var(--red);color:#fff;font-size:10px;font-weight:600;display:grid;place-items:center;
+  font-family:var(--mono);
+}
+
+/* ---- Dropdown menus & panels ---- */
+.menu{
+  position:absolute;top:52px;right:0;background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--radius);box-shadow:var(--shadow-pop);padding:6px;z-index:60;min-width:200px;
+}
+.menu[hidden]{display:none}
+.menu-item{
+  display:flex;align-items:center;gap:10px;width:100%;padding:9px 10px;border-radius:var(--radius-s);
+  font-size:13px;font-weight:500;color:var(--text);text-align:left;transition:background .15s ease;
+}
+.menu-item:hover{background:var(--hover)}
+.menu-item svg{color:var(--teal-bright);flex:0 0 auto}
+.panel-head{display:flex;align-items:center;justify-content:space-between;padding:8px 10px 6px;font-size:13px;font-weight:600}
+.notif{display:flex;gap:10px;padding:10px;border-radius:var(--radius-s);transition:background .15s ease}
+.notif:hover{background:var(--hover)}
+.notif .dot{width:8px;height:8px;border-radius:50%;background:var(--teal-bright);margin-top:5px;flex:0 0 auto}
+.notif.read .dot{background:var(--border)}
+.notif p{font-size:13px;line-height:1.35}
+.notif time{font-size:11px;color:var(--muted)}
+.panel-foot{border-top:1px solid var(--border);margin-top:4px;padding:8px 10px 4px}
+.link{color:var(--teal-bright);font-size:13px;font-weight:500;background:none;border:none;cursor:pointer;padding:0}
+.link:hover{text-decoration:underline}
+
+/* ---- Content grid (spec 3) ---- */
+.content{flex:1;overflow-y:auto;padding:24px}
+.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:20px}
+.card{
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+  box-shadow:var(--shadow);padding:20px;min-width:0;
+  transition:transform .15s ease,border-color .15s ease;
+}
+.span3{grid-column:span 3}.span4{grid-column:span 4}.span5{grid-column:span 5}
+.span7{grid-column:span 7}.span8{grid-column:span 8}.span12{grid-column:span 12}
+.card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px}
+.card-head h2{font-size:15px;font-weight:600}
+.card-head .sub{font-size:12px;color:var(--text-2);margin-top:2px}
+.chip{
+  display:inline-block;padding:4px 10px;border-radius:999px;background:var(--teal-tint);
+  color:var(--teal-bright);font-size:11px;font-weight:600;white-space:nowrap;
+}
+
+/* ---- Row 1: KPI cards (spec 4.3) ---- */
+.kpi{height:112px;display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer}
+.kpi:hover{transform:translateY(-2px);border-color:var(--hover-border)}
+.kpi .label{font-size:13px;font-weight:500;color:var(--text-2)}
+.kpi .value{font-family:var(--mono);font-size:28px;font-weight:600;line-height:1.1;margin:4px 0 6px}
+.kpi .delta{font-size:12px;white-space:nowrap}
+.kpi .chipbox{width:44px;height:44px;border-radius:10px;display:grid;place-items:center;flex:0 0 auto}
+
+/* ---- Charts ---- */
+.pills{display:flex;gap:6px}
+.pill{
+  padding:5px 12px;border-radius:999px;border:1px solid var(--border);color:var(--text-2);
+  font-size:12px;font-weight:500;transition:all .15s ease;background:none;
+}
+.pill:hover{color:var(--text);border-color:var(--hover-border)}
+.pill.active{background:var(--teal);border-color:var(--teal);color:#fff}
+.legend{display:flex;gap:16px;font-size:12px;color:var(--text-2);margin-bottom:8px}
+.legend .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:1px}
+.chart-wrap{position:relative;height:230px}
+.chart-wrap svg{display:block}
+#attendanceCard{height:340px;display:flex;flex-direction:column}
+#attendanceCard .chart-wrap{flex:1;min-height:0}
+#deptCard{height:340px;display:flex;flex-direction:column}
+.donut-wrap{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;min-height:0}
+#deptCard .card-head{margin-bottom:8px}
+.donut-box{position:relative}
+.donut-center{position:absolute;inset:0;display:grid;place-items:center;text-align:center;pointer-events:none}
+.donut-center b{font-family:var(--mono);font-size:28px;font-weight:600;display:block;line-height:1.1}
+.donut-center span{font-size:12px;color:var(--text-2)}
+.dept-legend{width:100%;display:flex;flex-direction:column;gap:6px}
+.dept-row{
+  display:flex;align-items:center;gap:10px;padding:3px 8px;border-radius:var(--radius-s);
+  font-size:13px;transition:background .15s ease;width:100%;text-align:left;border:none;
+}
+.dept-row:hover{background:var(--hover)}
+.dept-row .name{flex:1;color:var(--text)}
+.dept-row .nums{font-family:var(--mono);color:var(--text-2);font-size:13px}
+
+/* ---- Row 3: table (spec 4.6) ---- */
+.table-scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{
+  text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;
+  color:var(--text-2);padding:0 10px 8px;border-bottom:1px solid var(--border);white-space:nowrap;
+}
+td{height:52px;padding:4px 10px;border-bottom:1px solid var(--border);white-space:nowrap;vertical-align:middle}
+tbody tr:last-child td{border-bottom:none}
+tbody tr{transition:background .15s ease}
+tbody tr:hover{background:var(--hover)}
+.emp{display:flex;align-items:center;gap:10px}
+.emp .who b{display:block;font-size:13px;font-weight:600}
+.emp .who span{font-size:12px;color:var(--text-2)}
+.pill-status{display:inline-block;padding:4px 10px;border-radius:999px;font-size:11px;font-weight:600}
+.st-pending{color:var(--amber);background:var(--amber-tint)}
+.st-approved{color:var(--green);background:var(--green-tint)}
+.st-rejected{color:var(--red);background:var(--red-tint)}
+.num{font-family:var(--mono)}
+.empty{padding:28px;text-align:center;color:var(--muted);font-size:13px}
+
+/* ---- Row 3: funnel (spec 4.7) ---- */
+.funnel-row{display:flex;align-items:center;gap:12px;height:44px;cursor:pointer;border-radius:var(--radius-s);padding:0 4px}
+.funnel-row:hover{background:var(--hover)}
+.funnel-row .stage{flex:0 0 90px;font-size:13px}
+.funnel-row .track{flex:1;height:18px;border-radius:999px;background:var(--bg);overflow:hidden}
+.funnel-row .bar{display:block;height:100%;border-radius:999px;width:0;transition:width .4s ease-out}
+.funnel-row .count{flex:0 0 44px;text-align:right;font-family:var(--mono);font-size:13px;font-weight:600}
+.card-foot{border-top:1px solid var(--border);margin-top:12px;padding-top:12px;font-size:12px;color:var(--text-2)}
+
+/* ---- Row 4 (spec 4.8–4.10) ---- */
+.event{display:flex;align-items:center;gap:12px;height:56px}
+.date-chip{
+  width:44px;height:44px;flex:0 0 auto;background:var(--bg);border-radius:var(--radius-s);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.1;
+}
+.date-chip b{font-family:var(--mono);font-size:16px;font-weight:600}
+.date-chip span{font-size:10px;text-transform:uppercase;color:var(--text-2);letter-spacing:.05em}
+.event .what{min-width:0}
+.event .what b{display:block;font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.event .what span{font-size:12px;color:var(--text-2)}
+.ann{border-left:3px solid var(--teal);padding:2px 0 2px 12px;margin:12px 0}
+.ann b{display:block;font-size:13px;font-weight:600}
+.ann p{font-size:12px;color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:2px 0}
+.ann .meta{font-size:11px;color:var(--muted)}
+#payrollCard .big{font-family:var(--mono);font-size:28px;font-weight:600;line-height:1.1}
+#payrollCard .big-label{font-size:12px;color:var(--text-2);margin:2px 0 12px}
+.pay-stats{display:flex;gap:20px;font-size:13px;margin-bottom:14px}
+.pay-stats b{font-family:var(--mono);font-weight:600}
+.pay-stats span{color:var(--text-2);font-size:12px;display:block}
+.progress-label{display:flex;justify-content:space-between;font-size:12px;color:var(--text-2);margin-bottom:6px}
+.progress-label .pct{font-family:var(--mono);color:var(--text)}
+.progress{height:8px;border-radius:999px;background:var(--bg);overflow:hidden;margin-bottom:12px}
+.progress .fill{height:100%;background:var(--teal);border-radius:999px;transition:width .6s ease-out}
+.pay-date{font-size:12px;color:var(--text-2);margin-bottom:14px}
+
+/* ---- Placeholder module pages (spec 4.1) ---- */
+.placeholder{padding:48px 24px;text-align:center;color:var(--text-2)}
+.placeholder h2{font-size:20px;font-weight:600;color:var(--text);margin:12px 0 6px}
+
+/* ---- Modal & toasts (spec 4.11) ---- */
+.scrim{position:fixed;inset:0;background:var(--scrim);z-index:80;display:grid;place-items:center;padding:20px}
+.scrim[hidden]{display:none}
+.modal{
+  width:480px;max-width:100%;background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--radius);box-shadow:var(--shadow-pop);
+}
+.modal-head{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border)}
+.modal-head h3{font-size:15px;font-weight:600}
+.modal-body{padding:20px;font-size:13px}
+.modal-foot{display:flex;justify-content:flex-end;gap:10px;padding:16px 20px;border-top:1px solid var(--border)}
+.field{margin-bottom:14px}
+.field label{display:block;font-size:12px;font-weight:500;color:var(--text-2);margin-bottom:6px}
+.field input,.field select{
+  width:100%;height:40px;padding:0 12px;background:var(--bg);border:1px solid var(--border);
+  border-radius:var(--radius-s);color:var(--text);font-family:var(--font);font-size:13px;
+}
+.field .err{display:none;color:var(--red);font-size:12px;margin-top:4px}
+.field.invalid input,.field.invalid select{border-color:var(--red)}
+.field.invalid .err{display:block}
+#toasts{position:fixed;right:24px;bottom:24px;display:flex;flex-direction:column;gap:10px;z-index:100}
+.toast{
+  width:320px;max-width:calc(100vw - 48px);background:var(--sidebar);border:1px solid var(--border);
+  border-left:3px solid var(--teal);border-radius:var(--radius-s);padding:12px 14px;font-size:13px;
+  box-shadow:var(--shadow-pop);animation:slideIn .2s ease-out;
+}
+@keyframes slideIn{from{transform:translateY(8px);opacity:0}to{transform:none;opacity:1}}
+#tooltip{
+  position:fixed;z-index:90;background:var(--sidebar);border:1px solid var(--border);border-radius:6px;
+  padding:8px 10px;font-size:12px;pointer-events:none;box-shadow:var(--shadow-pop);white-space:nowrap;
+}
+#tooltip[hidden]{display:none}
+#tooltip .tt-title{font-weight:600;margin-bottom:2px}
+#tooltip .tt-row{display:flex;align-items:center;gap:6px;color:var(--text-2)}
+#tooltip .tt-row .dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+#tooltip .tt-row b{font-family:var(--mono);color:var(--text);font-weight:600;margin-left:auto;padding-left:10px}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+/* ---- Responsive (spec 3.3) ---- */
+.mobile-scrim{position:fixed;inset:0;background:var(--scrim);z-index:35}
+.mobile-scrim[hidden]{display:none}
+@media (min-width:900px) and (max-width:1279px){
+  .sidebar{width:72px;flex-basis:72px}
+  .logo-text,.nav-label,.profile .who,.profile .icon-btn{display:none}
+  .logo{justify-content:center;padding:0}
+  .nav-item{justify-content:center;padding:0}
+  .nav-item .nav-text{display:none}
+  .profile{justify-content:center;padding:10px 0;margin:16px 8px}
+  .collapse-btn{display:none}
+  .span3{grid-column:span 6}
+  .span4,.span5,.span7,.span8{grid-column:span 12}
+  .search{width:220px}
+}
+@media (max-width:899px){
+  .sidebar{position:fixed;left:0;top:0;bottom:0;transform:translateX(-100%);transition:transform .2s ease;z-index:40}
+  body.drawer-open .sidebar{transform:none}
+  .collapse-btn{display:none}
+  .hamburger{display:grid}
+  .search,#quickBtn,.page-head .date{display:none}
+  .span3,.span4,.span5,.span7,.span8{grid-column:span 12}
+  .kpi{height:auto;min-height:96px}
+  .content{padding:16px}
+  .grid{gap:16px}
+}
+</style>
+<style id="hrLeaveCalendarStyles">
+/* ============================================================
+   ADDED FEATURE — Leave & Attendance Calendar (CSS) · start
+   All selectors are prefixed hr-leave-calendar- (or scoped under
+   #hrLeaveCalendarPage) so nothing collides with existing styles.
+   Reuses the portal's existing CSS variables and card language.
+   ============================================================ */
+/* Compatibility: make the HTML `hidden` attribute reliably win over
+   display rules like `.grid{display:grid}`. The existing page toggles
+   #dashboardPage / #modulePage via `hidden`; without this the grid
+   display leaks through in a plain single file (the published-artifact
+   wrapper already includes this rule, which is why it only shows here).
+   This is an ADDED rule — no existing line was modified. */
+[hidden]{display:none!important}
+.hr-leave-calendar-page{display:flex;flex-direction:column;gap:20px}
+.hr-leave-calendar-page[hidden]{display:none}
+
+/* Leave balance summary cards */
+.hr-leave-calendar-summary{display:grid;grid-template-columns:repeat(6,1fr);gap:20px}
+.hr-leave-calendar-sumcard .hlc-label{display:block;font-size:12px;font-weight:500;color:var(--text-2)}
+.hr-leave-calendar-sumcard .hlc-value{display:block;font-family:var(--mono);font-size:24px;font-weight:600;line-height:1.1;margin:4px 0 2px}
+.hr-leave-calendar-sumcard .hlc-sub{display:block;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hr-leave-calendar-sumcard{padding:16px 18px}
+
+/* Toolbar row: Prev / Today / Next + month heading */
+.hr-leave-calendar-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.hr-leave-calendar-month{font-size:16px;font-weight:600;margin-left:8px;min-width:150px}
+
+/* Legend */
+.hr-leave-calendar-legend{display:flex;flex-wrap:wrap;gap:6px 14px;padding:10px 0 12px;border-bottom:1px solid var(--border);margin-bottom:12px}
+.hr-leave-calendar-legend .hlc-li{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--text-2);white-space:nowrap}
+.hr-leave-calendar-dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
+.hr-leave-calendar-swatch{width:12px;height:12px;border-radius:4px;flex:0 0 auto;border:1px solid var(--border)}
+
+/* Calendar grid */
+.hr-leave-calendar-weekdays{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-bottom:6px}
+.hr-leave-calendar-weekdays span{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);text-align:left;padding:0 8px}
+.hr-leave-calendar-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+.hr-leave-calendar-day{
+  position:relative;min-height:86px;padding:8px;border-radius:8px;
+  background:var(--bg);border:1px solid var(--border);
+  display:flex;flex-direction:column;align-items:flex-start;gap:4px;
+  text-align:left;font-family:var(--font);color:var(--text);cursor:pointer;
+  transition:border-color .15s ease,background .15s ease,transform .15s ease;min-width:0;
+}
+.hr-leave-calendar-day:hover{border-color:var(--hover-border);background:var(--hover);transform:translateY(-1px)}
+.hr-leave-calendar-day.hlc-blank{background:transparent;border-color:transparent;pointer-events:none}
+.hr-leave-calendar-day.hlc-weekend{background:var(--sidebar)}
+.hr-leave-calendar-day.hlc-holiday{background:var(--blue-tint)}
+.hr-leave-calendar-day.hlc-pending{background:var(--amber-tint)}
+.hr-leave-calendar-day.hlc-approved{background:var(--teal-tint)}
+.hr-leave-calendar-day.hlc-today{border:2px solid var(--teal);padding:7px}
+.hr-leave-calendar-day.hlc-today .hlc-num{color:var(--teal-bright)}
+.hlc-num{font-family:var(--mono);font-size:13px;font-weight:600;line-height:1}
+.hlc-cellstatus{margin-top:auto;display:flex;align-items:center;gap:5px;font-size:10px;color:var(--text-2);min-width:0;max-width:100%}
+.hlc-cellstatus .hlc-txt{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hr-leave-calendar-flag{
+  position:absolute;top:6px;right:6px;font-size:9px;font-weight:600;
+  padding:2px 6px;border-radius:999px;letter-spacing:.02em;
+}
+.hr-leave-calendar-flag.hlc-f-pending{color:var(--amber);background:rgba(245,158,11,.22)}
+.hr-leave-calendar-flag.hlc-f-approved{color:var(--green);background:rgba(34,197,94,.22)}
+.hr-leave-calendar-flag.hlc-f-rejected{color:var(--red);background:rgba(239,68,68,.22)}
+.hr-leave-calendar-flag.hlc-f-holiday{color:var(--blue);background:rgba(59,130,246,.22)}
+
+/* Side column (monthly summary + upcoming) */
+.hr-leave-calendar-side{display:flex;flex-direction:column;gap:20px;min-width:0}
+.hr-leave-calendar-statgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px 16px;margin-bottom:14px}
+.hr-leave-calendar-statgrid .hlc-stat{display:flex;align-items:baseline;justify-content:space-between;gap:8px;font-size:13px;color:var(--text-2)}
+.hr-leave-calendar-statgrid .hlc-stat b{font-family:var(--mono);font-size:15px;font-weight:600;color:var(--text)}
+.hr-leave-calendar-upcoming-pill{position:static;margin-left:auto;flex:0 0 auto;font-size:10px;padding:3px 8px}
+
+/* Cancelled status pill — complements the existing st-* pills */
+.hr-leave-calendar-st-cancelled{color:var(--muted);background:rgba(100,116,139,.18)}
+
+/* Day-details + leave-request modals */
+.hr-leave-calendar-detail{display:grid;grid-template-columns:150px 1fr;gap:8px 14px;font-size:13px}
+.hr-leave-calendar-detail dt{color:var(--text-2);margin:0}
+.hr-leave-calendar-detail dd{margin:0;color:var(--text);min-width:0;overflow-wrap:anywhere}
+.hr-leave-calendar-form{color-scheme:dark}
+.hr-leave-calendar-form .hlc-2col{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}
+.hr-leave-calendar-form textarea{
+  width:100%;min-height:72px;padding:10px 12px;background:var(--bg);
+  border:1px solid var(--border);border-radius:8px;color:var(--text);
+  font-family:var(--font);font-size:13px;resize:vertical;
+}
+.hr-leave-calendar-form .hlc-attach{
+  border:1px dashed var(--border);border-radius:8px;padding:10px 12px;
+  font-size:12px;color:var(--muted);
+}
+.hr-leave-calendar-form .hlc-check{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text);margin:2px 0 14px}
+.hr-leave-calendar-form .hlc-check input{width:15px;height:15px;accent-color:var(--teal)}
+.hr-leave-calendar-formerr{display:none;color:var(--red);font-size:12px;line-height:1.5;margin:2px 0 10px}
+.hr-leave-calendar-formerr.hlc-show{display:block}
+.hr-leave-calendar-modalbody{max-height:60vh;overflow-y:auto}
+
+/* Responsive — mirrors the portal's existing breakpoints */
+@media (max-width:1279px){
+  .hr-leave-calendar-summary{grid-template-columns:repeat(3,1fr)}
+}
+@media (max-width:899px){
+  .hr-leave-calendar-summary{grid-template-columns:repeat(2,1fr);gap:16px}
+  .hr-leave-calendar-page{gap:16px}
+  .hr-leave-calendar-day{min-height:60px;padding:6px}
+  .hr-leave-calendar-day.hlc-today{padding:5px}
+  .hlc-cellstatus .hlc-txt{display:none}
+  .hr-leave-calendar-flag{top:4px;right:4px;padding:2px 4px;font-size:8px}
+  .hr-leave-calendar-detail{grid-template-columns:120px 1fr}
+  .hr-leave-calendar-form .hlc-2col{grid-template-columns:1fr}
+}
+/* ===== ADDED FEATURE — Leave & Attendance Calendar (CSS) · end ===== */
+</style>
+<style id="hrSuiteStyles">
+/* ============================================================
+   ADDED FEATURE — HR Management Suite (CSS) · start
+   All selectors prefixed hrx- / scoped under #hrxModuleRoot so
+   nothing collides with existing styles. Reuses existing tokens,
+   .card, .btn*, table, .pill-status/.st-*, .field, .modal, etc.
+   ============================================================ */
+.hrx-root{display:flex;flex-direction:column;gap:20px}
+.hrx-root[hidden]{display:none}
+.hrx-tabs{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--border);overflow-x:auto}
+.hrx-tab{padding:10px 14px;border:none;border-bottom:2px solid transparent;background:none;color:var(--text-2);font-size:13px;font-weight:500;font-family:var(--font);white-space:nowrap;cursor:pointer;transition:color .15s ease,border-color .15s ease}
+.hrx-tab:hover{color:var(--text)}
+.hrx-tab.hrx-active{color:var(--teal-bright);border-bottom-color:var(--teal)}
+.hrx-toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+.hrx-search{display:flex;align-items:center;gap:8px;height:36px;padding:0 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;flex:1;min-width:170px;max-width:300px;color:var(--muted)}
+.hrx-search input{flex:1;min-width:0;background:none;border:none;color:var(--text);font-family:var(--font);font-size:13px}
+.hrx-toolbar select{height:36px;padding:0 10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:var(--font);cursor:pointer}
+.hrx-toolbar .hrx-spacer{flex:1}
+.hrx-statrow{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:18px}
+.hrx-statchip{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px 14px}
+.hrx-statchip .k{font-size:11px;color:var(--text-2);display:block}
+.hrx-statchip .v{font-family:var(--mono);font-size:22px;font-weight:600;display:block;margin-top:3px;line-height:1.1}
+.hrx-statchip .s{font-size:11px;color:var(--muted);display:block;margin-top:2px}
+.hrx-detail{display:grid;grid-template-columns:170px 1fr;gap:9px 16px;font-size:13px}
+.hrx-detail dt{color:var(--text-2);margin:0}
+.hrx-detail dd{margin:0;color:var(--text);overflow-wrap:anywhere}
+.hrx-detail .hrx-sec{grid-column:1/-1;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--teal-bright);margin-top:8px;padding-top:8px;border-top:1px solid var(--border)}
+.hrx-badge{display:inline-block;padding:4px 10px;border-radius:999px;font-size:11px;font-weight:600;white-space:nowrap}
+.hrx-st-info{color:var(--blue);background:var(--blue-tint)}
+.hrx-st-violet{color:var(--violet);background:var(--violet-tint)}
+.hrx-st-muted{color:var(--muted);background:rgba(100,116,139,.18)}
+.hrx-st-teal{color:var(--teal-bright);background:var(--teal-tint)}
+.hrx-st-orange{color:var(--orange);background:rgba(249,115,22,.16)}
+.hrx-bar{height:6px;border-radius:999px;background:var(--bg);overflow:hidden;min-width:64px;flex:1}
+.hrx-bar>i{display:block;height:100%;background:var(--teal);border-radius:999px}
+.hrx-barwrap{display:flex;align-items:center;gap:8px}
+.hrx-barwrap .hrx-pct{font-family:var(--mono);font-size:12px;color:var(--text-2);min-width:34px;text-align:right}
+.hrx-board{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:14px}
+.hrx-col{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px;min-width:0}
+.hrx-col h4{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-2);margin-bottom:10px;display:flex;justify-content:space-between}
+.hrx-col h4 span{color:var(--muted);font-family:var(--mono)}
+.hrx-cardlet{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px;cursor:pointer;transition:border-color .15s ease}
+.hrx-cardlet:last-child{margin-bottom:0}
+.hrx-cardlet:hover{border-color:var(--hover-border)}
+.hrx-cardlet b{font-size:12px;font-weight:600;display:block}
+.hrx-cardlet span{font-size:11px;color:var(--text-2)}
+.hrx-emp{display:flex;align-items:center;gap:10px}
+.hrx-emp .who b{display:block;font-size:13px;font-weight:600}
+.hrx-emp .who span{font-size:12px;color:var(--text-2)}
+.hrx-2col{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}
+.hrx-form textarea{width:100%;min-height:70px;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:var(--font);font-size:13px;resize:vertical}
+.hrx-form .hrx-check{display:flex;align-items:center;gap:8px;font-size:13px;margin:2px 0 14px}
+.hrx-form .hrx-check input{width:15px;height:15px;accent-color:var(--teal)}
+.hrx-form .hrx-hint{font-size:11px;color:var(--muted);margin:-8px 0 12px}
+.hrx-formerr{display:none;color:var(--red);font-size:12px;line-height:1.5;margin:2px 0 8px}
+.hrx-formerr.hrx-show{display:block}
+.hrx-modalbody{max-height:62vh;overflow-y:auto}
+.hrx-pipeline{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+.hrx-pipe-step{flex:1;min-width:90px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:8px 10px;text-align:center}
+.hrx-pipe-step .n{font-family:var(--mono);font-size:18px;font-weight:600;display:block}
+.hrx-pipe-step .l{font-size:10px;color:var(--text-2);text-transform:uppercase;letter-spacing:.03em}
+.hrx-checklist{list-style:none;margin:0;padding:0}
+.hrx-checklist li{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px}
+.hrx-checklist li:last-child{border-bottom:none}
+.hrx-checklist input{width:16px;height:16px;accent-color:var(--teal);flex:0 0 auto}
+.hrx-checklist .done{color:var(--muted);text-decoration:line-through}
+.hrx-payslip{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:22px}
+.hrx-payslip .hrx-ps-head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:1px solid var(--border);padding-bottom:14px;margin-bottom:14px;gap:12px}
+.hrx-payslip .hrx-ps-head h3{font-size:16px;font-weight:600}
+.hrx-payslip .hrx-ps-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.hrx-payslip table{width:100%;font-size:13px}
+.hrx-payslip td{height:auto;padding:5px 0;border-bottom:1px dashed var(--border);white-space:normal}
+.hrx-payslip .hrx-ps-total{display:flex;justify-content:space-between;font-weight:600;border-top:1px solid var(--border);margin-top:6px;padding-top:8px;font-family:var(--mono)}
+.hrx-payslip .hrx-ps-net{background:var(--teal-tint);border:1px solid var(--teal);border-radius:8px;padding:12px 14px;margin-top:16px;display:flex;justify-content:space-between;align-items:center}
+.hrx-payslip .hrx-ps-net b{font-family:var(--mono);font-size:20px;color:var(--teal-bright)}
+.hrx-matrix td .yes{color:var(--green)}
+.hrx-matrix td .no{color:var(--muted)}
+.hrx-reportgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px}
+.hrx-reportcard{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:16px;cursor:pointer;transition:border-color .15s ease,transform .15s ease}
+.hrx-reportcard:hover{border-color:var(--hover-border);transform:translateY(-1px)}
+.hrx-reportcard .ic{width:38px;height:38px;border-radius:9px;display:grid;place-items:center;background:var(--teal-tint);color:var(--teal-bright);margin-bottom:10px}
+.hrx-reportcard b{font-size:14px;font-weight:600;display:block}
+.hrx-reportcard span{font-size:12px;color:var(--text-2)}
+.hrx-actbtns{display:flex;gap:6px;flex-wrap:wrap}
+@media (max-width:899px){
+  .hrx-detail{grid-template-columns:120px 1fr}
+  .hrx-2col{grid-template-columns:1fr}
+  .hrx-payslip .hrx-ps-grid{grid-template-columns:1fr}
+  .hrx-search{max-width:none}
+}
+/* ===== ADDED FEATURE — HR Management Suite (CSS) · end ===== */
+</style>
+<style id="hrPlusStyles">
+/* ============================================================
+   ADDED FEATURE — Final Enhancement Pass (CSS) · start
+   Prefixed hr-plus- / scoped under #hrPlusRoot. Reuses existing
+   tokens, cards, buttons, tables, badges. No existing rule edited.
+   ============================================================ */
+.hr-plus-root{display:flex;flex-direction:column;gap:20px}
+.hr-plus-root[hidden]{display:none}
+.hr-plus-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:4px}
+.hr-plus-head h2{font-size:18px;font-weight:600}
+.hr-plus-head .sub{font-size:12px;color:var(--text-2);margin-top:2px}
+.hr-plus-grid2{display:grid;grid-template-columns:1.4fr 1fr;gap:20px}
+@media (max-width:1024px){.hr-plus-grid2{grid-template-columns:1fr}}
+/* profile */
+.hr-plus-prof{display:grid;grid-template-columns:120px 1fr;gap:16px 18px;align-items:start}
+.hr-plus-prof .hr-plus-av{width:96px;height:96px;border-radius:50%;background:var(--teal);color:#fff;display:grid;place-items:center;font-size:30px;font-weight:600}
+.hr-plus-field{margin-bottom:12px}
+.hr-plus-field label{display:block;font-size:12px;font-weight:500;color:var(--text-2);margin-bottom:6px}
+.hr-plus-field input,.hr-plus-field textarea{width:100%;padding:9px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:var(--font);font-size:13px}
+.hr-plus-field input:disabled{color:var(--text-2);opacity:.85}
+.hr-plus-field textarea{min-height:60px;resize:vertical}
+.hr-plus-ro{display:flex;flex-direction:column;gap:2px}
+.hr-plus-ro .k{font-size:12px;color:var(--text-2)}
+.hr-plus-ro .v{font-size:14px}
+/* notice board */
+.hr-plus-notice{border:1px solid var(--border);border-left:3px solid var(--teal);border-radius:10px;padding:14px 16px;margin-bottom:12px;background:var(--bg)}
+.hr-plus-notice.hr-plus-pin{border-left-color:var(--amber);background:var(--amber-tint)}
+.hr-plus-notice h3{font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px}
+.hr-plus-notice p{font-size:13px;color:var(--text-2);margin:6px 0}
+.hr-plus-notice .meta{font-size:11px;color:var(--muted);display:flex;gap:10px;align-items:center}
+.hr-plus-pinchip{font-size:10px;font-weight:600;color:var(--amber);background:rgba(245,158,11,.18);border-radius:999px;padding:2px 8px}
+.hr-plus-notice-actions{display:flex;gap:6px;margin-left:auto}
+/* helpdesk / tickets */
+.hr-plus-tk-status{display:inline-block;padding:4px 10px;border-radius:999px;font-size:11px;font-weight:600}
+/* my documents */
+.hr-plus-doclist{display:flex;flex-direction:column;gap:8px}
+.hr-plus-doc{display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg)}
+.hr-plus-doc .ic{width:34px;height:34px;border-radius:8px;background:var(--teal-tint);color:var(--teal-bright);display:grid;place-items:center;flex:0 0 auto}
+.hr-plus-doc .who{flex:1;min-width:0}
+.hr-plus-doc b{display:block;font-size:13px;font-weight:600}
+.hr-plus-doc span{font-size:12px;color:var(--text-2)}
+/* welcome / what's-new bar (in-flow, non-blocking) */
+.hr-plus-welcome{display:flex;align-items:flex-start;gap:14px;background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--teal);border-radius:12px;padding:14px 16px;margin-bottom:20px}
+.hr-plus-welcome .ic{width:36px;height:36px;border-radius:9px;background:var(--teal-tint);color:var(--teal-bright);display:grid;place-items:center;flex:0 0 auto}
+.hr-plus-welcome h3{font-size:14px;font-weight:600}
+.hr-plus-welcome ul{margin:6px 0 0;padding-left:18px;font-size:12.5px;color:var(--text-2);line-height:1.6}
+.hr-plus-welcome .x{margin-left:auto;flex:0 0 auto}
+/* what's-new floating reopen button */
+#hrPlusWhatsNew{position:fixed;left:264px;bottom:16px;z-index:55;height:34px;padding:0 14px;border-radius:999px;background:var(--surface);border:1px solid var(--border);color:var(--text-2);font-size:12px;font-weight:600;font-family:var(--font);cursor:pointer;box-shadow:var(--shadow);display:inline-flex;align-items:center;gap:6px}
+#hrPlusWhatsNew:hover{color:var(--text);border-color:var(--hover-border)}
+@media (max-width:899px){#hrPlusWhatsNew{left:16px;bottom:76px}}
+/* offline banner */
+#hrPlusOffline{position:fixed;top:0;left:0;right:0;z-index:95;background:var(--amber);color:#3a2a05;font-size:12px;font-weight:600;text-align:center;padding:6px 12px}
+#hrPlusOffline[hidden]{display:none}
+/* ===== ADDED FEATURE — Final Enhancement Pass (CSS) · end ===== */
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ==================== SIDEBAR (spec 4.1) ==================== -->
+  <aside class="sidebar" id="sidebar">
+    <button class="collapse-btn" id="collapseBtn" aria-label="Collapse sidebar" title="Collapse sidebar"></button>
+    <div class="logo">
+      <!-- Official Cyethack logo, embedded as a base64 data URI so this file stays a single file.
+           To swap it later: replace the src below with your own image path or data URI. -->
+      <img class="logo-img" src="data:image/png;base64,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" alt="Cyethack logo">
+      <span class="logo-text">
+        <span class="logo-name">CYETHACK</span>
+        <span class="logo-sub">Your privacy, our priority</span>
+      </span>
+    </div>
+    <nav class="nav" id="nav" aria-label="Main navigation"></nav>
+    <div class="profile">
+      <span class="avatar" style="width:36px;height:36px">KS</span>
+      <span class="who"><b>Kriti Singh</b><span>HR Admin</span></span>
+      <button class="icon-btn" style="width:32px;height:32px" aria-label="Log out" title="Log out" id="logoutBtn"></button>
+    </div>
+  </aside>
+  <div class="mobile-scrim" id="mobileScrim" hidden></div>
+
+  <!-- ==================== MAIN COLUMN ==================== -->
+  <div class="main">
+
+    <!-- ---- Top bar (spec 4.2) ---- -->
+    <header class="topbar">
+      <button class="icon-btn hamburger" id="hamburger" aria-label="Open menu"></button>
+      <div class="page-head">
+        <h1 id="pageTitle">Dashboard</h1>
+        <div class="date" id="todayDate"></div>
+      </div>
+      <label class="search" id="searchBox">
+        <span id="searchIcon"></span>
+        <input id="searchInput" type="text" placeholder="Search employees, leave, payroll…  Ctrl+K" aria-label="Search">
+      </label>
+      <div class="spacer"></div>
+      <div style="position:relative">
+        <button class="btn btn-primary" id="quickBtn" aria-haspopup="true" aria-expanded="false"><span id="plusIcon"></span>Quick Action</button>
+        <div class="menu" id="quickMenu" hidden></div>
+      </div>
+      <div style="position:relative">
+        <button class="icon-btn" id="bellBtn" aria-label="Notifications" aria-haspopup="true" aria-expanded="false">
+          <span id="bellIcon"></span><span class="badge" id="bellBadge">3</span>
+        </button>
+        <div class="menu" id="bellMenu" style="width:320px" hidden></div>
+      </div>
+      <div style="position:relative">
+        <button class="avatar" id="avatarBtn" style="width:32px;height:32px" aria-label="Account menu" aria-haspopup="true" aria-expanded="false">KS</button>
+        <div class="menu" id="avatarMenu" hidden></div>
+      </div>
+    </header>
+
+    <!-- ---- Scrollable content ---- -->
+    <main class="content" id="content">
+
+      <!-- Dashboard page: the 12-column grid (spec 3.2) -->
+      <div class="grid" id="dashboardPage">
+
+        <!-- Row 1: KPI cards are rendered here by JS -->
+        <!-- Row 2 -->
+        <section class="card span8" id="attendanceCard" style="order:5" aria-label="Attendance overview chart">
+          <div class="card-head">
+            <div><h2>Attendance Overview</h2><div class="sub">Daily headcount · working days, last 4 weeks</div></div>
+            <div class="pills" id="rangePills" role="group" aria-label="Chart range"></div>
+          </div>
+          <div class="legend">
+            <span><span class="dot" style="background:var(--teal)"></span>Present</span>
+            <span><span class="dot" style="background:var(--violet)"></span>Work from home</span>
+          </div>
+          <div class="chart-wrap" id="lineChart"></div>
+        </section>
+
+        <section class="card span4" id="deptCard" style="order:6" aria-label="Department distribution">
+          <div class="card-head">
+            <div><h2>Department Distribution</h2><div class="sub">Headcount by department</div></div>
+          </div>
+          <div class="donut-wrap">
+            <div class="donut-box" id="donutBox"></div>
+            <div class="dept-legend" id="deptLegend"></div>
+          </div>
+        </section>
+
+        <!-- Row 3 -->
+        <section class="card span7" style="order:7" aria-label="Recent leave requests">
+          <div class="card-head">
+            <div><h2>Recent Leave Requests</h2><div class="sub">Latest 5 requests</div></div>
+            <button class="link" id="viewAllLeaves">View all →</button>
+          </div>
+          <div class="table-scroll">
+            <table aria-label="Leave requests">
+              <thead><tr><th>Employee</th><th>Leave type</th><th>Dates</th><th>Days</th><th>Status</th><th>Action</th></tr></thead>
+              <tbody id="leaveRows"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="card span5" style="order:8" aria-label="Recruitment pipeline">
+          <div class="card-head">
+            <div><h2>Recruitment Pipeline</h2><div class="sub">Candidates by stage</div></div>
+            <span class="chip">12 open positions</span>
+          </div>
+          <div id="funnel"></div>
+          <div class="card-foot" id="funnelFoot"></div>
+        </section>
+
+        <!-- Row 4 (below the fold on 1080p, spec 3.2) -->
+        <section class="card span4" style="order:9" aria-label="Upcoming events">
+          <div class="card-head">
+            <div><h2>Upcoming Events</h2><div class="sub">Next 14 days</div></div>
+            <button class="link" id="viewCalendar">View calendar →</button>
+          </div>
+          <div id="eventList"></div>
+        </section>
+
+        <section class="card span4" style="order:10" aria-label="Announcements">
+          <div class="card-head">
+            <div><h2>Announcements</h2></div>
+            <button class="btn btn-outline btn-sm" id="newAnnBtn">+ New</button>
+          </div>
+          <div id="annList"></div>
+        </section>
+
+        <section class="card span4" id="payrollCard" style="order:11" aria-label="Payroll summary">
+          <div class="card-head">
+            <div><h2>Payroll Summary</h2><div class="sub">August 2026</div></div>
+            <span class="pill-status st-pending" id="payStatus">Processing</span>
+          </div>
+          <div class="big" id="payTotal">₹42.6L</div>
+          <div class="big-label">Total in-hand payout</div>
+          <div class="pay-stats">
+            <div><b id="payEmp">248</b><span>employees</span></div>
+            <div><b>2</b><span>on hold</span></div>
+          </div>
+          <div class="progress-label"><span>Attendance verified</span><span class="pct" id="payPct">65%</span></div>
+          <div class="progress"><div class="fill" id="payFill" style="width:65%"></div></div>
+          <div class="pay-date">Pay date: 1 Sep 2026</div>
+          <button class="btn btn-outline" id="payBtn" style="width:100%">Review payroll</button>
+        </section>
+      </div>
+
+      <!-- Placeholder page for every other module (spec 4.1) -->
+      <div class="card" id="modulePage" hidden>
+        <div class="placeholder">
+          <span id="moduleIcon"></span>
+          <h2 id="moduleTitle"></h2>
+          <p>This module is not part of the dashboard demo yet.</p>
+        </div>
+      </div>
+
+      <!-- ============================================================
+           ADDED FEATURE — Leave & Attendance Calendar (HTML) · start
+           Inserted after #modulePage, inside <main id="content">.
+           Shown when the existing sidebar "Leave" item is active
+           (wired up in the added script at the end of the file).
+           No existing element above or below this block was changed.
+           ============================================================ -->
+      <div id="hrLeaveCalendarPage" class="hr-leave-calendar-page" hidden>
+
+        <!-- Leave balance summary cards (rendered by updateLeaveSummary) -->
+        <div class="hr-leave-calendar-summary" id="hrLeaveSummaryCards"></div>
+
+        <div class="grid">
+          <!-- Calendar -->
+          <section class="card span8" aria-label="Leave and attendance calendar">
+            <div class="card-head">
+              <div>
+                <h2>Leave &amp; Attendance Calendar</h2>
+                <div class="sub">Attendance is read-only · select a current or future date to apply for leave</div>
+              </div>
+              <button class="btn btn-primary btn-sm" id="hrLeaveApplyBtn">+ Apply Leave</button>
+            </div>
+            <div class="hr-leave-calendar-toolbar">
+              <button class="btn btn-outline btn-sm" id="hrLeavePrevBtn" aria-label="Previous month">‹ Prev</button>
+              <button class="btn btn-ghost btn-sm" id="hrLeaveTodayBtn">Today</button>
+              <button class="btn btn-outline btn-sm" id="hrLeaveNextBtn" aria-label="Next month">Next ›</button>
+              <h3 class="hr-leave-calendar-month" id="hrLeaveMonthHeading" aria-live="polite"></h3>
+            </div>
+            <div class="hr-leave-calendar-legend" id="hrLeaveLegend" aria-label="Status legend"></div>
+            <div class="hr-leave-calendar-weekdays" aria-hidden="true">
+              <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
+            </div>
+            <div class="hr-leave-calendar-grid" id="hrLeaveCalendarGrid" aria-label="Monthly attendance calendar"></div>
+          </section>
+
+          <!-- Side column -->
+          <div class="span4 hr-leave-calendar-side">
+            <section class="card" aria-label="Monthly attendance summary">
+              <div class="card-head">
+                <div><h2>Monthly Attendance</h2><div class="sub" id="hrLeaveMonthlySub"></div></div>
+              </div>
+              <div id="hrLeaveMonthlySummary"></div>
+            </section>
+            <section class="card" aria-label="Upcoming leaves and holidays">
+              <div class="card-head">
+                <div><h2>Upcoming</h2><div class="sub">Approved leaves &amp; company holidays</div></div>
+              </div>
+              <div id="hrLeaveUpcoming"></div>
+            </section>
+          </div>
+
+          <!-- Leave request history -->
+          <section class="card span12" aria-label="My leave requests">
+            <div class="card-head">
+              <div><h2>My Leave Requests</h2><div class="sub" id="hrLeaveReqCount"></div></div>
+            </div>
+            <div class="table-scroll">
+              <table aria-label="Leave request history">
+                <thead>
+                  <tr><th>Request ID</th><th>Leave type</th><th>From</th><th>To</th><th>Days</th><th>Reason</th><th>Applied</th><th>Status</th><th>Action</th></tr>
+                </thead>
+                <tbody id="hrLeaveReqRows"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </div>
+      <!-- ===== ADDED FEATURE — Leave & Attendance Calendar (HTML) · end ===== -->
+
+      <!-- ============================================================
+           ADDED FEATURE — HR Management Suite (HTML) · start
+           A single mount point. The added script renders the active
+           module (Employees, Recruitment, Payroll, Projects, …) into
+           here and shows it in place of the "coming soon" placeholder
+           for that route. No existing element was changed.
+           ============================================================ -->
+      <div id="hrxModuleRoot" class="hrx-root" hidden></div>
+      <!-- ===== ADDED FEATURE — HR Management Suite (HTML) · end ===== -->
+
+      <!-- ADDED FEATURE — Final Enhancement Pass (HTML): single mount point.
+           Self-service Profile, Notice Board, Helpdesk and Leave Approvals
+           render here; shown in place of the placeholder for their routes. -->
+      <div id="hrPlusRoot" class="hr-plus-root" hidden></div>
+    </main>
+  </div>
+</div>
+
+<!-- Shared overlays (spec 4.11) -->
+<div class="scrim" id="modalScrim" hidden></div>
+<div id="toasts" aria-live="polite"></div>
+<div id="tooltip" hidden></div>
+
+<script src="/portal-app.js"></script>
+<script src="/frontend-integration.js"></script>
+</body>
+</html>
