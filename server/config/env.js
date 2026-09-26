@@ -14,7 +14,7 @@ const cfg = {
   ACCESS_TOKEN_EXPIRES_IN: process.env.ACCESS_TOKEN_EXPIRES_IN || '15m',
   REFRESH_TOKEN_EXPIRES_IN: process.env.REFRESH_TOKEN_EXPIRES_IN || '7d',
 
-  FRONTEND_URL: process.env.FRONTEND_URL || 'http://localhost:5000',
+  FRONTEND_URL: process.env.FRONTEND_URL || 'https://hrm-portal.pages.dev/login',
   COOKIE_NAME: 'cyethack_refresh',
 
   // One-time setup token for POST /api/auth/bootstrap-admin. Bootstrap requires
