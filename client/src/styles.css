@@ -245,8 +245,6 @@ input:disabled,select:disabled,textarea:disabled{opacity:.7;cursor:not-allowed}
 .ws-toast.info .ws-toast-dot{background:var(--ws-accent)}
 @keyframes wstoastin{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 @media(max-width:560px){.ws-form-grid{grid-template-columns:1fr}.ws-toasts{left:14px;right:14px;max-width:none}}
-<<<<<<< HEAD
-=======
 
 /* ============================================================
    Leave Calendar styles
@@ -261,7 +259,7 @@ input:disabled,select:disabled,textarea:disabled{opacity:.7;cursor:not-allowed}
 .hr-leave-calendar-weekdays{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-bottom:6px}
 .hr-leave-calendar-weekdays span{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);text-align:left;padding:0 8px}
 .hr-leave-calendar-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
-.hr-leave-calendar-day{min-height:90px;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:10px;display:flex;flex-direction:column;gap:4px;transition:border-color .15s,background .15s,transform .15s}
+.hr-leave-calendar-day{min-height:90px;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:10px;display:flex;flex-direction: column;gap:4px;transition:border-color .15s,background .15s,transform .15s}
 .hr-leave-calendar-day:hover{border-color:var(--hover-border);background:var(--hover);transform:translateY(-1px)}
 .hr-leave-calendar-day.hlc-blank{background:transparent;border-color:transparent;pointer-events:none}
 .hr-leave-calendar-day.hlc-weekend{background:var(--sidebar)}
@@ -271,7 +269,7 @@ input:disabled,select:disabled,textarea:disabled{opacity:.7;cursor:not-allowed}
 .hr-leave-calendar-day.hlc-today{border:2px solid var(--teal);padding:7px}
 .hr-leave-calendar-day.hlc-today .hlc-num{color:var(--teal-bright)}
 .hlc-num{font-size:13px;font-weight:600}
-.hr-leave-calendar-flags{display:flex;flex-direction:column;gap:2px;margin-top:2px}
+.hr-leave-calendar-flags{display:flex;flex-direction: column;gap:2px;margin-top:2px}
 .hr-leave-calendar-flag{font-size:10px;padding:2px 6px;border-radius:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .hr-leave-calendar-flag.hlc-f-pending{color:var(--amber);background:rgba(245,158,11,.22)}
 .hr-leave-calendar-flag.hlc-f-approved{color:var(--green);background:rgba(34,197,94,.22)}
@@ -312,4 +310,3 @@ input:disabled,select:disabled,textarea:disabled{opacity:.7;cursor:not-allowed}
 .ws-bell-more{padding:8px}
 .ws-bell-footer{display:flex;gap:8px;padding:10px 14px;border-top:1px solid var(--border);background:var(--bg);justify-content:flex-end}
 @media(max-width:560px){.ws-bell-dropdown{right:-80px;width:320px}}
->>>>>>> 0f31467 (intial Update HRM 1.1)

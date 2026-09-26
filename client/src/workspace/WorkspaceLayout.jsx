@@ -7,15 +7,6 @@ import { useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import ProfileMenu from '../portal/ProfileMenu';
-<<<<<<< HEAD
-import { initials } from '../components/ui';
-
-export default function WorkspaceLayout({ config }) {
-  const { user } = useAuth();
-  const [open, setOpen] = useState(false); // mobile drawer
-  const close = () => setOpen(false);
-
-=======
 import NotificationBell from '../portal/NotificationBell';
 import { initials } from '../components/ui';
 
@@ -32,7 +23,6 @@ export default function WorkspaceLayout({ config }) {
     return item.permission.some(p => hasPermission(p));
   });
 
->>>>>>> 0f31467 (intial Update HRM 1.1)
   return (
     <div className="ws" style={{ '--ws-accent': config.accent }}>
       <aside className={'ws-side' + (open ? ' open' : '')}>
@@ -41,11 +31,7 @@ export default function WorkspaceLayout({ config }) {
           <span className="ws-brandtext"><b>CYETHACK</b><small>{config.short}</small></span>
         </div>
         <nav className="ws-nav" onClick={close}>
-<<<<<<< HEAD
-          {config.nav.map((item) => (
-=======
           {filteredNav.map((item) => (
->>>>>>> 0f31467 (intial Update HRM 1.1)
             <NavLink
               key={item.label}
               to={config.base + (item.path ? '/' + item.path : '')}
@@ -70,10 +56,7 @@ export default function WorkspaceLayout({ config }) {
           <button className="ws-burger" aria-label="Menu" onClick={() => setOpen((v) => !v)}>☰</button>
           <h1 className="ws-title">{config.title}</h1>
           <div className="ws-spacer" />
-<<<<<<< HEAD
-=======
           <NotificationBell />
->>>>>>> 0f31467 (intial Update HRM 1.1)
           <ProfileMenu />
         </header>
         <main className="ws-main"><Outlet /></main>

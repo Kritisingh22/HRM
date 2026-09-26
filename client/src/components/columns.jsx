@@ -73,13 +73,6 @@ export const COLUMNS = {
     statusCol()
   ],
   documents: [
-<<<<<<< HEAD
-    { label: 'Document', get: (r) => r.name },
-    { label: 'Type', get: (r) => r.type },
-    { label: 'Owner', get: (r) => personName(r.owner) },
-    statusCol()
-  ],
-=======
     { label: 'Document', get: (r) => r.title },
     { label: 'Category', get: (r) => r.category },
     { label: 'Owner', get: (r) => personName(r.owner) },
@@ -95,7 +88,6 @@ export const COLUMNS = {
     { label: 'Pending Work', get: (r) => r.pendingWork },
     { label: 'Blockers', get: (r) => r.blockers },
   ],
->>>>>>> 0f31467 (intial Update HRM 1.1)
   notices: [
     { label: 'Title', get: (r) => r.title },
     { label: 'Author', get: (r) => personName(r.author) },

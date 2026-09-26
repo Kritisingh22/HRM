@@ -2,20 +2,11 @@
 const app = require('./app');
 const cfg = require('./config/env');
 const { connectDB } = require('./config/database');
-<<<<<<< HEAD
-=======
 const { startScheduler, stopScheduler } = require('./scheduler');
->>>>>>> 0f31467 (intial Update HRM 1.1)
 
 (async () => {
   try {
     await connectDB();
-<<<<<<< HEAD
-    app.listen(cfg.PORT, () => {
-      // eslint-disable-next-line no-console
-      console.log('Cyethack HR API + portal running: http://localhost:' + cfg.PORT + '  (' + cfg.NODE_ENV + ')');
-    });
-=======
     
     // Start background scheduler (reminders, overdue marking, etc.)
     startScheduler();
@@ -37,7 +28,6 @@ const { startScheduler, stopScheduler } = require('./scheduler');
     process.on('SIGTERM', shutdown);
     process.on('SIGINT', shutdown);
     
->>>>>>> 0f31467 (intial Update HRM 1.1)
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error('Failed to start:', err.message);

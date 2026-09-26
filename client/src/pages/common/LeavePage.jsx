@@ -1,10 +1,6 @@
 /* Leave page — role-aware, every action authorised by the backend:
  *  • Employee: sees their OWN leave (self-scoped by the API), can apply and cancel
-<<<<<<< HEAD
- *              their own PENDING request.
-=======
  *              their own PENDING request. Can select approval authority (Manager/HR).
->>>>>>> 0f31467 (intial Update HRM 1.1)
  *  • Manager:  sees their TEAM's leave, can Approve/Reject pending team requests
  *              (and cancel their own).
  *  • HR/Admin: sees all leave, can Approve/Reject.
@@ -17,10 +13,7 @@ import { useToast } from '../../components/Toast';
 import { Card, StatusPill, Spinner, ErrorNote, EmptyState, personName, personId } from '../../components/ui';
 
 const TYPES = ['Casual Leave', 'Sick Leave', 'Earned Leave', 'Unpaid Leave'];
-<<<<<<< HEAD
-=======
 const APPROVAL_AUTHORITIES = ['Manager', 'HR'];
->>>>>>> 0f31467 (intial Update HRM 1.1)
 const fmt = (d) => (d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—');
 const errText = (e) => (e?.status === 403 ? 'That action was not permitted.' : e?.data?.details?.[0] || e?.message || 'Something went wrong.');
 
@@ -56,11 +49,7 @@ export default function LeavePage({ title, scopeNote }) {
         {error ? <ErrorNote error={error} /> : rows === null ? <Spinner /> : rows.length === 0 ? <EmptyState>No leave requests yet.</EmptyState> : (
           <div className="ws-tablewrap">
             <table className="ws-table">
-<<<<<<< HEAD
-              <thead><tr>{!isEmployee && <th>Employee</th>}<th>Type</th><th>From</th><th>To</th><th className="r">Days</th><th>Status</th><th className="r">Action</th></tr></thead>
-=======
               <thead><tr>{!isEmployee && <th>Employee</th>}<th>Type</th><th>From</th><th>To</th><th className="r">Days</th><th>Status</th><th>Authority</th><th className="r">Action</th></tr></thead>
->>>>>>> 0f31467 (intial Update HRM 1.1)
               <tbody>
                 {rows.map((l) => {
                   const pending = String(l.status).toLowerCase() === 'pending';
@@ -71,10 +60,7 @@ export default function LeavePage({ title, scopeNote }) {
                       {!isEmployee && <td>{personName(l.employee)}</td>}
                       <td>{l.type}</td><td>{fmt(l.from)}</td><td>{fmt(l.to)}</td><td className="r">{l.days}</td>
                       <td><StatusPill value={l.status} /></td>
-<<<<<<< HEAD
-=======
                       <td><span className="ws-badge">{l.approvalAuthority || 'Manager'}</span></td>
->>>>>>> 0f31467 (intial Update HRM 1.1)
                       <td className="r">
                         {pending ? (
                           <span className="ws-actions">
@@ -102,11 +88,7 @@ export default function LeavePage({ title, scopeNote }) {
 }
 
 function ApplyLeave({ onApplied, toast }) {
-<<<<<<< HEAD
-  const [f, setF] = useState({ type: TYPES[0], from: '', to: '', reason: '' });
-=======
   const [f, setF] = useState({ type: TYPES[0], from: '', to: '', reason: '', approvalAuthority: 'Manager' });
->>>>>>> 0f31467 (intial Update HRM 1.1)
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -117,15 +99,9 @@ function ApplyLeave({ onApplied, toast }) {
     if (new Date(f.from) > new Date(f.to)) return setErr('The start date must be on or before the end date.');
     setBusy(true);
     try {
-<<<<<<< HEAD
-      await api.post('/api/leaves', { type: f.type, from: f.from, to: f.to, reason: f.reason });
-      toast.success('Leave request submitted.');
-      setF({ type: TYPES[0], from: '', to: '', reason: '' });
-=======
       await api.post('/api/leaves', { type: f.type, from: f.from, to: f.to, reason: f.reason, approvalAuthority: f.approvalAuthority });
       toast.success('Leave request submitted.');
       setF({ type: TYPES[0], from: '', to: '', reason: '', approvalAuthority: 'Manager' });
->>>>>>> 0f31467 (intial Update HRM 1.1)
       onApplied();
     } catch (e2) {
       toast.error(e2.status === 400 ? 'Please check the dates (end must be on/after start).' : (e2?.message || 'Could not submit.'));
@@ -133,21 +109,14 @@ function ApplyLeave({ onApplied, toast }) {
   }
 
   return (
-<<<<<<< HEAD
-    <Card title="Apply for leave" sub="Submit a new request to your manager">
-=======
     <Card title="Apply for leave" sub="Submit a new request to your manager or HR">
->>>>>>> 0f31467 (intial Update HRM 1.1)
       <form onSubmit={submit} className="ws-form-row">
         <select value={f.type} onChange={(e) => setF({ ...f, type: e.target.value })}>{TYPES.map((t) => <option key={t}>{t}</option>)}</select>
         <input type="date" value={f.from} onChange={(e) => setF({ ...f, from: e.target.value })} aria-label="From" />
         <input type="date" value={f.to} onChange={(e) => setF({ ...f, to: e.target.value })} aria-label="To" />
-<<<<<<< HEAD
-=======
         <select value={f.approvalAuthority} onChange={(e) => setF({ ...f, approvalAuthority: e.target.value })}>
           {APPROVAL_AUTHORITIES.map((a) => <option key={a} value={a}>{a}</option>)}
         </select>
->>>>>>> 0f31467 (intial Update HRM 1.1)
         <input value={f.reason} onChange={(e) => setF({ ...f, reason: e.target.value })} placeholder="Reason (optional)" />
         <button className="ws-btn primary" disabled={busy}>{busy ? 'Submitting…' : 'Submit'}</button>
         {err && <span className="pf-msg err">{err}</span>}

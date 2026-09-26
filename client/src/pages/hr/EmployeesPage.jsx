@@ -36,13 +36,10 @@ export default function EmployeesPage() {
   const toast = useToast();
   const { rows, loading, error, reload } = useList('/api/employees');
 
-<<<<<<< HEAD
-  const canWrite = hasPermission('employees:write');
-=======
   const canWrite = hasPermission('employees:write') || hasPermission('employees:update');
->>>>>>> 0f31467 (intial Update HRM 1.1)
   const canDelete = hasPermission('employees:delete');
   const canSeeSalary = hasPermission('payroll:read');
+  const isHR = hasPermission('employees:write');
 
   const [editing, setEditing] = useState(null);   // {} = add, {…} = edit, null = closed
   const [toDelete, setToDelete] = useState(null);
@@ -90,10 +87,7 @@ export default function EmployeesPage() {
         <EmployeeForm
           initial={editing}
           canSeeSalary={canSeeSalary}
-<<<<<<< HEAD
-=======
-          isHR={hasPermission('employees:write')}
->>>>>>> 0f31467 (intial Update HRM 1.1)
+          isHR={isHR}
           managers={rows || []}
           onClose={() => setEditing(null)}
           onSaved={async (msg) => { setEditing(null); toast.success(msg); await reload(); }}
@@ -113,11 +107,7 @@ export default function EmployeesPage() {
   );
 }
 
-<<<<<<< HEAD
-function EmployeeForm({ initial, canSeeSalary, managers, onClose, onSaved, onError }) {
-=======
 function EmployeeForm({ initial, canSeeSalary, isHR, managers, onClose, onSaved, onError }) {
->>>>>>> 0f31467 (intial Update HRM 1.1)
   const isEdit = !!initial._id;
   const [f, setF] = useState({ ...blank, ...initial, joiningDate: toDateInput(initial.joiningDate), salary: initial.salary ?? '' });
   const [fieldErr, setFieldErr] = useState({});
@@ -126,17 +116,10 @@ function EmployeeForm({ initial, canSeeSalary, isHR, managers, onClose, onSaved,
 
   function validate() {
     const err = {};
-<<<<<<< HEAD
-    if (!f.employeeId.trim()) err.employeeId = 'Required.';
-    if (!f.fullName.trim()) err.fullName = 'Required.';
-    if (f.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.email)) err.email = 'Enter a valid email.';
-    if (f.salary !== '' && (isNaN(Number(f.salary)) || Number(f.salary) < 0)) err.salary = 'Enter a valid amount.';
-=======
     if (isHR && !f.employeeId.trim()) err.employeeId = 'Required.';
     if (!f.fullName.trim()) err.fullName = 'Required.';
     if (f.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.email)) err.email = 'Enter a valid email.';
     if (canSeeSalary && f.salary !== '' && (isNaN(Number(f.salary)) || Number(f.salary) < 0)) err.salary = 'Enter a valid amount.';
->>>>>>> 0f31467 (intial Update HRM 1.1)
     setFieldErr(err);
     return Object.keys(err).length === 0;
   }
@@ -145,20 +128,11 @@ function EmployeeForm({ initial, canSeeSalary, isHR, managers, onClose, onSaved,
     e.preventDefault();
     if (!validate()) return;
     const body = {
-<<<<<<< HEAD
-      employeeId: f.employeeId.trim(), fullName: f.fullName.trim(),
-=======
       fullName: f.fullName.trim(),
->>>>>>> 0f31467 (intial Update HRM 1.1)
       email: f.email.trim() || undefined, phone: f.phone.trim() || undefined,
       gender: f.gender || undefined, department: f.department.trim() || undefined,
       designation: f.designation.trim() || undefined, manager: f.manager || undefined,
       employmentType: f.employmentType || undefined, location: f.location.trim() || undefined,
-<<<<<<< HEAD
-      joiningDate: f.joiningDate || undefined, grade: f.grade.trim() || undefined, status: f.status
-    };
-    if (canSeeSalary && f.salary !== '') body.salary = Number(f.salary);
-=======
       joiningDate: f.joiningDate || undefined, grade: f.grade.trim() || undefined
     };
     if (isHR) {
@@ -166,7 +140,6 @@ function EmployeeForm({ initial, canSeeSalary, isHR, managers, onClose, onSaved,
       body.status = f.status;
       if (canSeeSalary && f.salary !== '') body.salary = Number(f.salary);
     }
->>>>>>> 0f31467 (intial Update HRM 1.1)
     setBusy(true);
     try {
       if (isEdit) await api.put('/api/employees/' + (initial._id || initial.employeeId), body);
@@ -179,17 +152,11 @@ function EmployeeForm({ initial, canSeeSalary, isHR, managers, onClose, onSaved,
     <Modal open title={isEdit ? 'Edit employee' : 'Add employee'} onClose={() => (busy ? null : onClose())}>
       <form onSubmit={submit}>
         <div className="ws-form-grid">
-<<<<<<< HEAD
-          <Field label="Employee ID" required error={fieldErr.employeeId} hint={isEdit ? 'Identifier is fixed' : 'e.g. CHS-0008'}>
-            <input value={f.employeeId} onChange={set('employeeId')} disabled={isEdit} placeholder="CHS-0008" />
-          </Field>
-=======
           {isHR && (
             <Field label="Employee ID" required error={fieldErr.employeeId} hint={isEdit ? 'Identifier is fixed' : 'e.g. CY0125JS201'}>
               <input value={f.employeeId} onChange={set('employeeId')} disabled={isEdit} placeholder="CY0125JS201" />
             </Field>
           )}
->>>>>>> 0f31467 (intial Update HRM 1.1)
           <Field label="Full name" required error={fieldErr.fullName}>
             <input value={f.fullName} onChange={set('fullName')} placeholder="Jane Doe" />
           </Field>
@@ -232,22 +199,11 @@ function EmployeeForm({ initial, canSeeSalary, isHR, managers, onClose, onSaved,
           <Field label="Grade">
             <input value={f.grade} onChange={set('grade')} placeholder="L3" />
           </Field>
-<<<<<<< HEAD
-          {canSeeSalary && (
-=======
           {isHR && canSeeSalary && (
->>>>>>> 0f31467 (intial Update HRM 1.1)
             <Field label="Salary (₹ / year)" error={fieldErr.salary} hint="Visible to HR only">
               <input type="number" min="0" value={f.salary} onChange={set('salary')} placeholder="0" />
             </Field>
           )}
-<<<<<<< HEAD
-          <Field label="Status">
-            <select value={f.status} onChange={set('status')}>
-              {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
-          </Field>
-=======
           {isHR && (
             <Field label="Status">
               <select value={f.status} onChange={set('status')}>
@@ -255,7 +211,6 @@ function EmployeeForm({ initial, canSeeSalary, isHR, managers, onClose, onSaved,
               </select>
             </Field>
           )}
->>>>>>> 0f31467 (intial Update HRM 1.1)
         </div>
         <div className="ws-modal-actions">
           <button type="button" className="ws-btn" onClick={onClose} disabled={busy}>Cancel</button>

@@ -7,11 +7,7 @@ const mongoose = require('mongoose');
 const documentSchema = new mongoose.Schema(
   {
     title: { type: String, required: true, trim: true },
-<<<<<<< HEAD
-    category: { type: String, enum: ['Policy', 'Contract', 'Payslip', 'ID Proof', 'Certificate', 'Other'], default: 'Other', index: true },
-=======
     category: { type: String, enum: ['Policy', 'Contract', 'Payslip', 'ID Proof', 'Certificate', 'Personal Document', 'Company Document', 'HR Manual', 'Circular Document', 'Other'], default: 'Other', index: true },
->>>>>>> 0f31467 (intial Update HRM 1.1)
     owner: { type: mongoose.Schema.Types.ObjectId, ref: 'Employee', index: true }, // whose document it is (optional)
     visibility: { type: String, enum: ['private', 'hr', 'all'], default: 'private', index: true },
     // stored-file details (never the raw path exposed to clients)

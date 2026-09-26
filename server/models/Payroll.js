@@ -14,16 +14,12 @@ const payrollSchema = new mongoose.Schema(
     },
     net: { type: Number, default: 0, min: 0 }, // rejects a payslip whose deductions exceed gross
     status: { type: String, enum: ['Draft', 'Approved', 'Processed', 'Paid'], default: 'Draft', index: true },
-<<<<<<< HEAD
-    payDate: { type: Date }
-=======
     payDate: { type: Date },
     // Payment transaction details for payslip
     paymentMode: { type: String, trim: true }, // e.g., 'Bank Transfer', 'Cash', 'Cheque'
     transactionId: { type: String, trim: true },
     reference: { type: String, trim: true },
     utr: { type: String, trim: true }
->>>>>>> 0f31467 (intial Update HRM 1.1)
   },
   { timestamps: true }
 );

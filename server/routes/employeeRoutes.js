@@ -2,11 +2,8 @@ const express = require('express');
 const ctrl = require('../controllers/employeeController');
 const authenticate = require('../middleware/authenticate');
 const { requirePermission } = require('../middleware/authorize');
-<<<<<<< HEAD
-=======
 const { hasPermission } = require('../utils/permissions');
 const ApiError = require('../utils/ApiError');
->>>>>>> 0f31467 (intial Update HRM 1.1)
 
 const router = express.Router();
 router.use(authenticate); // every employee route requires a valid session
@@ -22,13 +19,6 @@ router.get('/', ctrl.list);
 router.get('/:id', ctrl.getOne);
 
 // writes need explicit permissions (HR / Admin / Super Admin)
-<<<<<<< HEAD
-router.post('/', requirePermission('employees:write'), ctrl.create);
-router.put('/:id', requirePermission('employees:write'), ctrl.update);
-router.delete('/:id', requirePermission('employees:delete'), ctrl.remove);
-
-module.exports = router;
-=======
 // Manager can update team members via employees:update (checked in controller for team scope)
 function canWriteOrUpdate(req, res, next) {
   if (hasPermission(req.user.role, 'employees:write') || hasPermission(req.user.role, 'employees:update')) {
@@ -42,4 +32,3 @@ router.put('/:id', canWriteOrUpdate, ctrl.update);
 router.delete('/:id', requirePermission('employees:delete'), ctrl.remove);
 
 module.exports = router;
->>>>>>> 0f31467 (intial Update HRM 1.1)

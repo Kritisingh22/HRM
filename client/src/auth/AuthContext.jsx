@@ -9,19 +9,12 @@ const AuthContext = createContext(null);
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-<<<<<<< HEAD
-=======
   const [sessionKey, setSessionKey] = useState(0); // Forces remount on auth changes
->>>>>>> 0f31467 (intial Update HRM 1.1)
 
   // If a refresh fails mid-session, the API layer calls this: clear all auth state
   // so the route guards send the user to /login (session-expiry handling).
   useEffect(() => {
-<<<<<<< HEAD
-    setOnAuthFailure(() => { setAccessToken(null); setUser(null); });
-=======
     setOnAuthFailure(() => { setAccessToken(null); setUser(null); setSessionKey(k => k + 1); });
->>>>>>> 0f31467 (intial Update HRM 1.1)
     return () => setOnAuthFailure(null);
   }, []);
 
@@ -39,10 +32,7 @@ export function AuthProvider({ children }) {
     const { accessToken, user } = await api.login(email, password);
     setAccessToken(accessToken);
     setUser(user);
-<<<<<<< HEAD
-=======
     setSessionKey(k => k + 1); // Force remount of route tree
->>>>>>> 0f31467 (intial Update HRM 1.1)
     return user;
   }, []);
 
@@ -50,28 +40,18 @@ export function AuthProvider({ children }) {
     try { await api.logout(); } catch { /* ignore */ }
     setAccessToken(null);
     setUser(null);
-<<<<<<< HEAD
-  }, []);
-
-  const hasRole = useCallback((...roles) => !!user && roles.includes(user.role), [user]);
-=======
     setSessionKey(k => k + 1); // Force remount of route tree
   }, []);
 
   const hasRole = useCallback((...roles) => !!user && roles.includes(user.role), [user]);
   
   // Check permissions from user.permissions (merged role + user-specific)
->>>>>>> 0f31467 (intial Update HRM 1.1)
   const hasPermission = useCallback((perm) => {
     if (!user) return false;
     const p = user.permissions || [];
     return p.includes('*') || p.includes(perm) || p.includes(perm.split(':')[0] + ':*');
   }, [user]);
 
-<<<<<<< HEAD
-  return (
-    <AuthContext.Provider value={{ user, loading, isAuthenticated: !!user, login, logout, hasRole, hasPermission }}>
-=======
   // Check if user has ANY of the given permissions
   const hasAnyPermission = useCallback((perms) => {
     if (!user || !Array.isArray(perms)) return false;
@@ -97,14 +77,9 @@ export function AuthProvider({ children }) {
       hasAllPermissions,
       sessionKey
     }}>
->>>>>>> 0f31467 (intial Update HRM 1.1)
       {children}
     </AuthContext.Provider>
   );
 }
 
-<<<<<<< HEAD
 export const useAuth = () => useContext(AuthContext);
-=======
-export const useAuth = () => useContext(AuthContext);
->>>>>>> 0f31467 (intial Update HRM 1.1)

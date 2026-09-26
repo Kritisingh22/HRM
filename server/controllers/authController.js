@@ -56,12 +56,6 @@ async function issueRefreshToken(user, req, family) {
 
 function sendSession(res, user, rawRefresh) {
   res.cookie(cfg.COOKIE_NAME, rawRefresh, refreshCookieOptions());
-<<<<<<< HEAD
-  return {
-    accessToken: signAccessToken(user),
-    expiresIn: cfg.ACCESS_TOKEN_EXPIRES_IN,
-    user: { ...user.toSafeJSON(), permissions: permissionsFor(user.role), nav: navFor(user.role), portal: portalFor(user.role) }
-=======
   // Merge role permissions with user-specific permissions (user perms ADD to role perms)
   const rolePerms = permissionsFor(user.role);
   const userPerms = user.permissions || [];
@@ -70,7 +64,6 @@ function sendSession(res, user, rawRefresh) {
     accessToken: signAccessToken(user),
     expiresIn: cfg.ACCESS_TOKEN_EXPIRES_IN,
     user: { ...user.toSafeJSON(), permissions: allPerms, nav: navFor(user.role), portal: portalFor(user.role) }
->>>>>>> 0f31467 (intial Update HRM 1.1)
   };
 }
 
@@ -167,14 +160,10 @@ exports.logout = catchAsync(async (req, res) => {
 
 /* GET /api/auth/me — restore the authenticated session */
 exports.me = catchAsync(async (req, res) => {
-<<<<<<< HEAD
-  res.json({ user: { ...req.user.toSafeJSON(), permissions: permissionsFor(req.user.role), nav: navFor(req.user.role), portal: portalFor(req.user.role) } });
-=======
   const rolePerms = permissionsFor(req.user.role);
   const userPerms = req.user.permissions || [];
   const allPerms = [...new Set([...rolePerms, ...userPerms])];
   res.json({ user: { ...req.user.toSafeJSON(), permissions: allPerms, nav: navFor(req.user.role), portal: portalFor(req.user.role) } });
->>>>>>> 0f31467 (intial Update HRM 1.1)
 });
 
 /* POST /api/auth/change-password — the logged-in user changes their own password.

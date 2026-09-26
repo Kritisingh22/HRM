@@ -21,13 +21,10 @@ router.use('/org-chart', require('./orgChartRoutes'));
 router.use('/reports', require('./reportRoutes'));
 router.use('/analytics', require('./analyticsRoutes'));
 router.use('/audit', require('./auditRoutes'));
-<<<<<<< HEAD
-=======
 router.use('/daily-reports', require('./dailyReportRoutes'));
 router.use('/notifications', require('./notificationRoutes'));
 router.use('/permissions', require('./permissionRoutes'));
 router.use('/requirements', require('./requirementRoutes'));
 router.use('/transfers', require('./transferRoutes'));
->>>>>>> 0f31467 (intial Update HRM 1.1)
 
 module.exports = router;

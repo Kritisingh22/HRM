@@ -24,9 +24,6 @@ const cfg = {
 
   MAX_FAILED_LOGINS: parseInt(process.env.MAX_FAILED_LOGINS || '5', 10),
   ACCOUNT_LOCK_MINUTES: parseInt(process.env.ACCOUNT_LOCK_MINUTES || '15', 10),
-<<<<<<< HEAD
-  BCRYPT_ROUNDS: 12
-=======
   BCRYPT_ROUNDS: 12,
 
   // Email configuration (optional - if not set, email notifications are disabled)
@@ -43,7 +40,6 @@ const cfg = {
   DAILY_REPORT_REMINDER_FREQUENCY_HOURS: parseInt(process.env.DAILY_REPORT_REMINDER_FREQUENCY_HOURS || '24', 10), // 24 hours = no duplicate within same day
   DAILY_REPORT_ESCALATE_TO_MANAGER: process.env.DAILY_REPORT_ESCALATE_TO_MANAGER !== 'false', // true by default
   DAILY_REPORT_ESCALATE_TO_HR: process.env.DAILY_REPORT_ESCALATE_TO_HR === 'true', // false by default
->>>>>>> 0f31467 (intial Update HRM 1.1)
 };
 
 // Refuse to start in production with default secrets.

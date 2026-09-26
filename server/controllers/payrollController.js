@@ -5,10 +5,6 @@ const Employee = require("../models/Employee");
 const ApiError = require("../utils/ApiError");
 const catchAsync = require("../utils/catchAsync");
 const { logAudit } = require("../utils/audit");
-<<<<<<< HEAD
-
-const SEES_ALL = ["HR", "ADMIN", "SUPER_ADMIN"];
-=======
 const {
   SEES_ALL,
   scopeFilter,
@@ -18,7 +14,6 @@ const {
 const MANAGER_ROLES = ["MANAGER"];
 const HR_ROLES = ["ADMIN", "SUPER_ADMIN"];
 
->>>>>>> 0f31467 (intial Update HRM 1.1)
 async function myEmployee(user) {
   return Employee.findOne({
     $or: [{ user: user._id }, { employeeId: user.employeeId }],
@@ -28,17 +23,6 @@ async function myEmployee(user) {
 /* GET /api/payroll */
 exports.list = catchAsync(async (req, res) => {
   let filter = {};
-<<<<<<< HEAD
-  if (SEES_ALL.includes(req.user.role)) {
-    if (req.query.employee) filter.employee = req.query.employee;
-    if (req.query.period) filter.period = req.query.period;
-  } else {
-    const me = await myEmployee(req.user);
-    filter.employee = me ? me._id : null; // own payslips only
-  }
-  const payslips = await Payroll.find(filter)
-    .populate("employee", "employeeId fullName")
-=======
 
   if (req.user.role === "HR") {
     const ids = await Employee.find({ assignedHrId: req.user.employeeId })
@@ -81,28 +65,11 @@ exports.list = catchAsync(async (req, res) => {
 
   const payslips = await Payroll.find(filter)
     .populate("employee", "employeeId fullName department designation")
->>>>>>> 0f31467 (intial Update HRM 1.1)
     .sort({ period: -1 })
     .limit(500);
   res.json({ count: payslips.length, payroll: payslips });
 });
 
-<<<<<<< HEAD
-/* GET /api/payroll/:id — object-level: employees can only open their own */
-exports.getOne = catchAsync(async (req, res) => {
-  const slip = await Payroll.findById(req.params.id).populate(
-    "employee",
-    "employeeId fullName user",
-  );
-  if (!slip) throw ApiError.notFound("Payslip not found.");
-  if (!SEES_ALL.includes(req.user.role)) {
-    const me = await myEmployee(req.user);
-    const owns = me && String(slip.employee._id) === String(me._id);
-    if (!owns)
-      throw ApiError.forbidden(
-        "You do not have permission to view this payslip.",
-      );
-=======
 /* GET /api/payroll/:id — object-level authorization */
 exports.getOne = catchAsync(async (req, res) => {
   const slip = await Payroll.findById(req.params.id).populate(
@@ -149,7 +116,6 @@ exports.getOne = catchAsync(async (req, res) => {
         "You do not have permission to view this payslip.",
       );
     }
->>>>>>> 0f31467 (intial Update HRM 1.1)
   }
   res.json({ payslip: slip });
 });
@@ -158,18 +124,6 @@ exports.getOne = catchAsync(async (req, res) => {
 exports.getPayslip = catchAsync(async (req, res) => {
   const slip = await Payroll.findById(req.params.id).populate(
     "employee",
-<<<<<<< HEAD
-    "employeeId fullName email phone department designation manager employmentType location joiningDate user",
-  );
-  if (!slip) throw ApiError.notFound("Payslip not found.");
-  if (!SEES_ALL.includes(req.user.role)) {
-    const me = await myEmployee(req.user);
-    const owns = me && String(slip.employee._id) === String(me._id);
-    if (!owns)
-      throw ApiError.forbidden(
-        "You do not have permission to view this payslip.",
-      );
-=======
     "employeeId fullName email phone department designation manager employmentType location joiningDate user bankName accountNumber ifsc accountHolderName",
   );
   if (!slip) throw ApiError.notFound("Payslip not found.");
@@ -212,7 +166,6 @@ exports.getPayslip = catchAsync(async (req, res) => {
         "You do not have permission to view this payslip.",
       );
     }
->>>>>>> 0f31467 (intial Update HRM 1.1)
   }
 
   const employee = slip.employee;
@@ -241,14 +194,6 @@ exports.getPayslip = catchAsync(async (req, res) => {
       payment: {
         status: slip.status,
         date: slip.payDate || null,
-<<<<<<< HEAD
-        mode: null,
-        transactionId: null,
-        reference: null,
-        bankName: null,
-        accountNumber: null,
-        ifsc: null,
-=======
         mode: slip.paymentMode || "Bank Transfer",
         transactionId: slip.transactionId || null,
         reference: slip.reference || null,
@@ -257,7 +202,6 @@ exports.getPayslip = catchAsync(async (req, res) => {
         accountNumber: employee.accountNumber || null,
         ifsc: employee.ifsc || null,
         accountHolderName: employee.accountHolderName || null,
->>>>>>> 0f31467 (intial Update HRM 1.1)
         amount: slip.net,
         currency: "INR",
       },

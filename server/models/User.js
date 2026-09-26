@@ -12,16 +12,9 @@ const userSchema = new mongoose.Schema(
     email: { type: String, required: true, unique: true, lowercase: true, trim: true, index: true },
     passwordHash: { type: String, required: true, select: false }, // never sent to clients
     role: { type: String, enum: ROLES, default: 'EMPLOYEE', index: true },
-<<<<<<< HEAD
-    // NOTE: a per-user `permissions[]` field was removed — it was never read anywhere
-    // (authorization derives permissions from the role via utils/permissions.js and the
-    // login/me responses return role permissions). Removing it avoids a dormant second
-    // permission source that could drift from — or be used to bypass — role security.
-=======
     // Granular permissions: array of "module:action" strings (e.g., "leave:approve", "payroll:read")
     // Overrides/adds to role-based permissions. Empty = use role defaults only.
     permissions: { type: [String], default: [], index: true },
->>>>>>> 0f31467 (intial Update HRM 1.1)
     department: { type: String, trim: true },
     designation: { type: String, trim: true },
     manager: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // for MANAGER-scoped access
@@ -63,12 +56,8 @@ userSchema.methods.toSafeJSON = function () {
     role: this.role,
     department: this.department,
     designation: this.designation,
-<<<<<<< HEAD
-    status: this.status
-=======
     status: this.status,
     permissions: this.permissions || []
->>>>>>> 0f31467 (intial Update HRM 1.1)
   };
 };
 

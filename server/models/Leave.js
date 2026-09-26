@@ -12,10 +12,7 @@ const leaveSchema = new mongoose.Schema(
     halfDay: { type: Boolean, default: false },
     reason: { type: String, trim: true },
     status: { type: String, enum: ['Pending', 'Approved', 'Rejected', 'Cancelled'], default: 'Pending', index: true },
-<<<<<<< HEAD
-=======
     approvalAuthority: { type: String, enum: ['Manager', 'HR'], default: 'Manager', index: true },
->>>>>>> 0f31467 (intial Update HRM 1.1)
     managerNote: { type: String, trim: true },
     decidedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     appliedOn: { type: Date, default: Date.now }

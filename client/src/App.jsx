@@ -28,8 +28,6 @@ function childRoutes(ws) {
   ));
 }
 
-<<<<<<< HEAD
-=======
 // Inner routes component that gets remounted when sessionKey changes
 function AppRoutes({ sessionKey }) {
   return (
@@ -54,42 +52,17 @@ function AppRoutes({ sessionKey }) {
   );
 }
 
->>>>>>> 0f31467 (intial Update HRM 1.1)
 export default function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
-<<<<<<< HEAD
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          {Object.values(WORKSPACES).map((ws) => {
-            const Layout = LAYOUTS[ws.key];
-            return (
-              <Route
-                key={ws.key}
-                path={ws.base}
-                element={<ProtectedRoute roles={ws.roles} workspace={ws.key}><Layout /></ProtectedRoute>}
-              >
-                {childRoutes(ws)}
-                <Route path="*" element={<Navigate to={ws.base} replace />} />
-              </Route>
-            );
-          })}
-          <Route path="/" element={<RoleRedirect />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-=======
         <AppRoutesContainer />
->>>>>>> 0f31467 (intial Update HRM 1.1)
       </BrowserRouter>
     </AuthProvider>
   );
 }
-<<<<<<< HEAD
-=======
 
 function AppRoutesContainer() {
   const { sessionKey } = useAuth();
   return <AppRoutes sessionKey={sessionKey} />;
 }
->>>>>>> 0f31467 (intial Update HRM 1.1)

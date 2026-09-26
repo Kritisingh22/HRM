@@ -8,11 +8,6 @@ const Leave = require('../models/Leave');
 const Hiring = require('../models/Hiring');
 const catchAsync = require('../utils/catchAsync');
 const { teamEmployees } = require('../utils/teamScope');
-<<<<<<< HEAD
-
-/* GET /api/reports/summary */
-exports.summary = catchAsync(async (req, res) => {
-=======
 const { userHasPermission } = require('../utils/permissions');
 
 /* GET /api/reports/summary */
@@ -22,7 +17,6 @@ exports.summary = catchAsync(async (req, res) => {
     throw ApiError.forbidden('You do not have permission to view reports.');
   }
   
->>>>>>> 0f31467 (intial Update HRM 1.1)
   const managerScoped = req.user.role === 'MANAGER';
 
   let empMatch = {};                     // Employee collection

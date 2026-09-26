@@ -20,11 +20,7 @@ On Windows, run `.\run-local.ps1` from PowerShell. On macOS/Linux or Git Bash, r
 cd server
 npm install
 npm run dev:mem      # runs the whole app against a throwaway in-memory MongoDB, seeded
-<<<<<<< HEAD
-# open http://localhost:5000  →  log in with hr@cyethack.com / Hr@123
-=======
 # open http://localhost:5000  →  log in with jaya.sahu@cyethack.com / JayaCY0125JS201
->>>>>>> 0f31467 (intial Update HRM 1.1)
 ```
 
 ---
@@ -126,15 +122,6 @@ Running `npm run seed` clears the collections and inserts the dev users, employe
 
 ## 12. Seed users (DEVELOPMENT ONLY — change before real use)
 
-<<<<<<< HEAD
-| Email                   | Password     | Role                                 |
-| ----------------------- | ------------ | ------------------------------------ |
-| superadmin@cyethack.com | Super@123    | SUPER_ADMIN                          |
-| admin@cyethack.com      | Admin@123    | ADMIN                                |
-| hr@cyethack.com         | Hr@123       | HR                                   |
-| manager@cyethack.com    | Manager@123  | MANAGER (manages CHS-0005, CHS-0006) |
-| employee@cyethack.com   | Employee@123 | EMPLOYEE                             |
-=======
 | Email                          | Password              | Role                                 |
 | ------------------------------ | --------------------- | ------------------------------------ |
 | superadmin@cyethack.com        | Super@123             | SUPER_ADMIN                          |
@@ -142,7 +129,6 @@ Running `npm run seed` clears the collections and inserts the dev users, employe
 | jaya.sahu@cyethack.com         | JayaCY0125JS201       | HR                                   |
 | surya.dwivedi@cyethack.com     | SuryCY0824SD301       | MANAGER (manages CY0525RS109, CY0226AR110, CY0626AD111, CY0726SS112) |
 | rohith.sai@cyethack.com        | GangCY0525RS109       | EMPLOYEE                             |
->>>>>>> 0f31467 (intial Update HRM 1.1)
 
 ## 13. JWT authentication flow
 

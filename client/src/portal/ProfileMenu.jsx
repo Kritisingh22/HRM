@@ -4,10 +4,6 @@
  * confirmation dialog and the existing AuthContext.logout (which calls the real
  * POST /api/auth/logout, revoking the refresh-token family + clearing the cookie). */
 import { useEffect, useRef, useState } from 'react';
-<<<<<<< HEAD
-import { useNavigate } from 'react-router-dom';
-=======
->>>>>>> 0f31467 (intial Update HRM 1.1)
 import { useAuth } from '../auth/AuthContext';
 import ConfirmDialog from './ConfirmDialog';
 
@@ -15,10 +11,6 @@ const initials = (n) => (n || '').split(/\s+/).map((x) => x[0] || '').slice(0, 2
 
 export default function ProfileMenu() {
   const { user, logout } = useAuth();
-<<<<<<< HEAD
-  const navigate = useNavigate();
-=======
->>>>>>> 0f31467 (intial Update HRM 1.1)
   const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -34,22 +26,14 @@ export default function ProfileMenu() {
     return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
   }, [open]);
 
-<<<<<<< HEAD
-  const goProfile = () => { setOpen(false); navigate('/' + (user?.portal || 'employee') + '/profile'); };
-=======
   const goProfile = () => { setOpen(false); window.location.href = '/' + (user?.portal || 'employee') + '/profile'; };
->>>>>>> 0f31467 (intial Update HRM 1.1)
 
   const doLogout = async () => {
     if (busy) return;               // idempotent — ignore repeat clicks
     setBusy(true);
     try { await logout(); }         // revokes refresh token + clears cookie + in-memory token + user state
     catch { /* even if the API call fails, AuthContext.logout has cleared local state */ }
-<<<<<<< HEAD
-    finally { setConfirm(false); setBusy(false); navigate('/login', { replace: true }); }
-=======
     finally { setConfirm(false); setBusy(false); setOpen(false); }
->>>>>>> 0f31467 (intial Update HRM 1.1)
   };
 
   return (

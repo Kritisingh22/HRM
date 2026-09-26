@@ -3,13 +3,6 @@
  * (leaves:approve) AND object-level scoped for managers. */
 const Leave = require("../models/Leave");
 const Employee = require("../models/Employee");
-<<<<<<< HEAD
-const ApiError = require("../utils/ApiError");
-const catchAsync = require("../utils/catchAsync");
-const { logAudit } = require("../utils/audit");
-
-const SEES_ALL = ["HR", "ADMIN", "SUPER_ADMIN"];
-=======
 const User = require("../models/User");
 const Notification = require("../models/Notification");
 const ApiError = require("../utils/ApiError");
@@ -18,7 +11,6 @@ const { logAudit } = require("../utils/audit");
 const { userHasPermission } = require("../utils/permissions");
 
 const SEES_ALL = ["ADMIN", "SUPER_ADMIN"];
->>>>>>> 0f31467 (intial Update HRM 1.1)
 
 async function myEmployee(user) {
   return Employee.findOne({
@@ -32,11 +24,6 @@ async function teamEmployeeIds(user) {
 
 /* GET /api/leaves */
 exports.list = catchAsync(async (req, res) => {
-<<<<<<< HEAD
-  let filter = {};
-  if (SEES_ALL.includes(req.user.role)) {
-    filter = {};
-=======
   // Check permission first
   if (
     !userHasPermission(req.user, "leaves:read") &&
@@ -61,7 +48,6 @@ exports.list = catchAsync(async (req, res) => {
     const arr = ids.map((e) => e._id);
     if (me) arr.push(me._id);
     filter = { employee: { $in: arr } };
->>>>>>> 0f31467 (intial Update HRM 1.1)
   } else if (req.user.role === "MANAGER") {
     const ids = await teamEmployeeIds(req.user);
     const me = await myEmployee(req.user);
@@ -80,10 +66,6 @@ exports.list = catchAsync(async (req, res) => {
 });
 
 /* POST /api/leaves — authenticated users apply for themselves by default.
-<<<<<<< HEAD
- * HR/Admin may still specify an employee for administrative workflows. */
-exports.create = catchAsync(async (req, res) => {
-=======
  * HR/Admin may still specify an employee for administrative workflows.
  * approvalAuthority can be 'Manager' or 'HR' - determines who approves the request. */
 exports.create = catchAsync(async (req, res) => {
@@ -97,7 +79,6 @@ exports.create = catchAsync(async (req, res) => {
     );
   }
 
->>>>>>> 0f31467 (intial Update HRM 1.1)
   let employeeId = req.body.employee;
   if (!employeeId || !SEES_ALL.includes(req.user.role)) {
     const me = await myEmployee(req.user);
@@ -119,14 +100,11 @@ exports.create = catchAsync(async (req, res) => {
   const halfDay = !!req.body.halfDay;
   const days = halfDay ? 0.5 : Math.floor((to - from) / 86400000) + 1; // inclusive day count
 
-<<<<<<< HEAD
-=======
   const approvalAuthority = req.body.approvalAuthority || "Manager";
   if (!["Manager", "HR"].includes(approvalAuthority)) {
     throw ApiError.badRequest("approvalAuthority must be Manager or HR.");
   }
 
->>>>>>> 0f31467 (intial Update HRM 1.1)
   const leave = await Leave.create({
     employee: employeeId,
     requestedBy: req.user._id,
@@ -137,13 +115,6 @@ exports.create = catchAsync(async (req, res) => {
     halfDay,
     reason: req.body.reason,
     status: "Pending",
-<<<<<<< HEAD
-  });
-  res.status(201).json({ leave });
-});
-
-/* PUT /api/leaves/:id — approve / reject (managers: team only) or cancel own */
-=======
     approvalAuthority,
   });
 
@@ -154,7 +125,6 @@ exports.create = catchAsync(async (req, res) => {
 });
 
 /* PUT /api/leaves/:id — approve / reject (managers: team only, HR: based on approvalAuthority) or cancel own */
->>>>>>> 0f31467 (intial Update HRM 1.1)
 exports.update = catchAsync(async (req, res) => {
   const leave = await Leave.findById(req.params.id).populate(
     "employee",
@@ -170,17 +140,6 @@ exports.update = catchAsync(async (req, res) => {
     if (!isOwner && !SEES_ALL.includes(req.user.role))
       throw ApiError.forbidden("You can only cancel your own request.");
   } else if (action === "Approved" || action === "Rejected") {
-<<<<<<< HEAD
-    // needs approve permission; managers limited to their team
-    const canApprove =
-      ["HR", "ADMIN", "SUPER_ADMIN"].includes(req.user.role) ||
-      (req.user.role === "MANAGER" &&
-        leave.employee.manager === req.user.employeeId);
-    if (!canApprove)
-      throw ApiError.forbidden(
-        "You do not have permission to decide this leave request.",
-      );
-=======
     // Check approval authority
     const isHR = req.user.role === "HR" || SEES_ALL.includes(req.user.role);
     const isManager = req.user.role === "MANAGER";
@@ -211,7 +170,6 @@ exports.update = catchAsync(async (req, res) => {
         "You do not have permission to approve/reject leave requests.",
       );
     }
->>>>>>> 0f31467 (intial Update HRM 1.1)
     leave.decidedBy = req.user._id;
   } else {
     throw ApiError.badRequest(
@@ -222,13 +180,10 @@ exports.update = catchAsync(async (req, res) => {
   if (req.body.managerNote !== undefined)
     leave.managerNote = req.body.managerNote;
   await leave.save();
-<<<<<<< HEAD
-=======
 
   // Notify the employee of the decision
   await notifyEmployeeOfDecision(leave, action);
 
->>>>>>> 0f31467 (intial Update HRM 1.1)
   if (action === "Approved" || action === "Rejected") {
     const who = (leave.employee && leave.employee.employeeId) || leave.employee;
     logAudit(req, {
@@ -241,10 +196,6 @@ exports.update = catchAsync(async (req, res) => {
   res.json({ leave });
 });
 
-<<<<<<< HEAD
-/* DELETE /api/leaves/:id — HR/Admin only (route-guarded) */
-exports.remove = catchAsync(async (req, res) => {
-=======
 /* GET /api/leaves/calendar — returns leave data aggregated by date for calendar view.
  * Scoped the same as list: Employee sees own, Manager sees team, HR/Admin sees all. */
 exports.calendar = catchAsync(async (req, res) => {
@@ -321,13 +272,10 @@ exports.remove = catchAsync(async (req, res) => {
       "You do not have permission to delete leave requests.",
     );
   }
->>>>>>> 0f31467 (intial Update HRM 1.1)
   const leave = await Leave.findByIdAndDelete(req.params.id);
   if (!leave) throw ApiError.notFound("Leave request not found.");
   res.json({ ok: true });
 });
-<<<<<<< HEAD
-=======
 
 // Helper: Notify approvers when a leave request is created
 async function notifyApprovers(leave, approvalAuthority) {
@@ -410,4 +358,3 @@ async function notifyEmployeeOfDecision(leave, action) {
     console.error("[Leave] Failed to notify employee:", err.message);
   }
 }
->>>>>>> 0f31467 (intial Update HRM 1.1)
