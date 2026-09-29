@@ -81,10 +81,29 @@ async function apiForm(method, path, { access, form } = {}) {
 
   const { connectDB, disconnectDB } = require("../config/database");
   await connectDB(process.env.MONGODB_URI);
-  const { seedDatabase } = require("../seeds/seed");
+  const { seedDatabase, DEV_USERS } = require("../seeds/seed");
   await seedDatabase();
   const User = require("../models/User");
   const Employee = require("../models/Employee");
+  const { provisionUsers } = require("../seeds/provision-real-users");
+  const realProvisionAccounts = DEV_USERS.filter(
+    (user) => user.employeeId && user.employeeId.startsWith("CY"),
+  ).map(({ employeeId, fullName, role, email, password }) => ({
+    employeeId,
+    fullName,
+    role,
+    email,
+    password,
+  }));
+  const existingProvision = await provisionUsers(realProvisionAccounts);
+  ok(
+    "0a. explicit provisioner preserves existing account hashes and identities",
+    existingProvision.length === 6 &&
+      existingProvision.every(
+        (account) => account.status === "existing hash preserved",
+      ) &&
+      (await User.countDocuments()) === DEV_USERS.length,
+  );
 
   const app = require("../app");
   const server = app.listen(PORT);
@@ -145,6 +164,56 @@ async function apiForm(method, path, { access, form } = {}) {
     ok(
       "39. same generic message (no user enumeration)",
       badEmail.body.error === badPass.body.error,
+    );
+
+    await User.collection.insertOne({
+      fullName: "Legacy Account Without Password Hash",
+      email: "legacy-no-hash@cyethack.com",
+      role: "EMPLOYEE",
+      status: "active",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    const missingHash = await login(
+      "legacy-no-hash@cyethack.com",
+      "LegacyPassword@1",
+    );
+    ok(
+      "39a. account missing passwordHash fails safely with generic 401",
+      missingHash.status === 401 &&
+        missingHash.body.error === badPass.body.error,
+    );
+    await provisionUsers([
+      {
+        employeeId: "LEGACY-001",
+        fullName: "Legacy Account Without Password Hash",
+        email: "legacy-no-hash@cyethack.com",
+        role: "EMPLOYEE",
+        department: "Engineering",
+        designation: "Analyst",
+        manager: "CY0824SD301",
+        assignedHrId: "CY0125JS201",
+        joiningDate: "2026-01-01",
+        password: "LegacyPassword@1",
+      },
+    ]);
+    const repairedLegacyLogin = await login(
+      "legacy-no-hash@cyethack.com",
+      "LegacyPassword@1",
+    );
+    const repairedLegacy = await User.findOne({
+      email: "legacy-no-hash@cyethack.com",
+    }).select("+passwordHash");
+    const linkedLegacyEmployee = await Employee.findOne({
+      employeeId: "LEGACY-001",
+    });
+    ok(
+      "39b. explicit provisioning repairs a missing legacy password hash",
+      repairedLegacyLogin.status === 200 &&
+        /^\$2[aby]\$/.test(repairedLegacy.passwordHash) &&
+        !!linkedLegacyEmployee &&
+        String(linkedLegacyEmployee.user) === String(repairedLegacy._id) &&
+        linkedLegacyEmployee.assignedHrId === "CY0125JS201",
     );
 
     const empty = await api("POST", "/api/auth/login", {

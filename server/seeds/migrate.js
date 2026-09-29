@@ -6,154 +6,154 @@
  * 3. Preserves existing genuine company data (if any)
  */
 
-require('dotenv').config();
-const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs');
-const cfg = require('../config/env');
-const User = require('../models/User');
-const Employee = require('../models/Employee');
-const Leave = require('../models/Leave');
-const Attendance = require('../models/Attendance');
-const Payroll = require('../models/Payroll');
-const Hiring = require('../models/Hiring');
-const RefreshToken = require('../models/RefreshToken');
-const Performance = require('../models/Performance');
-const Project = require('../models/Project');
-const Document = require('../models/Document');
-const Notice = require('../models/Notice');
-const Ticket = require('../models/Ticket');
-const Offboarding = require('../models/Offboarding');
+require("dotenv").config();
+const mongoose = require("mongoose");
+const bcrypt = require("bcryptjs");
+const cfg = require("../config/env");
+const User = require("../models/User");
+const Employee = require("../models/Employee");
+const Leave = require("../models/Leave");
+const Attendance = require("../models/Attendance");
+const Payroll = require("../models/Payroll");
+const Hiring = require("../models/Hiring");
+const RefreshToken = require("../models/RefreshToken");
+const Performance = require("../models/Performance");
+const Project = require("../models/Project");
+const Document = require("../models/Document");
+const Notice = require("../models/Notice");
+const Ticket = require("../models/Ticket");
+const Offboarding = require("../models/Offboarding");
 
 // Dummy emails to identify test records
 const DUMMY_EMAILS = [
-  'dummy.superadmin@example.com',
-  'dummy.admin@example.com',
-  'dummy.hr@example.com',
-  'dummy.manager@example.com',
-  'dummy.employee@example.com'
+  "dummy.superadmin@example.com",
+  "dummy.admin@example.com",
+  "dummy.hr@example.com",
+  "dummy.manager@example.com",
+  "dummy.employee@example.com",
 ];
 
 // Dummy employee IDs to identify test records
-const DUMMY_EMPLOYEE_IDS = [
-  'DUMMY-MGR-001',
-  'DUMMY-EMP-001'
-];
+const DUMMY_EMPLOYEE_IDS = ["DUMMY-MGR-001", "DUMMY-EMP-001"];
 
 // Real CYTHACK Solution employees
 const REAL_EMPLOYEES = [
   {
-    employeeId: 'CY0125JS201',
-    fullName: 'Jaya Sahu',
-    email: 'jaya.sahu@cyethack.com',
-    department: 'Human Resources',
-    designation: 'HR',
+    employeeId: "CY0125JS201",
+    fullName: "Jaya Sahu",
+    email: "jaya.sahu@cyethack.com",
+    department: "Human Resources",
+    designation: "HR",
     manager: null,
-    location: 'Work from Home',
+    location: "Work from Home",
     salary: 95000,
-    status: 'Active',
-    joiningDate: '2025-01-06',
-    role: 'HR',
-    password: 'JayaCY0125JS201',
-    bankName: 'HDFC Bank',
-    accountNumber: '50100123456789',
-    ifsc: 'HDFC0001234',
-    accountHolderName: 'Jaya Sahu'
+    status: "Active",
+    joiningDate: "2025-01-06",
+    role: "HR",
+    password: "JayaCY0125JS201",
+    bankName: "HDFC Bank",
+    accountNumber: "50100123456789",
+    ifsc: "HDFC0001234",
+    accountHolderName: "Jaya Sahu",
   },
   {
-    employeeId: 'CY0824SD301',
-    fullName: 'Surya Dev Diwedi',
-    email: 'surya.dwivedi@cyethack.com',
-    department: 'Project Management',
-    designation: 'Project Manager',
+    employeeId: "CY0824SD301",
+    fullName: "Surya Dev Diwedi",
+    email: "surya.dwivedi@cyethack.com",
+    department: "Project Management",
+    designation: "Project Manager",
     manager: null,
-    location: 'Work from Home',
+    location: "Work from Home",
     salary: 120000,
-    status: 'Active',
-    joiningDate: '2024-01-08',
-    role: 'MANAGER',
-    password: 'SuryCY0824SD301',
-    bankName: 'ICICI Bank',
-    accountNumber: '012301543210',
-    ifsc: 'ICIC0000123',
-    accountHolderName: 'Surya Dev Diwedi'
+    status: "Active",
+    joiningDate: "2024-01-08",
+    role: "MANAGER",
+    password: "SuryCY0824SD301",
+    bankName: "ICICI Bank",
+    accountNumber: "012301543210",
+    ifsc: "ICIC0000123",
+    accountHolderName: "Surya Dev Diwedi",
   },
   {
-    employeeId: 'CY0525RS109',
-    fullName: 'Gangarapu Rohith Sai Ganesh',
-    email: 'rohith.sai@cyethack.com',
-    department: 'Engineering',
-    designation: 'Django Developer',
-    manager: 'CY0824SD301',
-    location: 'Client site',
+    employeeId: "CY0525RS109",
+    fullName: "Gangarapu Rohith Sai Ganesh",
+    email: "rohith.sai@cyethack.com",
+    department: "Engineering",
+    designation: "Django Developer",
+    manager: "CY0824SD301",
+    location: "Client site",
     salary: 75000,
-    status: 'Active',
-    joiningDate: '2025-11-05',
-    role: 'EMPLOYEE',
-    password: 'GangCY0525RS109',
-    bankName: 'State Bank of India',
-    accountNumber: '32456789012',
-    ifsc: 'SBIN0001234',
-    accountHolderName: 'Gangarapu Rohith Sai Ganesh'
+    status: "Active",
+    joiningDate: "2025-11-05",
+    role: "EMPLOYEE",
+    password: "GangCY0525RS109",
+    bankName: "State Bank of India",
+    accountNumber: "32456789012",
+    ifsc: "SBIN0001234",
+    accountHolderName: "Gangarapu Rohith Sai Ganesh",
   },
   {
-    employeeId: 'CY0226AR110',
-    fullName: 'Athul Rajagopalan P',
-    email: 'athul.raja@cyethack.com',
-    department: 'Engineering',
-    designation: 'Django Developer',
-    manager: 'CY0824SD301',
-    location: 'Client site',
+    employeeId: "CY0226AR110",
+    fullName: "Athul Rajagopalan P",
+    email: "athul.raja@cyethack.com",
+    department: "Engineering",
+    designation: "Django Developer",
+    manager: "CY0824SD301",
+    location: "Client site",
     salary: 75000,
-    status: 'Active',
-    joiningDate: '2026-02-02',
-    role: 'EMPLOYEE',
-    password: 'AthuCY0226AR110',
-    bankName: 'Axis Bank',
-    accountNumber: '917010012345678',
-    ifsc: 'UTIB0001234',
-    accountHolderName: 'Athul Rajagopalan P'
+    status: "Active",
+    joiningDate: "2026-02-02",
+    role: "EMPLOYEE",
+    password: "AthuCY0226AR110",
+    bankName: "Axis Bank",
+    accountNumber: "917010012345678",
+    ifsc: "UTIB0001234",
+    accountHolderName: "Athul Rajagopalan P",
   },
   {
-    employeeId: 'CY0626AD111',
-    fullName: 'Aman Dange',
-    email: 'aman.dange@cyethack.com',
-    department: 'Engineering',
-    designation: 'Django Developer',
-    manager: 'CY0824SD301',
-    location: 'Client site',
+    employeeId: "CY0626AD111",
+    fullName: "Aman Dange",
+    email: "aman.dange@cyethack.com",
+    department: "Engineering",
+    designation: "Django Developer",
+    manager: "CY0824SD301",
+    location: "Client site",
     salary: 75000,
-    status: 'Active',
-    joiningDate: '2026-01-06',
-    role: 'EMPLOYEE',
-    password: 'AmanCY0626AD111',
-    bankName: 'Kotak Mahindra Bank',
-    accountNumber: '2311234567',
-    ifsc: 'KKBK0001234',
-    accountHolderName: 'Aman Dange'
+    status: "Active",
+    joiningDate: "2026-01-06",
+    role: "EMPLOYEE",
+    password: "AmanCY0626AD111",
+    bankName: "Kotak Mahindra Bank",
+    accountNumber: "2311234567",
+    ifsc: "KKBK0001234",
+    accountHolderName: "Aman Dange",
   },
   {
-    employeeId: 'CY0726SS112',
-    fullName: 'Sanal Sabu',
-    email: 'sanal.sabu@cyethack.com',
-    department: 'Engineering',
-    designation: 'Django Developer',
-    manager: 'CY0824SD301',
-    location: 'Client site',
+    employeeId: "CY0726SS112",
+    fullName: "Sanal Sabu",
+    email: "sanal.sabu@cyethack.com",
+    department: "Engineering",
+    designation: "Django Developer",
+    manager: "CY0824SD301",
+    location: "Client site",
     salary: 75000,
-    status: 'Active',
-    joiningDate: '2026-07-25',
-    role: 'EMPLOYEE',
-    password: 'SanaCY0726SS112',
-    bankName: 'Punjab National Bank',
-    accountNumber: '0123000100123456',
-    ifsc: 'PUNB0001234',
-    accountHolderName: 'Sanal Sabu'
-  }
+    status: "Active",
+    joiningDate: "2026-07-25",
+    role: "EMPLOYEE",
+    password: "SanaCY0726SS112",
+    bankName: "Punjab National Bank",
+    accountNumber: "0123000100123456",
+    ifsc: "PUNB0001234",
+    accountHolderName: "Sanal Sabu",
+  },
 ];
 
 async function connectDB() {
   await mongoose.connect(cfg.MONGODB_URI, { serverSelectionTimeoutMS: 10000 });
-  console.log('MongoDB connected:', mongoose.connection.host + '/' + mongoose.connection.name);
+  console.log(
+    "MongoDB connected:",
+    mongoose.connection.host + "/" + mongoose.connection.name,
+  );
 }
 
 async function disconnectDB() {
@@ -161,73 +161,90 @@ async function disconnectDB() {
 }
 
 async function findDummyRecords() {
-  console.log('\n=== Identifying Dummy Records ===\n');
+  console.log("\n=== Identifying Dummy Records ===\n");
 
   // Find dummy users
   const dummyUsers = await User.find({
     $or: [
       { email: { $in: DUMMY_EMAILS } },
-      { employeeId: { $in: DUMMY_EMPLOYEE_IDS } }
-    ]
-  }).select('email employeeId role fullName');
+      { employeeId: { $in: DUMMY_EMPLOYEE_IDS } },
+    ],
+  }).select("email employeeId role fullName");
 
-  console.log('Dummy Users found:');
+  console.log("Dummy Users found:");
   if (dummyUsers.length === 0) {
-    console.log('  (none)');
+    console.log("  (none)");
   } else {
-    dummyUsers.forEach(u => console.log(`  - ${u.email} (${u.role}) ${u.employeeId ? `[${u.employeeId}]` : ''} - ${u.fullName}`));
+    dummyUsers.forEach((u) =>
+      console.log(
+        `  - ${u.email} (${u.role}) ${u.employeeId ? `[${u.employeeId}]` : ""} - ${u.fullName}`,
+      ),
+    );
   }
 
   // Find dummy employees
   const dummyEmployees = await Employee.find({
-    employeeId: { $in: DUMMY_EMPLOYEE_IDS }
-  }).select('employeeId fullName email department');
+    employeeId: { $in: DUMMY_EMPLOYEE_IDS },
+  }).select("employeeId fullName email department");
 
-  console.log('\nDummy Employees found:');
+  console.log("\nDummy Employees found:");
   if (dummyEmployees.length === 0) {
-    console.log('  (none)');
+    console.log("  (none)");
   } else {
-    dummyEmployees.forEach(e => console.log(`  - ${e.employeeId} - ${e.fullName} (${e.email})`));
+    dummyEmployees.forEach((e) =>
+      console.log(`  - ${e.employeeId} - ${e.fullName} (${e.email})`),
+    );
   }
 
   // Find any existing real employees that might conflict
-  const realEmployeeIds = REAL_EMPLOYEES.map(e => e.employeeId);
+  const realEmployeeIds = REAL_EMPLOYEES.map((e) => e.employeeId);
   const existingRealEmployees = await Employee.find({
-    employeeId: { $in: realEmployeeIds }
-  }).select('employeeId fullName email');
+    employeeId: { $in: realEmployeeIds },
+  }).select("employeeId fullName email");
 
-  console.log('\nExisting Real Employees (will be skipped):');
+  console.log("\nExisting Real Employees (will be skipped):");
   if (existingRealEmployees.length === 0) {
-    console.log('  (none)');
+    console.log("  (none)");
   } else {
-    existingRealEmployees.forEach(e => console.log(`  - ${e.employeeId} - ${e.fullName} (${e.email})`));
+    existingRealEmployees.forEach((e) =>
+      console.log(`  - ${e.employeeId} - ${e.fullName} (${e.email})`),
+    );
   }
 
   // Find existing real users that might conflict
   const existingRealUsers = await User.find({
-    employeeId: { $in: realEmployeeIds }
-  }).select('employeeId email role');
+    employeeId: { $in: realEmployeeIds },
+  }).select("employeeId email role");
 
-  console.log('\nExisting Real Users (will be skipped):');
+  console.log("\nExisting Real Users (will be skipped):");
   if (existingRealUsers.length === 0) {
-    console.log('  (none)');
+    console.log("  (none)");
   } else {
-    existingRealUsers.forEach(u => console.log(`  - ${u.employeeId} - ${u.email} (${u.role})`));
+    existingRealUsers.forEach((u) =>
+      console.log(`  - ${u.employeeId} - ${u.email} (${u.role})`),
+    );
   }
 
-  return { dummyUsers, dummyEmployees, existingRealEmployees, existingRealUsers };
+  return {
+    dummyUsers,
+    dummyEmployees,
+    existingRealEmployees,
+    existingRealUsers,
+  };
 }
 
 async function deleteDummyRecords(dummyUsers, dummyEmployees) {
-  console.log('\n=== Deleting Dummy Records ===\n');
+  console.log("\n=== Deleting Dummy Records ===\n");
 
-  const dummyUserIds = dummyUsers.map(u => u._id);
-  const dummyEmpIds = dummyEmployees.map(e => e._id);
+  const dummyUserIds = dummyUsers.map((u) => u._id);
+  const dummyEmpIds = dummyEmployees.map((e) => e._id);
 
   // Delete related records first (to avoid orphaned references)
   if (dummyUserIds.length > 0) {
     await RefreshToken.deleteMany({ user: { $in: dummyUserIds } });
-    console.log(`Deleted refresh tokens for ${dummyUserIds.length} dummy users`);
+    console.log(
+      `Deleted refresh tokens for ${dummyUserIds.length} dummy users`,
+    );
   }
 
   if (dummyEmpIds.length > 0) {
@@ -239,9 +256,11 @@ async function deleteDummyRecords(dummyUsers, dummyEmployees) {
     await Offboarding.deleteMany({ employee: { $in: dummyEmpIds } });
     await Project.updateMany(
       { members: { $in: dummyEmpIds } },
-      { $pull: { members: { $in: dummyEmpIds } } }
+      { $pull: { members: { $in: dummyEmpIds } } },
     );
-    console.log(`Deleted related records for ${dummyEmpIds.length} dummy employees`);
+    console.log(
+      `Deleted related records for ${dummyEmpIds.length} dummy employees`,
+    );
   }
 
   // Delete dummy users
@@ -258,7 +277,7 @@ async function deleteDummyRecords(dummyUsers, dummyEmployees) {
 }
 
 async function createRealEmployees() {
-  console.log('\n=== Creating Real Employees ===\n');
+  console.log("\n=== Creating Real Employees ===\n");
 
   const empDocs = {};
   const userDocs = {};
@@ -267,7 +286,9 @@ async function createRealEmployees() {
     // Check if employee already exists
     const existingEmp = await Employee.findOne({ employeeId: emp.employeeId });
     if (existingEmp) {
-      console.log(`Skipping existing employee: ${emp.employeeId} - ${emp.fullName}`);
+      console.log(
+        `Skipping existing employee: ${emp.employeeId} - ${emp.fullName}`,
+      );
       empDocs[emp.employeeId] = existingEmp;
       continue;
     }
@@ -283,7 +304,7 @@ async function createRealEmployees() {
       location: emp.location,
       salary: emp.salary,
       status: emp.status,
-      joiningDate: new Date(emp.joiningDate)
+      joiningDate: new Date(emp.joiningDate),
     };
 
     const createdEmp = await Employee.create(empData);
@@ -311,8 +332,8 @@ async function createRealEmployees() {
       role: emp.role,
       department: emp.department || undefined,
       designation: emp.designation,
-      status: 'active',
-      isVerified: true
+      status: "active",
+      isVerified: true,
     };
 
     const user = new User(userData);
@@ -332,26 +353,56 @@ async function createRealEmployees() {
 }
 
 async function createSampleData(empDocs, userDocs) {
-  console.log('\n=== Creating Sample Related Data ===\n');
+  console.log("\n=== Creating Sample Related Data ===\n");
 
   const hrUser = userDocs.HR;
   const managerUser = userDocs.MANAGER;
   const employeeUser = userDocs.EMPLOYEE;
 
   if (!hrUser || !managerUser || !employeeUser) {
-    console.log('Missing required users for sample data, skipping...');
+    console.log("Missing required users for sample data, skipping...");
     return;
   }
 
   // Sample leave requests
   const leaveRequests = [
-    { employee: empDocs['CY0525RS109']._id, requestedBy: managerUser._id, type: 'Casual Leave', from: '2026-10-20', to: '2026-10-21', days: 2, reason: 'Personal', status: 'Pending' },
-    { employee: empDocs['CY0525RS109']._id, requestedBy: employeeUser._id, type: 'Sick Leave', from: '2026-10-22', to: '2026-10-22', days: 1, reason: 'Fever', status: 'Pending' },
-    { employee: empDocs['CY0226AR110']._id, type: 'Earned Leave', from: '2026-09-28', to: '2026-09-30', days: 3, reason: 'Trip', status: 'Approved' }
+    {
+      employee: empDocs["CY0525RS109"]._id,
+      requestedBy: managerUser._id,
+      type: "Casual Leave",
+      from: "2026-10-20",
+      to: "2026-10-21",
+      days: 2,
+      reason: "Personal",
+      status: "Pending",
+    },
+    {
+      employee: empDocs["CY0525RS109"]._id,
+      requestedBy: employeeUser._id,
+      type: "Sick Leave",
+      from: "2026-10-22",
+      to: "2026-10-22",
+      days: 1,
+      reason: "Fever",
+      status: "Pending",
+    },
+    {
+      employee: empDocs["CY0226AR110"]._id,
+      type: "Earned Leave",
+      from: "2026-09-28",
+      to: "2026-09-30",
+      days: 3,
+      reason: "Trip",
+      status: "Approved",
+    },
   ];
 
   for (const leave of leaveRequests) {
-    const exists = await Leave.findOne({ employee: leave.employee, from: leave.from, to: leave.to });
+    const exists = await Leave.findOne({
+      employee: leave.employee,
+      from: leave.from,
+      to: leave.to,
+    });
     if (!exists) {
       await Leave.create(leave);
       console.log(`Created leave request for ${leave.employee}`);
@@ -360,12 +411,25 @@ async function createSampleData(empDocs, userDocs) {
 
   // Sample attendance
   const attendanceRecords = [
-    { employee: empDocs['CY0525RS109']._id, date: '2026-09-10', status: 'present', checkIn: '09:05 AM' },
-    { employee: empDocs['CY0226AR110']._id, date: '2026-09-10', status: 'wfh', checkIn: '09:30 AM' }
+    {
+      employee: empDocs["CY0525RS109"]._id,
+      date: "2026-09-10",
+      status: "present",
+      checkIn: "09:05 AM",
+    },
+    {
+      employee: empDocs["CY0226AR110"]._id,
+      date: "2026-09-10",
+      status: "wfh",
+      checkIn: "09:30 AM",
+    },
   ];
 
   for (const att of attendanceRecords) {
-    const exists = await Attendance.findOne({ employee: att.employee, date: att.date });
+    const exists = await Attendance.findOne({
+      employee: att.employee,
+      date: att.date,
+    });
     if (!exists) {
       await Attendance.create(att);
       console.log(`Created attendance for ${att.employee}`);
@@ -374,12 +438,36 @@ async function createSampleData(empDocs, userDocs) {
 
   // Sample payroll
   const payrollRecords = [
-    { employee: empDocs['CY0525RS109']._id, period: '2026-08', gross: 75000, deductions: { pf: 4500, tds: 5000, esi: 0 }, status: 'Paid', payDate: new Date('2026-09-01'), paymentMode: 'Bank Transfer', transactionId: 'TXN20260901001', reference: 'SAL-AUG-2026-CY0525RS109', utr: 'UTR2026090100123456' },
-    { employee: empDocs['CY0226AR110']._id, period: '2026-08', gross: 75000, deductions: { pf: 4500, tds: 5000, esi: 0 }, status: 'Approved', paymentMode: 'Bank Transfer', transactionId: 'TXN20260901002', reference: 'SAL-AUG-2026-CY0226AR110', utr: 'UTR2026090100223456' }
+    {
+      employee: empDocs["CY0525RS109"]._id,
+      period: "2026-08",
+      gross: 75000,
+      deductions: { pf: 4500, tds: 5000, esi: 0 },
+      status: "Paid",
+      payDate: new Date("2026-09-01"),
+      paymentMode: "Bank Transfer",
+      transactionId: "TXN20260901001",
+      reference: "SAL-AUG-2026-CY0525RS109",
+      utr: "UTR2026090100123456",
+    },
+    {
+      employee: empDocs["CY0226AR110"]._id,
+      period: "2026-08",
+      gross: 75000,
+      deductions: { pf: 4500, tds: 5000, esi: 0 },
+      status: "Approved",
+      paymentMode: "Bank Transfer",
+      transactionId: "TXN20260901002",
+      reference: "SAL-AUG-2026-CY0226AR110",
+      utr: "UTR2026090100223456",
+    },
   ];
 
   for (const pay of payrollRecords) {
-    const exists = await Payroll.findOne({ employee: pay.employee, period: pay.period });
+    const exists = await Payroll.findOne({
+      employee: pay.employee,
+      period: pay.period,
+    });
     if (!exists) {
       await Payroll.create(pay);
       console.log(`Created payroll for ${pay.employee}`);
@@ -388,9 +476,31 @@ async function createSampleData(empDocs, userDocs) {
 
   // Sample hiring
   const hiringRecords = [
-    { jobId: 'JOB-101', title: 'Django Developer', department: 'Engineering', openings: 2, status: 'Open', createdBy: hrUser._id,
-      candidates: [{ name: 'Ishaan Malhotra', email: 'ishaan.m@example.com', stage: 'Interview', source: 'LinkedIn' }] },
-    { jobId: 'JOB-102', title: 'Project Manager', department: 'Project Management', openings: 1, status: 'Open', createdBy: hrUser._id, candidates: [] }
+    {
+      jobId: "JOB-101",
+      title: "Django Developer",
+      department: "Engineering",
+      openings: 2,
+      status: "Open",
+      createdBy: hrUser._id,
+      candidates: [
+        {
+          name: "Ishaan Malhotra",
+          email: "ishaan.m@example.com",
+          stage: "Interview",
+          source: "LinkedIn",
+        },
+      ],
+    },
+    {
+      jobId: "JOB-102",
+      title: "Project Manager",
+      department: "Project Management",
+      openings: 1,
+      status: "Open",
+      createdBy: hrUser._id,
+      candidates: [],
+    },
   ];
 
   for (const job of hiringRecords) {
@@ -403,13 +513,38 @@ async function createSampleData(empDocs, userDocs) {
 
   // Sample performance reviews
   const perfRecords = [
-    { employee: empDocs['CY0525RS109']._id, cycle: '2026-H1', rating: 4, managerFeedback: 'Strong delivery on Django projects.', status: 'Finalized', reviewedBy: hrUser._id,
-      goals: [{ title: 'Ship dashboard', weightage: 40, target: '100%', achieved: '100%', status: 'Achieved' }] },
-    { employee: empDocs['CY0226AR110']._id, cycle: '2026-H1', rating: 3, managerFeedback: 'Good, room to grow on reporting.', status: 'Submitted', reviewedBy: managerUser._id }
+    {
+      employee: empDocs["CY0525RS109"]._id,
+      cycle: "2026-H1",
+      rating: 4,
+      managerFeedback: "Strong delivery on Django projects.",
+      status: "Finalized",
+      reviewedBy: hrUser._id,
+      goals: [
+        {
+          title: "Ship dashboard",
+          weightage: 40,
+          target: "100%",
+          achieved: "100%",
+          status: "Achieved",
+        },
+      ],
+    },
+    {
+      employee: empDocs["CY0226AR110"]._id,
+      cycle: "2026-H1",
+      rating: 3,
+      managerFeedback: "Good, room to grow on reporting.",
+      status: "Submitted",
+      reviewedBy: managerUser._id,
+    },
   ];
 
   for (const perf of perfRecords) {
-    const exists = await Performance.findOne({ employee: perf.employee, cycle: perf.cycle });
+    const exists = await Performance.findOne({
+      employee: perf.employee,
+      cycle: perf.cycle,
+    });
     if (!exists) {
       await Performance.create(perf);
       console.log(`Created performance review for ${perf.employee}`);
@@ -418,9 +553,25 @@ async function createSampleData(empDocs, userDocs) {
 
   // Sample projects
   const projectRecords = [
-    { projectId: 'PRJ-001', name: 'Client Portal', status: 'Active', manager: empDocs['CY0824SD301']._id, members: [empDocs['CY0525RS109']._id, empDocs['CY0226AR110']._id], progress: 45, createdBy: hrUser._id,
-      tasks: [{ title: 'API Development', status: 'In Progress' }] },
-    { projectId: 'PRJ-002', name: 'HR Portal', status: 'Active', manager: empDocs['CY0824SD301']._id, members: [empDocs['CY0626AD111']._id], progress: 80, createdBy: hrUser._id }
+    {
+      projectId: "PRJ-001",
+      name: "Client Portal",
+      status: "Active",
+      manager: empDocs["CY0824SD301"]._id,
+      members: [empDocs["CY0525RS109"]._id, empDocs["CY0226AR110"]._id],
+      progress: 45,
+      createdBy: hrUser._id,
+      tasks: [{ title: "API Development", status: "In Progress" }],
+    },
+    {
+      projectId: "PRJ-002",
+      name: "HR Portal",
+      status: "Active",
+      manager: empDocs["CY0824SD301"]._id,
+      members: [empDocs["CY0626AD111"]._id],
+      progress: 80,
+      createdBy: hrUser._id,
+    },
   ];
 
   for (const proj of projectRecords) {
@@ -433,8 +584,19 @@ async function createSampleData(empDocs, userDocs) {
 
   // Sample notices
   const noticeRecords = [
-    { title: 'Diwali Holiday', body: 'Office closed 1–2 Nov for Diwali.', audience: 'all', pinned: true, author: hrUser._id },
-    { title: 'Managers sync', body: 'Monthly managers review on Friday.', audience: 'managers', author: hrUser._id }
+    {
+      title: "Diwali Holiday",
+      body: "Office closed 1–2 Nov for Diwali.",
+      audience: "all",
+      pinned: true,
+      author: hrUser._id,
+    },
+    {
+      title: "Managers sync",
+      body: "Monthly managers review on Friday.",
+      audience: "managers",
+      author: hrUser._id,
+    },
   ];
 
   for (const notice of noticeRecords) {
@@ -447,11 +609,20 @@ async function createSampleData(empDocs, userDocs) {
 
   // Sample ticket
   const ticketRecords = [
-    { subject: 'Laptop slow', description: 'Please check my laptop performance.', category: 'IT', priority: 'Medium', raisedBy: employeeUser._id }
+    {
+      subject: "Laptop slow",
+      description: "Please check my laptop performance.",
+      category: "IT",
+      priority: "Medium",
+      raisedBy: employeeUser._id,
+    },
   ];
 
   for (const ticket of ticketRecords) {
-    const exists = await Ticket.findOne({ subject: ticket.subject, raisedBy: ticket.raisedBy });
+    const exists = await Ticket.findOne({
+      subject: ticket.subject,
+      raisedBy: ticket.raisedBy,
+    });
     if (!exists) {
       await Ticket.create(ticket);
       console.log(`Created ticket: ${ticket.subject}`);
@@ -460,7 +631,13 @@ async function createSampleData(empDocs, userDocs) {
 
   // Sample offboarding
   const offboardRecords = [
-    { employee: empDocs['CY0726SS112']._id, initiatedBy: hrUser._id, reason: 'Resignation', lastWorkingDate: new Date('2026-10-15'), status: 'In Progress' }
+    {
+      employee: empDocs["CY0726SS112"]._id,
+      initiatedBy: hrUser._id,
+      reason: "Resignation",
+      lastWorkingDate: new Date("2026-10-15"),
+      status: "In Progress",
+    },
   ];
 
   for (const off of offboardRecords) {
@@ -473,25 +650,34 @@ async function createSampleData(empDocs, userDocs) {
 }
 
 async function printCredentials() {
-  console.log('\n=== Migration Complete ===\n');
-  console.log('Real CYTHACK Solution Employee Login Credentials:\n');
-  console.log('  Email                          Role          Initial Password');
-  console.log('  ─────────────────────────────────────────────────────────────');
-  
+  console.log("\n=== Migration Complete ===\n");
+  console.log("Provisioned CYTHACK Solution accounts:\n");
+  console.log("  Email                          Role");
+  console.log("  ─────────────────────────────────");
+
   for (const emp of REAL_EMPLOYEES) {
-    console.log(`  ${emp.email.padEnd(32)} ${emp.role.padEnd(12)} ${emp.password}`);
+    console.log(`  ${emp.email.padEnd(32)} ${emp.role}`);
   }
-  
-  console.log('\n⚠️  IMPORTANT: These are initial passwords. Users should change them on first login.');
-  console.log('   Passwords are stored as bcrypt hashes only - never in plaintext.\n');
+
+  console.log("\nPasswords are not printed.\n");
 }
 
 async function runMigration() {
   try {
+    if (cfg.isProd) {
+      throw new Error(
+        "The destructive sample migration is disabled in production. Use npm run provision:real-users for explicit account provisioning.",
+      );
+    }
     await connectDB();
 
     // Step 1: Find dummy records
-    const { dummyUsers, dummyEmployees, existingRealEmployees, existingRealUsers } = await findDummyRecords();
+    const {
+      dummyUsers,
+      dummyEmployees,
+      existingRealEmployees,
+      existingRealUsers,
+    } = await findDummyRecords();
 
     // Step 2: Delete dummy records
     await deleteDummyRecords(dummyUsers, dummyEmployees);
@@ -504,14 +690,14 @@ async function runMigration() {
 
     // Step 5: Print credentials
     await printCredentials();
-
   } catch (error) {
-    console.error('\n❌ Migration failed:', error);
+    console.error("\n❌ Migration failed:", error);
     process.exit(1);
   } finally {
     await disconnectDB();
   }
 }
 
-// Run migration
-runMigration();
+if (require.main === module) {
+  runMigration();
+}

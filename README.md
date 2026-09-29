@@ -20,7 +20,7 @@ On Windows, run `.\run-local.ps1` from PowerShell. On macOS/Linux or Git Bash, r
 cd server
 npm install
 npm run dev:mem      # runs the whole app against a throwaway in-memory MongoDB, seeded
-# open http://localhost:5000  →  log in with jaya.sahu@cyethack.com / JayaCY0125JS201
+# open http://localhost:5000  →  use a development account created by the seed
 ```
 
 ---
@@ -122,13 +122,25 @@ Running `npm run seed` clears the collections and inserts the dev users, employe
 
 ## 12. Seed users (DEVELOPMENT ONLY — change before real use)
 
-| Email                      | Password        | Role                                                    |
-| -------------------------- | --------------- | ------------------------------------------------------- |
-| superadmin@cyethack.com    | Super@123       | SUPER_ADMIN                                             |
-| admin@cyethack.com         | Admin@123       | ADMIN                                                   |
-| jaya.sahu@cyethack.com     | JayaCY0125JS201 | HR                                                      |
-| surya.dwivedi@cyethack.com | SuryCY0824SD301 | MANAGER (manages CY0226AR110, CY0626AD111, CY0726SS112) |
-| rohith.sai@cyethack.com    | GangCY0525RS109 | EMPLOYEE                                                |
+| Email                      | Role                                                    |
+| -------------------------- | ------------------------------------------------------- |
+| superadmin@cyethack.com    | SUPER_ADMIN (development only)                          |
+| admin@cyethack.com         | ADMIN (development only)                                |
+| jaya.sahu@cyethack.com     | HR                                                      |
+| surya.dwivedi@cyethack.com | MANAGER (manages CY0226AR110, CY0626AD111, CY0726SS112) |
+| rohith.sai@cyethack.com    | EMPLOYEE                                                |
+
+Development seed credentials are not printed to logs. Never use the development seed or its accounts in production.
+
+### Repair or provision production HRM users
+
+The destructive development seed and legacy sample migration refuse to run in production. For a deliberate one-time provisioning run, set `MONGODB_URI` to the intended Atlas database and provide these temporary environment variables through a protected Render shell/session:
+
+`INITIAL_PASSWORD_CY0125JS201`, `INITIAL_PASSWORD_CY0824SD301`, `INITIAL_PASSWORD_CY0525RS109`, `INITIAL_PASSWORD_CY0226AR110`, `INITIAL_PASSWORD_CY0626AD111`, `INITIAL_PASSWORD_CY0726SS112`.
+
+Then run `cd server && npm run provision:real-users`. The script provisions only the six specified user accounts, hashes supplied passwords with the existing model hook, repairs only missing hashes, preserves existing hashes and employee business data, refuses identity/role conflicts, links matching Employee rows, and creates a missing matching Employee row with identity/org fields only (no salary or sample business data). It does not seed an administrator or print passwords. Remove the temporary password variables after the run. Create the first administrator separately using the protected bootstrap flow, then set `SETUP_TOKEN` blank in Render.
+
+`MONGODB_URI` selects the database. Verify the connection log names `cyethack_hr`; a production connection to database `test` emits a warning. The application never overrides the database name from the supplied URI.
 
 ## 13. JWT authentication flow
 

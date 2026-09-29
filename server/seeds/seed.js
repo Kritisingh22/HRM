@@ -493,9 +493,9 @@ async function seedDatabase() {
 
 // CLI runner: connect, seed, print credentials, disconnect.
 async function run() {
-  if (cfg.isProd && process.env.FORCE_SEED !== "true") {
+  if (cfg.isProd) {
     console.error(
-      "Refusing to seed in production. Set FORCE_SEED=true to override (not recommended).",
+      "Refusing to run the destructive development seed in production.",
     );
     process.exit(1);
   }
@@ -503,13 +503,9 @@ async function run() {
   console.log("Clearing existing data & seeding…");
   await seedDatabase();
   console.log(
-    "\nSeed complete. DEVELOPMENT login accounts (change before real use):\n",
+    "\nSeed complete. Development-only login accounts were created with bcrypt hashes:\n",
   );
-  DEV_USERS.forEach((u) =>
-    console.log(
-      "  " + u.email.padEnd(30) + u.role.padEnd(13) + "password: " + u.password,
-    ),
-  );
+  DEV_USERS.forEach((u) => console.log("  " + u.email.padEnd(30) + u.role));
   console.log(
     "\nEmployees: " +
       EMPLOYEES.length +
