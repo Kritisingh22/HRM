@@ -84,6 +84,7 @@ async function apiForm(method, path, { access, form } = {}) {
   const { seedDatabase } = require("../seeds/seed");
   await seedDatabase();
   const User = require("../models/User");
+  const Employee = require("../models/Employee");
 
   const app = require("../app");
   const server = app.listen(PORT);
@@ -240,7 +241,7 @@ async function apiForm(method, path, { access, form } = {}) {
 
     // ============ RBAC + OBJECT-LEVEL ============
     const emp = await login("rohith.sai@cyethack.com", "GangCY0525RS109"); // CY0525RS109
-    const mgr = await login("surya.dwivedi@cyethack.com", "SuryCY0824SD301"); // CY0824SD301 (manages CY0525RS109, CY0226AR110, CY0626AD111, CY0726SS112)
+    const mgr = await login("surya.dwivedi@cyethack.com", "SuryCY0824SD301"); // CY0824SD301 manages CY0226AR110, CY0626AD111, CY0726SS112
     const admin = await login("admin@cyethack.com", "Admin@123");
 
     const empList = await api("GET", "/api/employees", { access: emp.access });
@@ -263,7 +264,7 @@ async function apiForm(method, path, { access, form } = {}) {
     const mgrList = await api("GET", "/api/employees", { access: mgr.access });
     ok(
       "18. manager sees team + self",
-      mgrList.status === 200 && mgrList.data.count === 5,
+      mgrList.status === 200 && mgrList.data.count === 4,
     );
 
     const empWrite = await api("POST", "/api/employees", {
@@ -451,6 +452,222 @@ async function apiForm(method, path, { access, form } = {}) {
     ok(
       "33. HR creates payroll → 201 with computed net",
       payCreate.status === 201 && payCreate.data.payslip.net === 70000 - 8200,
+    );
+
+    const hrBUser = new User({
+      fullName: "HR B",
+      email: "hr-b@cyethack.com",
+      employeeId: "CY9998HRB",
+      role: "HR",
+      status: "active",
+    });
+    hrBUser.password = "HrBPassword@1";
+    await hrBUser.save();
+    const hrBEmployee = await Employee.create({
+      employeeId: "CY9998HRB",
+      user: hrBUser._id,
+      fullName: "HR B",
+      email: "hr-b@cyethack.com",
+      department: "Human Resources",
+      assignedHrId: "CY9998HRB",
+      salary: 60000,
+      status: "Active",
+    });
+    const hrBStaff = await Employee.create({
+      employeeId: "CY9999HRB",
+      fullName: "HR B Assigned Staff",
+      department: "Operations",
+      designation: "Analyst",
+      assignedHrId: "CY9998HRB",
+      salary: 88000,
+      status: "Active",
+    });
+    const hrB = await login("hr-b@cyethack.com", "HrBPassword@1");
+    const generatedPayroll = await api("POST", "/api/payroll/generate", {
+      access: hrB.access,
+      body: { period: "2027-01" },
+    });
+    const generatedRecord = generatedPayroll.data.payroll?.find(
+      (row) => String(row.employee) === String(hrBStaff._id),
+    );
+    ok(
+      "33a. HR generates payroll from assigned employee salary",
+      generatedPayroll.status === 201 &&
+        generatedPayroll.data.count === 2 &&
+        !!generatedRecord &&
+        generatedRecord.basic === 44000 &&
+        generatedRecord.gross === 88000 &&
+        generatedRecord.net === 87800 &&
+        generatedRecord.assignedHrId === "CY9998HRB",
+    );
+    const hrBPayroll = await api("GET", "/api/payroll", {
+      access: hrB.access,
+    });
+    const hrAPayroll = await api("GET", "/api/payroll", {
+      access: hr.access,
+    });
+    const hrAIdor = await api("GET", "/api/payroll?employee=" + hrBStaff._id, {
+      access: hr.access,
+    });
+    ok(
+      "33b. HR-B payroll persists and HR-A cannot read it",
+      hrBPayroll.status === 200 &&
+        hrBPayroll.data.payroll.some(
+          (row) => row.employee.employeeId === "CY9999HRB",
+        ) &&
+        !hrAPayroll.data.payroll.some(
+          (row) => row.employee.employeeId === "CY9999HRB",
+        ) &&
+        hrAIdor.status === 403,
+    );
+    const generatedId = generatedRecord && generatedRecord._id;
+    const salaryUpdate = await api("PUT", "/api/payroll/" + generatedId, {
+      access: hrB.access,
+      body: {
+        basic: 46000,
+        allowances: { hra: 18000, conveyance: 1600, special: 24400 },
+        bonus: 1000,
+        overtime: 2000,
+        deductions: { professionalTax: 200, loanAdvance: 1000 },
+      },
+    });
+    const refreshedPayroll = await api("GET", "/api/payroll", {
+      access: hrB.access,
+    });
+    const refreshedRecord = refreshedPayroll.data.payroll.find(
+      (row) => row._id === generatedId,
+    );
+    ok(
+      "33c. edited salary persists and reload returns updated values",
+      salaryUpdate.status === 200 &&
+        refreshedRecord.basic === 46000 &&
+        refreshedRecord.bonus === 1000 &&
+        refreshedRecord.overtime === 2000 &&
+        refreshedRecord.gross === 93000 &&
+        refreshedRecord.net === 91800,
+    );
+    const hrACrossDetail = await api(
+      "GET",
+      "/api/payroll/" + generatedId + "/payslip",
+      { access: hr.access },
+    );
+    ok(
+      "33d. HR-A cannot access HR-B payslip by direct ID",
+      hrACrossDetail.status === 403,
+    );
+    const hrASelectedGenerate = await api(
+      "POST",
+      "/api/payroll/employee/CY9999HRB/generate",
+      { access: hr.access, body: { period: "2027-03" } },
+    );
+    ok(
+      "33h. HR-A cannot generate payroll for HR-B's selected employee",
+      hrASelectedGenerate.status === 403,
+    );
+
+    await User.updateOne(
+      { email: "surya.dwivedi@cyethack.com" },
+      { permissions: ["payroll:write"] },
+    );
+    const managerWriteOnlyGenerate = await api(
+      "POST",
+      "/api/payroll/generate",
+      {
+        access: mgr.access,
+        body: { period: "2027-04" },
+      },
+    );
+    const managerWriteOnlySelected = await api(
+      "POST",
+      "/api/payroll/employee/CY0226AR110/generate",
+      { access: mgr.access, body: { period: "2027-04" } },
+    );
+    const managerWriteOnlyAnalytics = await api(
+      "GET",
+      "/api/analytics/overview",
+      { access: mgr.access },
+    );
+    ok(
+      "33j. Manager payroll:write alone cannot read team payroll data",
+      managerWriteOnlyGenerate.status === 403 &&
+        managerWriteOnlySelected.status === 403 &&
+        managerWriteOnlyAnalytics.status === 200 &&
+        managerWriteOnlyAnalytics.data.payrollByStatus.length === 0,
+    );
+
+    await User.updateOne(
+      { email: "surya.dwivedi@cyethack.com" },
+      { permissions: ["payroll:read", "payroll:write"] },
+    );
+    const managerPayroll = await api("GET", "/api/payroll", {
+      access: mgr.access,
+    });
+    const managerCrossTeam = await api(
+      "GET",
+      "/api/payroll?employee=" + hrBStaff._id,
+      { access: mgr.access },
+    );
+    const managerGenerated = await api("POST", "/api/payroll/generate", {
+      access: mgr.access,
+      body: { period: "2027-02" },
+    });
+    ok(
+      "33e. Manager payroll access is team-only and explicitly permissioned",
+      managerPayroll.status === 200 &&
+        managerPayroll.data.payroll.some(
+          (row) => row.employee.employeeId === "CY0226AR110",
+        ) &&
+        !managerPayroll.data.payroll.some(
+          (row) => row.employee.employeeId === "CY9999HRB",
+        ) &&
+        managerCrossTeam.status === 403 &&
+        managerGenerated.status === 201 &&
+        managerGenerated.data.payroll.every(
+          (row) => row.employee && row.employee.assignedHrId !== "CY9998HRB",
+        ),
+    );
+    const managerTeamEmployee = await Employee.findOne({
+      employeeId: "CY0226AR110",
+    });
+    const managerTeamSlip = managerGenerated.data.payroll.find(
+      (row) => String(row.employee) === String(managerTeamEmployee._id),
+    );
+    const managerTeamEdit = await api(
+      "PUT",
+      "/api/payroll/" + managerTeamSlip._id,
+      { access: mgr.access, body: { status: "Approved" } },
+    );
+    ok(
+      "33f. explicitly authorized manager can update a team payroll record",
+      managerTeamEdit.status === 200 &&
+        managerTeamEdit.data.payslip.status === "Approved",
+    );
+    const managerSelectedGenerate = await api(
+      "POST",
+      "/api/payroll/employee/CY0226AR110/generate",
+      { access: mgr.access, body: { period: "2027-03" } },
+    );
+    const managerOutOfTeamGenerate = await api(
+      "POST",
+      "/api/payroll/employee/CY9999HRB/generate",
+      { access: mgr.access, body: { period: "2027-03" } },
+    );
+    ok(
+      "33i. manager selected payslip generates for team member only",
+      managerSelectedGenerate.status === 201 &&
+        String(managerSelectedGenerate.data.payslip.employee) ===
+          String(managerTeamEmployee._id) &&
+        managerOutOfTeamGenerate.status === 403,
+    );
+    const adminManagementPay = await api(
+      "GET",
+      "/api/payroll?employee=" +
+        (await Employee.findOne({ employeeId: "CY0824SD301" }))._id,
+      { access: admin.access },
+    );
+    ok(
+      "33g. admin employee filter cannot bypass Management payroll exclusion",
+      adminManagementPay.status === 403,
     );
 
     // hiring
@@ -1435,9 +1652,9 @@ async function apiForm(method, path, { access, form } = {}) {
     );
 
     // ============ SECURITY: stored password is hashed ============
-    const dbUser = await User.findOne({ email: "hr@cyethack.com" }).select(
-      "+passwordHash",
-    );
+    const dbUser = await User.findOne({
+      email: "jaya.sahu@cyethack.com",
+    }).select("+passwordHash");
     ok(
       "40. stored password is bcrypt-hashed (not plaintext)",
       /^\$2[aby]\$/.test(dbUser.passwordHash) &&
@@ -1452,7 +1669,7 @@ async function apiForm(method, path, { access, form } = {}) {
     ok(
       "22. admin sees the active roster (exited excluded)",
       adminAll.status === 200 &&
-        adminAll.data.count >= 6 &&
+        adminAll.data.count >= 5 &&
         adminAll.data.employees.every((e) => e.status !== "Exited"),
     );
     const adminAllInc = await api("GET", "/api/employees?includeExited=true", {

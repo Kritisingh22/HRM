@@ -122,13 +122,13 @@ Running `npm run seed` clears the collections and inserts the dev users, employe
 
 ## 12. Seed users (DEVELOPMENT ONLY — change before real use)
 
-| Email                          | Password              | Role                                 |
-| ------------------------------ | --------------------- | ------------------------------------ |
-| superadmin@cyethack.com        | Super@123             | SUPER_ADMIN                          |
-| admin@cyethack.com             | Admin@123             | ADMIN                                |
-| jaya.sahu@cyethack.com         | JayaCY0125JS201       | HR                                   |
-| surya.dwivedi@cyethack.com     | SuryCY0824SD301       | MANAGER (manages CY0525RS109, CY0226AR110, CY0626AD111, CY0726SS112) |
-| rohith.sai@cyethack.com        | GangCY0525RS109       | EMPLOYEE                             |
+| Email                      | Password        | Role                                                    |
+| -------------------------- | --------------- | ------------------------------------------------------- |
+| superadmin@cyethack.com    | Super@123       | SUPER_ADMIN                                             |
+| admin@cyethack.com         | Admin@123       | ADMIN                                                   |
+| jaya.sahu@cyethack.com     | JayaCY0125JS201 | HR                                                      |
+| surya.dwivedi@cyethack.com | SuryCY0824SD301 | MANAGER (manages CY0226AR110, CY0626AD111, CY0726SS112) |
+| rohith.sai@cyethack.com    | GangCY0525RS109 | EMPLOYEE                                                |
 
 ## 13. JWT authentication flow
 

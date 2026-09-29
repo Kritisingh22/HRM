@@ -18,14 +18,21 @@ async function myEmployee(user) {
     $or: [{ user: user._id }, { employeeId: user.employeeId }],
   });
 }
+// Shared scoping (single source of truth — see utils/teamScope.js). Also picks
+// up any live approved access-request grant, which the old local
+// hrScopeFilter/assignedHrId lookups here never did.
+const { teamEmployeeIds } = require("../utils/teamScope");
 async function hrScopeFilter(user) {
-  const me = await myEmployee(user);
-  const ids = await Employee.find({ assignedHrId: user.employeeId }).select(
-    "_id",
-  );
-  const allowed = ids.map((e) => e._id);
-  if (me) allowed.push(me._id);
+  const allowed = await teamEmployeeIds(user);
   return { $or: [{ visibility: "all" }, { owner: { $in: allowed } }] };
+}
+// True if this document's owner is within the caller's scope (self, assigned
+// employees, or a live access-request grant) — used to gate delete, the same
+// way download already gates reads.
+async function ownerInScope(user, ownerId) {
+  if (!ownerId) return false;
+  const ids = await teamEmployeeIds(user);
+  return ids.some((id) => String(id) === String(ownerId));
 }
 
 exports.list = catchAsync(async (req, res) => {
@@ -122,15 +129,8 @@ exports.download = catchAsync(async (req, res) => {
   const doc = await Document.findById(req.params.id);
   if (!doc) throw ApiError.notFound("Document not found.");
   if (req.user.role === "HR") {
-    const me = await myEmployee(req.user);
-    const assigned = await Employee.find({
-      assignedHrId: req.user.employeeId,
-    }).select("_id");
-    const allowed = assigned.map((e) => String(e._id));
-    if (me) allowed.push(String(me._id));
-    const owns = me && doc.owner && String(doc.owner) === String(me._id);
-    const assignedOwner = doc.owner && allowed.includes(String(doc.owner));
-    if (!(doc.visibility === "all" || owns || assignedOwner))
+    const owns = doc.owner && (await ownerInScope(req.user, doc.owner));
+    if (!(doc.visibility === "all" || owns))
       throw ApiError.forbidden("You do not have access to this document.");
   } else if (!SEES_ALL.includes(req.user.role)) {
     const me = await myEmployee(req.user);
@@ -159,6 +159,19 @@ exports.remove = catchAsync(async (req, res) => {
 
   const doc = await Document.findById(req.params.id);
   if (!doc) throw ApiError.notFound("Document not found.");
+
+  // IDOR check: documents:delete does not mean "delete anyone's document" — a
+  // non-admin may only delete a document that is public, their own, or owned
+  // by someone within their scope (assigned employees / access-request grant).
+  if (!SEES_ALL.includes(req.user.role)) {
+    const me = await myEmployee(req.user);
+    const owns = me && doc.owner && String(doc.owner) === String(me._id);
+    const inScope = doc.owner && (await ownerInScope(req.user, doc.owner));
+    if (!(doc.visibility === "all" || owns || inScope)) {
+      throw ApiError.forbidden("You do not have access to this document.");
+    }
+  }
+
   try {
     fs.unlinkSync(path.join(UPLOAD_DIR, path.basename(doc.storageKey)));
   } catch (e) {

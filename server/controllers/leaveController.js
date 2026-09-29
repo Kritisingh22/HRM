@@ -9,6 +9,10 @@ const ApiError = require("../utils/ApiError");
 const catchAsync = require("../utils/catchAsync");
 const { logAudit } = require("../utils/audit");
 const { userHasPermission } = require("../utils/permissions");
+// Shared scoping (single source of truth — see utils/teamScope.js). Covers
+// MANAGER's team, HR's assigned employees, PLUS any live approved access-request
+// grant, and already includes the caller's own Employee record in every branch.
+const { teamEmployeeIds } = require("../utils/teamScope");
 
 const SEES_ALL = ["ADMIN", "SUPER_ADMIN"];
 
@@ -16,10 +20,6 @@ async function myEmployee(user) {
   return Employee.findOne({
     $or: [{ user: user._id }, { employeeId: user.employeeId }],
   });
-}
-async function teamEmployeeIds(user) {
-  const team = await Employee.find({ manager: user.employeeId }).select("_id");
-  return team.map((e) => e._id);
 }
 
 /* GET /api/leaves */
@@ -40,18 +40,8 @@ exports.list = catchAsync(async (req, res) => {
     userHasPermission(req.user, "leaves:read")
   ) {
     filter = {};
-  } else if (req.user.role === "HR") {
-    const ids = await Employee.find({
-      assignedHrId: req.user.employeeId,
-    }).select("_id");
-    const me = await myEmployee(req.user);
-    const arr = ids.map((e) => e._id);
-    if (me) arr.push(me._id);
-    filter = { employee: { $in: arr } };
-  } else if (req.user.role === "MANAGER") {
+  } else if (req.user.role === "HR" || req.user.role === "MANAGER") {
     const ids = await teamEmployeeIds(req.user);
-    const me = await myEmployee(req.user);
-    if (me) ids.push(me._id);
     filter = { employee: { $in: ids } };
   } else {
     const me = await myEmployee(req.user);
@@ -215,18 +205,8 @@ exports.calendar = catchAsync(async (req, res) => {
     userHasPermission(req.user, "leaves:read")
   ) {
     filter = {};
-  } else if (req.user.role === "HR") {
-    const ids = await Employee.find({
-      assignedHrId: req.user.employeeId,
-    }).select("_id");
-    const me = await myEmployee(req.user);
-    const arr = ids.map((e) => e._id);
-    if (me) arr.push(me._id);
-    filter = { employee: { $in: arr } };
-  } else if (req.user.role === "MANAGER") {
+  } else if (req.user.role === "HR" || req.user.role === "MANAGER") {
     const ids = await teamEmployeeIds(req.user);
-    const me = await myEmployee(req.user);
-    if (me) ids.push(me._id);
     filter = { employee: { $in: ids } };
   } else {
     const me = await myEmployee(req.user);

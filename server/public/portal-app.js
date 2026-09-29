@@ -3514,7 +3514,6 @@ navigate = function (page) {
         status: "Notice Period",
       },
     ],
-    payrollRuns: [], // filled by seedPayroll()
     audit: [],
   };
 
@@ -3677,7 +3676,11 @@ navigate = function (page) {
     var d = new Date();
     S.audit.unshift({
       action: action,
-      user: "Kriti Singh (Admin)",
+      user:
+        (typeof window !== "undefined" &&
+          window.__hrUser &&
+          window.__hrUser.name) ||
+        "System",
       date:
         d.getFullYear() +
         "-" +
@@ -3709,56 +3712,6 @@ navigate = function (page) {
     seq++;
     return prefix + "-" + seq;
   }
-
-  // Build the current-month payroll run from employee salaries (in-hand only).
-  function seedPayroll() {
-    var now = new Date();
-    var period = MON[now.getMonth()] + " " + now.getFullYear();
-    var rows = S.employees
-      .filter(function (e) {
-        return (
-          e.status === "Active" ||
-          e.status === "Probation" ||
-          e.status === "On Leave"
-        );
-      })
-      .map(function (e) {
-        var basic = Math.round(e.salary * 0.5),
-          hra = Math.round(e.salary * 0.2),
-          conv = 1600,
-          special = e.salary - basic - hra - conv;
-        var pt = 200,
-          other = 0,
-          ded = pt + other;
-        var gross = basic + hra + conv + special,
-          net = gross - ded;
-        return {
-          empId: e.id,
-          basic: basic,
-          hra: hra,
-          conv: conv,
-          special: special,
-          bonus: 0,
-          gross: gross,
-          pt: pt,
-          otherDed: other,
-          ded: ded,
-          net: net,
-          payStatus: "Pending",
-        };
-      });
-    S.payrollRuns.push({
-      id:
-        "PAY-" +
-        now.getFullYear() +
-        String(now.getMonth() + 1).padStart(2, "0"),
-      period: period,
-      status: "Draft",
-      rows: rows,
-      payDate: "",
-    });
-  }
-  seedPayroll();
 
   // Expose the store + a few helpers for backend integration / debugging.
   window.HRX = {
@@ -3906,12 +3859,21 @@ navigate = function (page) {
     var rows = resFilteredRows(key);
     var colspan = cfg.columns.length + (cfg.actions ? 1 : 0);
     if (!rows.length) {
+      var emptyMessage =
+        key === "employees" && window.__hrEmployeesLoading
+          ? "Loading employee records…"
+          : key === "employees" && window.__hrEmployeeLoadError
+            ? "Unable to load employee records from the server."
+            : "No " + cfg.title.toLowerCase() + " match your filters";
       body.innerHTML =
         '<tr><td colspan="' +
         colspan +
-        '"><div class="empty">No ' +
-        esc(cfg.title.toLowerCase()) +
-        " match your filters</div></td></tr>";
+        '"><div class="empty">' +
+        esc(emptyMessage) +
+        (key === "employees" && window.__hrEmployeeLoadError
+          ? ' <button type="button" class="btn btn-outline btn-sm" data-employee-retry>Retry</button>'
+          : "") +
+        "</div></td></tr>";
     } else
       body.innerHTML = rows
         .map(function (r) {
@@ -4340,10 +4302,21 @@ navigate = function (page) {
       },
     ],
     actions: function () {
-      return [
+      var actions = [
         { k: "view", label: "View" },
         { k: "edit", label: "Edit", cls: "btn-outline" },
       ];
+      if (window.hrCanReadPayroll && window.hrCanReadPayroll())
+        actions.push({
+          k: "invoice",
+          label: "Raise Invoice",
+          cls: "btn-outline",
+        });
+      return actions;
+    },
+    onAct: function (action, row) {
+      if (action === "invoice" && window.hrRaiseInvoice)
+        window.hrRaiseInvoice(row.employeeId || row.id);
     },
     detail: function (r) {
       return [
@@ -4365,7 +4338,10 @@ navigate = function (page) {
         ["Probation", r.probation ? "Yes" : "No"],
         ["##", "Employment"],
         ["Experience", r.experience],
-        ["Monthly In-hand", money(r.salary)],
+        [
+          "Monthly In-hand",
+          r.salary === undefined ? "Not available" : money(r.salary),
+        ],
         ["Grade", r.grade],
       ];
     },
@@ -6981,7 +6957,8 @@ navigate = function (page) {
       half = 0,
       late = 0,
       ot = 0,
-      working = 0;
+      working = 0,
+      anyRec = false;
     for (var d = 1; d <= days; d++) {
       var iso =
         y +
@@ -7005,9 +6982,10 @@ navigate = function (page) {
             ? rec.status
             : iso > new Date().toISOString().slice(0, 10)
               ? "—"
-              : "Absent";
+              : "No Data";
       if (!wknd && !hol) working++;
       if (rec) {
+        anyRec = true;
         if (rec.status === "present") present++;
         else if (rec.status === "wfh") present++;
         else if (rec.status === "absent") absent++;
@@ -7040,7 +7018,15 @@ navigate = function (page) {
         "</td></tr>";
     }
     var head =
-      '<div class="hrx-toolbar"><select data-hrx-special="attemp"><option value="CHS-0001">Attendance for: Kriti Singh (self)</option></select><span class="hrx-spacer"></span></div>' +
+      '<div class=\"hrx-toolbar\"><select data-hrx-special=\"attemp\"><option value=\"' +
+      ((window.__hrUser && window.__hrUser.employeeId) || "") +
+      '\">Attendance for: ' +
+      ((typeof window !== "undefined" &&
+        window.__hrUser &&
+        window.__hrUser.name) ||
+        (emp && empById(emp) && empById(emp).name) ||
+        "Employee") +
+      ' (self)</option></select><span class=\"hrx-spacer\"></span></div>' +
       '<div class="hrx-statrow"><div class="hrx-statchip"><span class="k">Working days</span><span class="v">' +
       working +
       "</span></div>" +
@@ -7061,6 +7047,11 @@ navigate = function (page) {
       " / " +
       ot +
       "</span></div></div>";
+    if (!anyRec)
+      return (
+        head +
+        '<div class="hrx-hint" style="margin-bottom:10px">No attendance data available.</div>'
+      );
     return (
       head +
       '<div class="hrx-hint" style="margin-bottom:10px">Attendance is read-only for employees. The interactive month view with leave application lives under the <b>Leave</b> section.</div>' +
@@ -7071,267 +7062,17 @@ navigate = function (page) {
   }
 
   // Payroll processing
-  function currentRun() {
-    return S.payrollRuns[S.payrollRuns.length - 1];
-  }
   function renderPayrollProcess() {
-    var run = currentRun();
-    var gross = run.rows.reduce(function (a, r) {
-        return a + r.gross;
-      }, 0),
-      ded = run.rows.reduce(function (a, r) {
-        return a + r.ded;
-      }, 0),
-      net = run.rows.reduce(function (a, r) {
-        return a + r.net;
-      }, 0);
-    var paid = run.rows.filter(function (r) {
-      return r.payStatus === "Paid";
-    }).length;
-    var actions = "";
-    if (run.status === "Draft")
-      actions = specialBtn("pay:calc", "Calculate payroll", "btn-primary");
-    else if (run.status === "Calculated")
-      actions = specialBtn("pay:approve", "Approve payroll", "btn-primary");
-    else if (run.status === "Approved")
-      actions = specialBtn("pay:process", "Process & mark paid", "btn-primary");
-    var rows = run.rows
-      .map(function (r) {
-        return (
-          "<tr><td>" +
-          empCell(r.empId) +
-          "</td><td>" +
-          esc(
-            deptName(
-              (
-                S.employees.find(function (e) {
-                  return e.id === r.empId;
-                }) || {}
-              ).dept,
-            ),
-          ) +
-          "</td>" +
-          '<td class="num">' +
-          money(r.basic) +
-          '</td><td class="num">' +
-          money(r.gross) +
-          '</td><td class="num">' +
-          money(r.ded) +
-          '</td><td class="num">' +
-          money(r.net) +
-          "</td>" +
-          "<td>" +
-          badge(r.payStatus) +
-          '</td><td><button class="btn btn-outline btn-sm" data-hrx-special="payslip:' +
-          r.empId +
-          '">Payslip</button></td></tr>'
-        );
-      })
-      .join("");
-    return (
-      '<div class="hrx-statrow"><div class="hrx-statchip"><span class="k">Pay period</span><span class="v" style="font-size:16px">' +
-      esc(run.period) +
-      '</span><span class="s">' +
-      badge(run.status) +
-      "</span></div>" +
-      '<div class="hrx-statchip"><span class="k">Employees</span><span class="v">' +
-      run.rows.length +
-      "</span></div>" +
-      '<div class="hrx-statchip"><span class="k">Gross total</span><span class="v" style="font-size:17px">' +
-      money(gross) +
-      "</span></div>" +
-      '<div class="hrx-statchip"><span class="k">Deductions</span><span class="v" style="font-size:17px">' +
-      money(ded) +
-      "</span></div>" +
-      '<div class="hrx-statchip"><span class="k">Net payout</span><span class="v" style="font-size:17px">' +
-      money(net) +
-      "</span></div>" +
-      '<div class="hrx-statchip"><span class="k">Paid</span><span class="v">' +
-      paid +
-      " / " +
-      run.rows.length +
-      "</span></div></div>" +
-      '<div class="hrx-toolbar"><div class="hrx-hint">Salary is monthly in-hand. PT ₹200 flat; configure statutory deductions under Settings → Configuration.</div><span class="hrx-spacer"></span>' +
-      actions +
-      "</div>" +
-      '<div class="table-scroll"><table><thead><tr><th>Employee</th><th>Department</th><th>Basic</th><th>Gross</th><th>Deductions</th><th>Net</th><th>Payment</th><th>Payslip</th></tr></thead><tbody>' +
-      rows +
-      "</tbody></table></div>"
-    );
+    return '<div class="hrx-hint">Loading salary records…</div>';
   }
   function renderPayslips() {
-    var run = currentRun();
-    return (
-      '<div class="hrx-hint" style="margin-bottom:12px">Select an employee to view and print their payslip for ' +
-      esc(run.period) +
-      ".</div>" +
-      '<div class="table-scroll"><table><thead><tr><th>Employee</th><th>Department</th><th>Net pay</th><th>Status</th><th>Payslip</th></tr></thead><tbody>' +
-      run.rows
-        .map(function (r) {
-          return (
-            "<tr><td>" +
-            empCell(r.empId) +
-            "</td><td>" +
-            esc(
-              deptName(
-                (
-                  S.employees.find(function (e) {
-                    return e.id === r.empId;
-                  }) || {}
-                ).dept,
-              ),
-            ) +
-            '</td><td class="num">' +
-            money(r.net) +
-            "</td><td>" +
-            badge(r.payStatus) +
-            '</td><td><button class="btn btn-outline btn-sm" data-hrx-special="payslip:' +
-            r.empId +
-            '">View payslip</button></td></tr>'
-          );
-        })
-        .join("") +
-      "</tbody></table></div>"
-    );
-  }
-  function showPayslip(empId) {
-    var run = currentRun(),
-      r = run.rows.find(function (x) {
-        return x.empId === empId;
-      }),
-      e = S.employees.find(function (x) {
-        return x.id === empId;
-      });
-    if (!r || !e) return;
-    var earn = [
-      ["Basic Salary", r.basic],
-      ["HRA", r.hra],
-      ["Conveyance", r.conv],
-      ["Special Allowance", r.special],
-      ["Bonus", r.bonus],
-    ];
-    var ded = [
-      ["Professional Tax", r.pt],
-      ["Other Deductions", r.otherDed],
-    ];
-    var html =
-      '<div class="modal-head"><h3>Payslip — ' +
-      esc(run.period) +
-      '</h3><button class="icon-btn" style="width:32px;height:32px" aria-label="Close" data-close="1">✕</button></div>' +
-      '<div class="modal-body hrx-modalbody"><div class="hrx-payslip" id="hrxPayslipPrint">' +
-      '<div class="hrx-ps-head"><div><h3>Cyethack Solutions Pvt. Ltd.</h3><div style="font-size:12px;color:var(--text-2)">Payslip · ' +
-      esc(run.period) +
-      " · " +
-      esc(run.id) +
-      '</div></div><div style="text-align:right;font-size:12px;color:var(--text-2)">' +
-      esc(e.name) +
-      "<br>" +
-      esc(e.id) +
-      "</div></div>" +
-      '<div class="hrx-detail" style="margin-bottom:16px"><dt>Designation</dt><dd>' +
-      esc(e.designation) +
-      "</dd><dt>Department</dt><dd>" +
-      esc(deptName(e.dept)) +
-      "</dd><dt>Payment Status</dt><dd>" +
-      badge(r.payStatus) +
-      "</dd><dt>Pay Date</dt><dd>" +
-      (run.payDate ? niceDate(run.payDate) : "—") +
-      "</dd></div>" +
-      '<div class="hrx-ps-grid"><div><b style="font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--teal-bright)">Earnings</b><table>' +
-      earn
-        .map(function (x) {
-          return (
-            "<tr><td>" +
-            x[0] +
-            '</td><td class="num" style="text-align:right">' +
-            money(x[1]) +
-            "</td></tr>"
-          );
-        })
-        .join("") +
-      '</table><div class="hrx-ps-total"><span>Gross</span><span>' +
-      money(r.gross) +
-      "</span></div></div>" +
-      '<div><b style="font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--teal-bright)">Deductions</b><table>' +
-      ded
-        .map(function (x) {
-          return (
-            "<tr><td>" +
-            x[0] +
-            '</td><td class="num" style="text-align:right">' +
-            money(x[1]) +
-            "</td></tr>"
-          );
-        })
-        .join("") +
-      '</table><div class="hrx-ps-total"><span>Total</span><span>' +
-      money(r.ded) +
-      "</span></div></div></div>" +
-      '<div class="hrx-ps-net"><span>Net Pay (in-hand)</span><b>' +
-      money(r.net) +
-      "</b></div></div></div>" +
-      '<div class="modal-foot"><button class="btn btn-ghost" data-close="1">Close</button><button class="btn btn-primary" data-hrx-special="printslip">Print / Save PDF</button></div>';
-    openModalX(html);
+    return '<div class="hrx-hint">Loading salary records…</div>';
   }
   function renderSalaryStructure() {
-    return (
-      '<div class="hrx-hint" style="margin-bottom:12px">In-hand salary structure per employee. Earnings split: Basic 50%, HRA 20%, Conveyance ₹1,600, remainder Special Allowance.</div>' +
-      '<div class="table-scroll"><table><thead><tr><th>Employee</th><th>Designation</th><th>Grade</th><th>Basic</th><th>HRA</th><th>Special</th><th>Monthly in-hand</th></tr></thead><tbody>' +
-      S.employees
-        .map(function (e) {
-          var basic = Math.round(e.salary * 0.5),
-            hra = Math.round(e.salary * 0.2),
-            conv = 1600,
-            special = e.salary - basic - hra - conv;
-          return (
-            "<tr><td>" +
-            empCell(e.id) +
-            "</td><td>" +
-            esc(e.designation) +
-            '</td><td class="num">' +
-            esc(e.grade) +
-            '</td><td class="num">' +
-            money(basic) +
-            '</td><td class="num">' +
-            money(hra) +
-            '</td><td class="num">' +
-            money(special) +
-            '</td><td class="num">' +
-            money(e.salary) +
-            "</td></tr>"
-          );
-        })
-        .join("") +
-      "</tbody></table></div>"
-    );
+    return '<div class="hrx-hint">Loading salary records…</div>';
   }
   function renderPayrollHistory() {
-    return (
-      '<div class="table-scroll"><table><thead><tr><th>Payroll ID</th><th>Period</th><th>Employees</th><th>Net payout</th><th>Status</th></tr></thead><tbody>' +
-      S.payrollRuns
-        .slice()
-        .reverse()
-        .map(function (run) {
-          var net = run.rows.reduce(function (a, r) {
-            return a + r.net;
-          }, 0);
-          return (
-            '<tr><td class="num">' +
-            run.id +
-            "</td><td>" +
-            esc(run.period) +
-            '</td><td class="num">' +
-            run.rows.length +
-            '</td><td class="num">' +
-            money(net) +
-            "</td><td>" +
-            badge(run.status) +
-            "</td></tr>"
-          );
-        })
-        .join("") +
-      "</tbody></table></div>"
-    );
+    return '<div class="hrx-hint">Loading salary records…</div>';
   }
 
   // Work tracking (per-employee overview)
@@ -7843,32 +7584,7 @@ navigate = function (page) {
 
   /* ---- one delegated handler for the whole suite ---- */
   function handleSpecial(code) {
-    var run = currentRun();
-    if (code === "pay:calc") {
-      run.status = "Calculated";
-      audit("Payroll calculated", run.id);
-      toastX("Payroll calculated for " + run.period);
-      renderRoute("Payroll");
-    } else if (code === "pay:approve") {
-      run.status = "Approved";
-      audit("Payroll approved", run.id);
-      toastX("Payroll approved");
-      renderRoute("Payroll");
-    } else if (code === "pay:process") {
-      run.status = "Processed";
-      run.payDate = new Date().toISOString().slice(0, 10);
-      run.rows.forEach(function (r) {
-        r.payStatus = "Paid";
-      });
-      audit("Payroll processed", run.id);
-      notify("Payroll processed for " + run.period);
-      toastX("Payroll processed — " + run.rows.length + " employees paid");
-      renderRoute("Payroll");
-    } else if (code.indexOf("payslip:") === 0) {
-      showPayslip(code.slice(8));
-    } else if (code === "printslip") {
-      window.print && window.print();
-    } else if (code.indexOf("report:") === 0) {
+    if (code.indexOf("report:") === 0) {
       showReport(code.slice(7));
     } else if (code.indexOf("onb:") === 0) {
       var parts = code.split(":");
@@ -8327,22 +8043,7 @@ navigate = function (page) {
     var docs = (S.documents || []).filter(function (d) {
       return d.owner === e.id;
     });
-    var run =
-      S.payrollRuns && S.payrollRuns.length
-        ? S.payrollRuns[S.payrollRuns.length - 1]
-        : null;
-    var payRow = run
-      ? run.rows.find(function (r) {
-          return r.empId === e.id;
-        })
-      : null;
     var myDocs = [];
-    if (payRow)
-      myDocs.push({
-        t: "Payslip — " + run.period,
-        s: "Net " + money(payRow.net) + " · " + run.status,
-        ic: "banknote",
-      });
     myDocs.push({ t: "Employment contract", s: "On file", ic: "fileText" });
     docs.forEach(function (d) {
       myDocs.push({ t: d.name, s: d.type + " · " + d.status, ic: "fileText" });
@@ -9602,9 +9303,6 @@ navigate = function (page) {
   var HIDE_EMP = [
     "[data-hrx-add]",
     '[data-hrx-act]:not([data-hrx-act="view"])',
-    '[data-hrx-special="pay:calc"]',
-    '[data-hrx-special="pay:approve"]',
-    '[data-hrx-special="pay:process"]',
     '[data-hrx-special^="onb:"]',
     '[data-act="approve"]',
     '[data-act="reject"]',
@@ -9682,7 +9380,10 @@ navigate = function (page) {
       q.parentNode.style.display = role === "admin" ? "" : "none";
     /* sidebar + topbar identity reflect the active persona */
     var e = empById(PERSONA[role]) ||
-      empById("CHS-0001") || { name: "Kriti Singh", designation: "HR Admin" };
+      empById("CHS-0001") || {
+        name: (window.__hrUser && window.__hrUser.name) || "Employee",
+        designation: (window.__hrUser && window.__hrUser.role) || "",
+      };
     var who = doc.querySelector(".profile .who");
     if (who) {
       var b = who.querySelector("b"),
@@ -10975,7 +10676,7 @@ navigate = function (page) {
     version: 3,
     get store() {
       return store();
-    }, // employees, departments, jobs, candidates, payrollRuns, announcements, tickets, exits, audit, currentUser, …
+    }, // employees, departments, jobs, candidates, announcements, tickets, exits, audit, currentUser, …
     get leave() {
       return leaveList();
     }, // the one leave list (calendar + approvals + analytics + dashboard)
@@ -11910,14 +11611,8 @@ navigate = function (page) {
       ".hr-auth-row{display:flex;align-items:center;justify-content:space-between;margin:4px 0 16px}",
       ".hr-auth-remember{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-2);cursor:pointer;user-select:none}",
       ".hr-auth-remember input{width:15px;height:15px;accent-color:var(--teal)}",
-      ".hr-auth-hint{font-size:12px;color:var(--text-2)}",
       ".hr-auth-btn{width:100%;height:44px;justify-content:center;font-size:14px}",
       ".hr-auth-error{background:var(--red-tint);border:1px solid var(--red);color:var(--text);border-radius:8px;padding:9px 11px;font-size:12.5px;margin-bottom:13px}",
-      ".hr-auth-demo{margin-top:18px;border-top:1px solid var(--border);padding-top:13px;font-size:11px;color:var(--text-2);line-height:1.9}",
-      ".hr-auth-demo .h{font-weight:600;color:var(--text-2);margin-bottom:2px}",
-      ".hr-auth-demo button{display:block;background:transparent;border:0;text-align:left;color:var(--text-2);font-family:var(--mono);font-size:10.5px;cursor:pointer;padding:2px 0}",
-      ".hr-auth-demo button:hover{color:var(--teal-bright)}",
-      ".hr-auth-demo code{color:var(--teal-bright)}",
       "@media (max-width:480px){.hr-auth-card{padding:22px 18px}}",
     ].join("");
     doc.head.appendChild(st);
@@ -11947,8 +11642,8 @@ navigate = function (page) {
       '<div class="hr-auth-sub">Access your HR portal</div>' +
       '<div class="hr-auth-error" id="hr-auth-error" hidden role="alert"></div>' +
       '<div class="hr-auth-field">' +
-      '<label for="hr-auth-user">Username or email</label>' +
-      '<input id="hr-auth-user" type="text" autocomplete="username" placeholder="you@cyethack.com" aria-label="Username or email">' +
+      '<label for="hr-auth-user">Email address</label>' +
+      '<input id="hr-auth-user" type="email" autocomplete="username" placeholder="you@cyethack.com" aria-label="Email address">' +
       "</div>" +
       '<div class="hr-auth-field">' +
       '<label for="hr-auth-pass">Password</label>' +
@@ -11959,26 +11654,8 @@ navigate = function (page) {
       "</div>" +
       '<div class="hr-auth-row">' +
       '<label class="hr-auth-remember"><input type="checkbox" id="hr-auth-remember"> Remember me</label>' +
-      '<span class="hr-auth-hint">Demo login</span>' +
       "</div>" +
       '<button type="submit" class="btn btn-primary hr-auth-btn" id="hr-auth-submit">Sign in</button>' +
-      '<div class="hr-auth-demo" id="hr-auth-demo"><div class="h">Demo accounts (click to fill):</div>' +
-      USERS.map(function (x) {
-        return (
-          '<button type="button" data-hr-auth-fill="' +
-          esc(x.u) +
-          "|" +
-          esc(x.p) +
-          '"><code>' +
-          esc(x.u) +
-          "</code> · " +
-          esc(x.p) +
-          " — " +
-          esc(x.role) +
-          "</button>"
-        );
-      }).join("") +
-      "</div>" +
       "</form>";
     doc.body.appendChild(wrap);
 
@@ -11988,14 +11665,6 @@ navigate = function (page) {
       attempt();
     });
     doc.getElementById("hr-auth-toggle").addEventListener("click", togglePw);
-    doc.getElementById("hr-auth-demo").addEventListener("click", function (ev) {
-      var b = ev.target.closest("[data-hr-auth-fill]");
-      if (!b) return;
-      var parts = b.getAttribute("data-hr-auth-fill").split("|");
-      doc.getElementById("hr-auth-user").value = parts[0];
-      doc.getElementById("hr-auth-pass").value = parts[1];
-      hideError();
-    });
     ["hr-auth-user", "hr-auth-pass"].forEach(function (id) {
       doc.getElementById(id).addEventListener("input", hideError);
     });

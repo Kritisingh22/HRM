@@ -63,7 +63,7 @@ function canAccess(user, emp) {
  * destroyed — pass ?status=Exited (exact) or ?includeExited=true to retrieve
  * them for offboarding / historical views. */
 exports.list = catchAsync(async (req, res) => {
-  const filter = scopeFilter(req.user);
+  const filter = await scopeFilter(req.user);
   if (req.query.department) filter.department = req.query.department;
   if (req.query.status)
     filter.status = req.query.status; // explicit exact filter (may request Exited)
@@ -95,7 +95,11 @@ exports.create = catchAsync(async (req, res) => {
   const body = pick(req.body);
   if (!body.employeeId || !body.fullName)
     throw ApiError.badRequest("employeeId and fullName are required.");
-  if (req.user.role === "HR" && !body.assignedHrId) {
+  // The assigned HR is ALWAYS the authenticated HR who is creating the record —
+  // never trust a frontend-supplied assignedHrId here, even if one was sent.
+  // (Admin/Super Admin may still set it explicitly, e.g. onboarding on another
+  // HR's behalf, since they aren't self-assigning.)
+  if (req.user.role === "HR") {
     body.assignedHrId = req.user.employeeId || null;
   }
   const emp = await Employee.create(body);

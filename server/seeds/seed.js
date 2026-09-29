@@ -22,8 +22,26 @@ const Offboarding = require("../models/Offboarding");
 // Passwords are generated as: first 4 alphabetic chars of first name + employeeId
 const DEV_USERS = [
   {
+    employeeId: "ADMIN-001",
+    fullName: "ADMIN USER",
+    email: "admin@cyethack.com",
+    role: "ADMIN",
+    password: "Admin@123",
+    department: "Administration",
+    designation: "Administrator",
+  },
+  {
+    employeeId: "SUPER-001",
+    fullName: "SUPER ADMIN USER",
+    email: "superadmin@cyethack.com",
+    role: "SUPER_ADMIN",
+    password: "Super@123",
+    department: "Administration",
+    designation: "Super Administrator",
+  },
+  {
     employeeId: "CY0125JS201",
-    fullName: "Jaya Sahu",
+    fullName: "JAYA SAHU",
     email: "jaya.sahu@cyethack.com",
     role: "HR",
     password: "JayaCY0125JS201",
@@ -32,40 +50,77 @@ const DEV_USERS = [
   },
   {
     employeeId: "CY0824SD301",
-    fullName: "Surya Dev Diwedi",
+    fullName: "SURYA DEV DIWEDI",
     email: "surya.dwivedi@cyethack.com",
     role: "MANAGER",
     password: "SuryCY0824SD301",
     department: "Project Management",
-    designation: "Project Manager",
+    designation: "PROJECT MANAGER",
   },
   {
     employeeId: "CY0525RS109",
-    fullName: "Gangarapu Rohith Sai Ganesh",
+    fullName: "GANGARAPU ROHITH SAI GANESH",
     email: "rohith.sai@cyethack.com",
     role: "EMPLOYEE",
     password: "GangCY0525RS109",
     department: "Engineering",
-    designation: "Django Developer",
+    designation: "DJANGO DEVELOPER",
+  },
+  {
+    employeeId: "CY0226AR110",
+    fullName: "ATHUL RAJAGOPALAN P",
+    email: "athul.raja@cyethack.com",
+    role: "EMPLOYEE",
+    password: "AthuCY0226AR110",
+    department: "Engineering",
+    designation: "DJANGO DEVELOPER",
+  },
+  {
+    employeeId: "CY0626AD111",
+    fullName: "AMAN DANGE",
+    email: "aman.dange@cyethack.com",
+    role: "EMPLOYEE",
+    password: "AmanCY0626AD111",
+    department: "Engineering",
+    designation: "DJANGO DEVELOPER",
+  },
+  {
+    employeeId: "CY0726SS112",
+    fullName: "SANAL SABU",
+    email: "sanal.sabu@cyethack.com",
+    role: "EMPLOYEE",
+    password: "SanaCY0726SS112",
+    department: "Engineering",
+    designation: "DJANGO DEVELOPER",
   },
 ];
 
 const HR_EMPLOYEE_ID = "CY0125JS201";
-const BLOOD_GROUPS = ["A+", "O+", "B+", "AB+", "A-", "O-"];
+const BLOOD_GROUPS = [
+  "A+",
+  "A-",
+  "B+",
+  "B-",
+  "AB+",
+  "AB-",
+  "O+",
+  "O-",
+  "Unknown",
+];
 const WORK_MODES = ["On-site", "Hybrid", "Remote", "Work from Home"];
 
 // employee directory (mirrors the portal's shape). manager = manager's employeeId.
 const EMPLOYEES = [
   {
     employeeId: "CY0125JS201",
-    fullName: "Jaya Sahu",
+    fullName: "JAYA SAHU",
     email: "jaya.sahu@cyethack.com",
     department: "Human Resources",
     designation: "HR",
     manager: null,
     location: "Work from Home",
     workMode: "Work from Home",
-    bloodGroup: "O+",
+    bloodGroup: "B+",
     assignedHrId: "CY0125JS201",
     salary: 95000,
     status: "Active",
@@ -73,18 +128,18 @@ const EMPLOYEES = [
     bankName: "HDFC Bank",
     accountNumber: "50100123456789",
     ifsc: "HDFC0001234",
-    accountHolderName: "Jaya Sahu",
+    accountHolderName: "JAYA SAHU",
   },
   {
     employeeId: "CY0824SD301",
-    fullName: "Surya Dev Diwedi",
+    fullName: "SURYA DEV DIWEDI",
     email: "surya.dwivedi@cyethack.com",
     department: "Project Management",
-    designation: "Project Manager",
+    designation: "PROJECT MANAGER",
     manager: null,
     location: "Work from Home",
-    workMode: "Hybrid",
-    bloodGroup: "A+",
+    workMode: "Work from Home",
+    bloodGroup: "B+",
     assignedHrId: "CY0125JS201",
     salary: 120000,
     status: "Active",
@@ -92,15 +147,15 @@ const EMPLOYEES = [
     bankName: "ICICI Bank",
     accountNumber: "012301543210",
     ifsc: "ICIC0000123",
-    accountHolderName: "Surya Dev Diwedi",
+    accountHolderName: "SURYA DEV DIWEDI",
   },
   {
     employeeId: "CY0525RS109",
-    fullName: "Gangarapu Rohith Sai Ganesh",
+    fullName: "GANGARAPU ROHITH SAI GANESH",
     email: "rohith.sai@cyethack.com",
     department: "Engineering",
-    designation: "Django Developer",
-    manager: "CY0824SD301",
+    designation: "DJANGO DEVELOPER",
+    manager: "CY0125JS201",
     location: "Client site",
     workMode: "On-site",
     bloodGroup: "B+",
@@ -111,18 +166,18 @@ const EMPLOYEES = [
     bankName: "State Bank of India",
     accountNumber: "32456789012",
     ifsc: "SBIN0001234",
-    accountHolderName: "Gangarapu Rohith Sai Ganesh",
+    accountHolderName: "GANGARAPU ROHITH SAI GANESH",
   },
   {
     employeeId: "CY0226AR110",
-    fullName: "Athul Rajagopalan P",
+    fullName: "ATHUL RAJAGOPALAN P",
     email: "athul.raja@cyethack.com",
     department: "Engineering",
-    designation: "Django Developer",
+    designation: "DJANGO DEVELOPER",
     manager: "CY0824SD301",
     location: "Client site",
-    workMode: "Remote",
-    bloodGroup: "AB+",
+    workMode: "On-site",
+    bloodGroup: "B+",
     assignedHrId: "CY0125JS201",
     salary: 75000,
     status: "Active",
@@ -130,18 +185,18 @@ const EMPLOYEES = [
     bankName: "Axis Bank",
     accountNumber: "917010012345678",
     ifsc: "UTIB0001234",
-    accountHolderName: "Athul Rajagopalan P",
+    accountHolderName: "ATHUL RAJAGOPALAN P",
   },
   {
     employeeId: "CY0626AD111",
-    fullName: "Aman Dange",
+    fullName: "AMAN DANGE",
     email: "aman.dange@cyethack.com",
     department: "Engineering",
-    designation: "Django Developer",
+    designation: "DJANGO DEVELOPER",
     manager: "CY0824SD301",
     location: "Client site",
-    workMode: "Hybrid",
-    bloodGroup: "O-",
+    workMode: "On-site",
+    bloodGroup: "A+",
     assignedHrId: "CY0125JS201",
     salary: 75000,
     status: "Active",
@@ -149,18 +204,18 @@ const EMPLOYEES = [
     bankName: "Kotak Mahindra Bank",
     accountNumber: "2311234567",
     ifsc: "KKBK0001234",
-    accountHolderName: "Aman Dange",
+    accountHolderName: "AMAN DANGE",
   },
   {
     employeeId: "CY0726SS112",
-    fullName: "Sanal Sabu",
+    fullName: "SANAL SABU",
     email: "sanal.sabu@cyethack.com",
     department: "Engineering",
-    designation: "Django Developer",
+    designation: "DJANGO DEVELOPER",
     manager: "CY0824SD301",
     location: "Client site",
     workMode: "On-site",
-    bloodGroup: "A-",
+    bloodGroup: "O-",
     assignedHrId: "CY0125JS201",
     salary: 75000,
     status: "Active",
@@ -168,7 +223,7 @@ const EMPLOYEES = [
     bankName: "Punjab National Bank",
     accountNumber: "0123000100123456",
     ifsc: "PUNB0001234",
-    accountHolderName: "Sanal Sabu",
+    accountHolderName: "SANAL SABU",
   },
 ];
 
@@ -212,12 +267,20 @@ async function seedDatabase() {
     const doc = new User(attrs);
     doc.password = u.password; // hashed on save
     await doc.save();
-    userDocs[u.role] = doc;
+    userDocs[u.employeeId] = doc; // keyed by employeeId — role alone collides now that 4 of the 6 are EMPLOYEE
     if (u.employeeId && empDocs[u.employeeId]) {
       empDocs[u.employeeId].user = doc._id;
       await empDocs[u.employeeId].save();
     }
   }
+
+  // Named references for the sample data below (HR = Jaya, Manager = Surya,
+  // "the employee" in these fixtures = Rohith, the one with sample leave/tickets).
+  userDocs.ADMIN = userDocs["ADMIN-001"];
+  userDocs.SUPER_ADMIN = userDocs["SUPER-001"];
+  userDocs.HR = userDocs["CY0125JS201"];
+  userDocs.MANAGER = userDocs["CY0824SD301"];
+  userDocs.EMPLOYEE = userDocs["CY0525RS109"];
 
   // sample leave: one for the manager's team (CY0525RS109) and one for the employee (CY0525RS109)
   await Leave.create([
@@ -380,7 +443,7 @@ async function seedDatabase() {
       name: "HR Portal",
       status: "Active",
       manager: empDocs["CY0824SD301"]._id,
-      members: [empDocs["CY0626AD111"]._id],
+      members: [empDocs["CY0525RS109"]._id, empDocs["CY0626AD111"]._id],
       progress: 80,
       createdBy: userDocs.HR._id,
     },
@@ -450,7 +513,7 @@ async function run() {
   console.log(
     "\nEmployees: " +
       EMPLOYEES.length +
-      ' | Manager "manager@cyethack.com" manages CY0525RS109, CY0226AR110, CY0626AD111, CY0726SS112.',
+      ' | Manager "surya.dwivedi@cyethack.com" manages CY0226AR110, CY0626AD111, CY0726SS112.',
   );
   await disconnectDB();
 }

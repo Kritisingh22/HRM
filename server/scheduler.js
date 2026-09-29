@@ -6,11 +6,15 @@ const DailyReport = require('./models/DailyReport');
 const Employee = require('./models/Employee');
 const User = require('./models/User');
 const Notification = require('./models/Notification');
+const AccessRequest = require('./models/AccessRequest');
+const { computeWeeklySummariesForAllEmployees } = require('./utils/weeklyAttendance');
 const { sendDailyReportReminder } = require('./services/emailService');
 const { logAudit } = require('./utils/audit');
 
 let reminderJob = null;
 let overdueJob = null;
+let accessExpiryJob = null;
+let weeklyAttendanceJob = null;
 
 function startOfDay(d) {
   const dt = new Date(d);
@@ -56,6 +60,36 @@ function startScheduler() {
   });
   console.log('[Scheduler] Daily report overdue job scheduled: 0 0 * * * (Asia/Kolkata)');
 
+  // Access-grant expiry job — runs every 15 minutes. Requirement #11: "After
+  // expiration, permissions automatically end" — this is what makes that true,
+  // rather than expiry being merely a date teamScope.js happens to check.
+  accessExpiryJob = cron.schedule('*/15 * * * *', async () => {
+    await expireAccessGrants();
+  }, {
+    scheduled: true,
+    timezone: 'Asia/Kolkata',
+  });
+  console.log('[Scheduler] Access-grant expiry job scheduled: */15 * * * * (Asia/Kolkata)');
+
+  // Weekly attendance summary — requirement #20/#21. Runs Monday 00:30, deriving
+  // last week's summary from real Attendance/LoginSession/Leave data. Upserts on
+  // (employee, weekStart), so re-running it is always safe (never duplicates,
+  // never touches the underlying records it was derived from).
+  weeklyAttendanceJob = cron.schedule('30 0 * * 1', async () => {
+    try {
+      const lastWeekRef = new Date();
+      lastWeekRef.setDate(lastWeekRef.getDate() - 1); // land in the week that just ended (Sunday)
+      const results = await computeWeeklySummariesForAllEmployees(lastWeekRef);
+      console.log(`[Scheduler] Weekly attendance summary generated for ${results.length} employee(s).`);
+    } catch (err) {
+      console.error('[Scheduler] Weekly attendance summary job failed:', err.message);
+    }
+  }, {
+    scheduled: true,
+    timezone: 'Asia/Kolkata',
+  });
+  console.log('[Scheduler] Weekly attendance summary job scheduled: 30 0 * * 1 (Asia/Kolkata)');
+
   console.log('[Scheduler] All jobs started');
 }
 
@@ -72,7 +106,35 @@ function stopScheduler() {
     overdueJob.stop();
     overdueJob = null;
   }
+  if (accessExpiryJob) {
+    accessExpiryJob.stop();
+    accessExpiryJob = null;
+  }
+  if (weeklyAttendanceJob) {
+    weeklyAttendanceJob.stop();
+    weeklyAttendanceJob = null;
+  }
   console.log('[Scheduler] All jobs stopped');
+}
+
+/**
+ * Marks any Approved, non-transfer AccessRequest whose expiresAt has passed as
+ * Expired. teamScope.js already ignores expired grants (it filters on
+ * expiresAt itself), so this job's real job is making that state visible/auditable
+ * rather than leaving stale "Approved" rows that quietly stopped granting anything.
+ */
+async function expireAccessGrants() {
+  try {
+    const result = await AccessRequest.updateMany(
+      { status: 'Approved', isTransfer: false, expiresAt: { $ne: null, $lt: new Date() } },
+      { $set: { status: 'Expired' } }
+    );
+    if (result.modifiedCount) {
+      console.log(`[Scheduler] Expired ${result.modifiedCount} access grant(s).`);
+    }
+  } catch (err) {
+    console.error('[Scheduler] Access-grant expiry check failed:', err.message);
+  }
 }
 
 /**
@@ -405,4 +467,6 @@ module.exports = {
   checkAndSendReminders,
   markOverdueReports,
   triggerReminderCheck,
+  expireAccessGrants,
+  computeWeeklySummariesForAllEmployees,
 };

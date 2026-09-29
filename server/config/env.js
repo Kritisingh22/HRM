@@ -14,7 +14,10 @@ const cfg = {
   ACCESS_TOKEN_EXPIRES_IN: process.env.ACCESS_TOKEN_EXPIRES_IN || '15m',
   REFRESH_TOKEN_EXPIRES_IN: process.env.REFRESH_TOKEN_EXPIRES_IN || '7d',
 
-  FRONTEND_URL: process.env.FRONTEND_URL || 'https://hrm-portal.pages.dev/login',
+  // Bare origin only (no path) — used both as the CORS allow-origin (must exactly
+  // match the browser's Origin header, which never includes a path) and as a
+  // prefix for links built elsewhere as `${FRONTEND_URL}/some/path` (e.g. emails).
+  FRONTEND_URL: process.env.FRONTEND_URL || 'https://hrm-portal.pages.dev',
   COOKIE_NAME: 'cyethack_refresh',
 
   // One-time setup token for POST /api/auth/bootstrap-admin. Bootstrap requires

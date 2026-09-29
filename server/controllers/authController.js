@@ -3,6 +3,8 @@
 const cfg = require('../config/env');
 const User = require('../models/User');
 const RefreshToken = require('../models/RefreshToken');
+const Employee = require('../models/Employee');
+const LoginSession = require('../models/LoginSession');
 const ApiError = require('../utils/ApiError');
 const catchAsync = require('../utils/catchAsync');
 const crypto = require('crypto');
@@ -11,6 +13,7 @@ const {
 } = require('../utils/tokens');
 const { permissionsFor } = require('../utils/permissions');
 const { navFor, portalFor } = require('../utils/navigation');
+const { notifyByEmployee } = require('../utils/notifyByEmployee');
 
 const REFRESH_MS = ttlToMs(cfg.REFRESH_TOKEN_EXPIRES_IN);
 
@@ -52,6 +55,86 @@ async function issueRefreshToken(user, req, family) {
     ip: req.ip
   });
   return raw;
+}
+
+// Extracts an optional GPS reading from the request body: only latitude/longitude
+// (and optional accuracy) as plain numbers. Anything else is ignored — this
+// endpoint captures a one-time reading at login, never continuous tracking.
+function readGpsFromBody(body) {
+  const gps = body && body.gps;
+  if (!gps) return null;
+  const lat = Number(gps.latitude);
+  const lng = Number(gps.longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+  const accuracy = Number(gps.accuracy);
+  return {
+    latitude: lat,
+    longitude: lng,
+    accuracy: Number.isFinite(accuracy) ? accuracy : undefined,
+    capturedAt: new Date(),
+  };
+}
+
+// Opens a new LoginSession row and (best-effort) notifies the employee's
+// assigned HR/manager. loginAt/duration are always server time — never
+// anything supplied by the client.
+async function startLoginSession(user, req) {
+  const employee = await Employee.findOne({
+    $or: [{ user: user._id }, { employeeId: user.employeeId }],
+  });
+
+  const session = await LoginSession.create({
+    user: user._id,
+    employeeId: user.employeeId || (employee && employee.employeeId),
+    role: user.role,
+    loginAt: new Date(),
+    status: 'Active',
+    gps: readGpsFromBody(req.body),
+    ip: req.ip,
+    userAgent: req.headers['user-agent'],
+  });
+
+  if (employee) {
+    await notifyByEmployee(employee, {
+      type: 'Employee Login',
+      title: `${employee.fullName} logged in`,
+      message: `${employee.fullName} (${employee.employeeId}) logged in at ${session.loginAt.toLocaleString('en-IN')}.`,
+      relatedEntity: { type: 'Other', id: session._id },
+      metadata: { employeeId: employee.employeeId, sessionId: session._id },
+    });
+  }
+
+  return session;
+}
+
+// Closes the caller's most recent Active session (server clock on both ends —
+// duration is never trusted from the frontend) and notifies HR/manager.
+async function closeActiveSession(user) {
+  const session = await LoginSession.findOne({ user: user._id, status: 'Active' }).sort({ loginAt: -1 });
+  if (!session) return null;
+
+  session.logoutAt = new Date();
+  session.status = 'LoggedOut';
+  session.durationSeconds = session.liveDurationSeconds();
+  await session.save();
+
+  const employee = await Employee.findOne({
+    $or: [{ user: user._id }, { employeeId: user.employeeId }],
+  });
+  if (employee) {
+    const h = Math.floor(session.durationSeconds / 3600);
+    const m = Math.floor((session.durationSeconds % 3600) / 60);
+    await notifyByEmployee(employee, {
+      type: 'Employee Logout',
+      title: `${employee.fullName} logged out`,
+      message: `${employee.fullName} (${employee.employeeId}) logged out. Working time: ${h}h ${m}m.`,
+      relatedEntity: { type: 'Other', id: session._id },
+      metadata: { employeeId: employee.employeeId, sessionId: session._id, durationSeconds: session.durationSeconds },
+    });
+  }
+
+  return session;
 }
 
 function sendSession(res, user, rawRefresh) {
@@ -108,6 +191,7 @@ exports.login = catchAsync(async (req, res) => {
   await user.save();
 
   const raw = await issueRefreshToken(user, req);
+  await startLoginSession(user, req);
   res.json(sendSession(res, user, raw));
 });
 
@@ -152,7 +236,13 @@ exports.logout = catchAsync(async (req, res) => {
   const raw = req.cookies[cfg.COOKIE_NAME];
   if (raw) {
     const stored = await RefreshToken.findOne({ tokenHash: hashToken(raw) });
-    if (stored) { await RefreshToken.updateMany({ family: stored.family }, { revoked: true }); }
+    if (stored) {
+      await RefreshToken.updateMany({ family: stored.family }, { revoked: true });
+      // Not all logout calls carry a verified access token (req.user may be
+      // unset), so resolve the user from the refresh token itself.
+      const user = await User.findById(stored.user);
+      if (user) await closeActiveSession(user);
+    }
   }
   res.clearCookie(cfg.COOKIE_NAME, clearCookieOptions());
   res.json({ ok: true, message: 'Logged out successfully.' });

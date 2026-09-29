@@ -11,17 +11,25 @@ const ApiError = require('../utils/ApiError');
 const catchAsync = require('../utils/catchAsync');
 const { logAudit } = require('../utils/audit');
 const { userHasPermission } = require('../utils/permissions');
-
-const SEES_ALL = ['HR', 'ADMIN', 'SUPER_ADMIN'];
+// Shared scoping (single source of truth — see utils/teamScope.js). An HR user
+// is scoped to their OWN assigned employees (+ any live access-request grant),
+// never every employee just because their role is HR — that was the bug here.
+const { SEES_ALL, teamEmployeeIds } = require('../utils/teamScope');
 
 async function myEmployee(user) {
   return Employee.findOne({
     $or: [{ user: user._id }, { employeeId: user.employeeId }],
   });
 }
-async function teamEmployeeIds(user) {
-  const team = await Employee.find({ manager: user.employeeId }).select('_id');
-  return team.map((e) => e._id);
+
+// True if this HR is allowed to see/act on the given employeeId: assigned to
+// them, or covered by a live approved access-request grant (both already
+// reflected in teamEmployeeIds's HR branch).
+async function hrOwnsEmployee(user, employeeId) {
+  if (user.role !== 'HR') return false;
+  const ids = await teamEmployeeIds(user);
+  const emp = await Employee.findOne({ employeeId }).select('_id');
+  return !!emp && ids.some((id) => String(id) === String(emp._id));
 }
 
 /* GET /api/transfers */
@@ -35,10 +43,10 @@ exports.list = catchAsync(async (req, res) => {
   if (SEES_ALL.includes(req.user.role) && userHasPermission(req.user, 'transfers:read')) {
     if (req.query.status) filter.status = req.query.status;
     if (req.query.type) filter.type = req.query.type;
-  } else if (req.user.role === 'MANAGER') {
+  } else if (req.user.role === 'HR' || req.user.role === 'MANAGER') {
+    // teamEmployeeIds already scopes HR to their assigned employees (+ any live
+    // access-request grant) and MANAGER to their team — including themselves.
     const ids = await teamEmployeeIds(req.user);
-    const me = await myEmployee(req.user);
-    if (me) ids.push(me._id);
     filter.employee = { $in: ids };
     if (req.query.status) filter.status = req.query.status;
   } else {
@@ -71,10 +79,11 @@ exports.getOne = catchAsync(async (req, res) => {
   // Check access
   const me = await myEmployee(req.user);
   const isOwner = me && String(transfer.employee._id) === String(me._id);
-  const isHR = SEES_ALL.includes(req.user.role);
+  const isAdmin = SEES_ALL.includes(req.user.role);
+  const isOwningHR = await hrOwnsEmployee(req.user, transfer.employee.employeeId);
   const isManager = req.user.role === 'MANAGER' && transfer.employee.manager === req.user.employeeId;
   
-  if (!isOwner && !isHR && !isManager) {
+  if (!isOwner && !isAdmin && !isOwningHR && !isManager) {
     throw ApiError.forbidden('You do not have permission to view this transfer record.');
   }
   
@@ -97,6 +106,12 @@ exports.create = catchAsync(async (req, res) => {
   // Validate employee exists
   const emp = await Employee.findById(employee);
   if (!emp) throw ApiError.notFound('Employee not found.');
+
+  // An HR (not admin) may only initiate a transfer for an employee assigned to
+  // them or covered by a live access-request grant — never any employee.
+  if (!SEES_ALL.includes(req.user.role) && !(await hrOwnsEmployee(req.user, emp.employeeId))) {
+    throw ApiError.forbidden('You can only create transfers for employees assigned to you.');
+  }
   
   // Auto-populate from values if not provided
   const transferData = {
@@ -136,9 +151,10 @@ exports.update = catchAsync(async (req, res) => {
   const transfer = await Transfer.findById(req.params.id).populate('employee', 'employeeId fullName department designation location manager user');
   if (!transfer) throw ApiError.notFound('Transfer record not found.');
   
-  const isHR = SEES_ALL.includes(req.user.role);
-  if (!isHR) {
-    throw ApiError.forbidden('Only HR can update transfer records.');
+  const isAdmin = SEES_ALL.includes(req.user.role);
+  const isOwningHR = req.user.role === 'HR' && (await hrOwnsEmployee(req.user, transfer.employee.employeeId));
+  if (!isAdmin && !isOwningHR) {
+    throw ApiError.forbidden('Only HR assigned to this employee (or an admin) can update this transfer record.');
   }
   
   if (!userHasPermission(req.user, 'transfers:approve')) {

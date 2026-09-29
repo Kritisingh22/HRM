@@ -11,8 +11,13 @@ const catchAsync = require('../utils/catchAsync');
 const { logAudit } = require('../utils/audit');
 const { sendDailyReportReminder, sendDailyReportSubmitted, sendDailyReportReviewed } = require('../services/emailService');
 const cfg = require('../config/env');
-
-const SEES_ALL = ['HR', 'ADMIN', 'SUPER_ADMIN'];
+// Shared scoping (single source of truth — see utils/teamScope.js). SEES_ALL
+// here is ADMIN/SUPER_ADMIN only: HR was previously treated as "sees every
+// employee's daily report org-wide", which is exactly the cross-HR data leak
+// requirement #21 (HR scope isolation) rules out — HR is now scoped via
+// teamEmployeeIds to their own assigned employees (+ any live access grant),
+// same as MANAGER is scoped to their team.
+const { SEES_ALL, teamEmployeeIds } = require('../utils/teamScope');
 const REVIEWER_ROLES = ['HR', 'ADMIN', 'SUPER_ADMIN', 'MANAGER'];
 
 async function myEmployee(user) {
@@ -21,9 +26,12 @@ async function myEmployee(user) {
   });
 }
 
-async function teamEmployeeIds(user) {
-  const team = await Employee.find({ manager: user.employeeId }).select('_id');
-  return team.map((e) => e._id);
+// True if this HR is allowed to act on employeeId (assigned to them, or a live
+// approved access-request grant) — never any employee just by being HR.
+async function hrOwnsEmployee(user, employeeObjectId) {
+  if (user.role !== 'HR') return false;
+  const ids = await teamEmployeeIds(user);
+  return ids.some((id) => String(id) === String(employeeObjectId));
 }
 
 function startOfDay(d) {
@@ -46,10 +54,8 @@ exports.list = catchAsync(async (req, res) => {
 
   if (SEES_ALL.includes(req.user.role)) {
     if (employee) filter.employee = employee;
-  } else if (req.user.role === 'MANAGER') {
+  } else if (req.user.role === 'HR' || req.user.role === 'MANAGER') {
     const ids = await teamEmployeeIds(req.user);
-    const me = await myEmployee(req.user);
-    if (me) ids.push(me._id);
     filter.employee = { $in: ids };
   } else {
     const me = await myEmployee(req.user);
@@ -83,10 +89,8 @@ exports.summary = catchAsync(async (req, res) => {
 
   if (SEES_ALL.includes(req.user.role)) {
     filter = {};
-  } else if (req.user.role === 'MANAGER') {
+  } else if (req.user.role === 'HR' || req.user.role === 'MANAGER') {
     const ids = await teamEmployeeIds(req.user);
-    const me = await myEmployee(req.user);
-    if (me) ids.push(me._id);
     filter.employee = { $in: ids };
   } else {
     const me = await myEmployee(req.user);
@@ -122,10 +126,8 @@ exports.missing = catchAsync(async (req, res) => {
   if (SEES_ALL.includes(req.user.role)) {
     const emps = await Employee.find({ status: 'Active' }).select('_id');
     employeeIds = emps.map((e) => e._id);
-  } else if (req.user.role === 'MANAGER') {
+  } else if (req.user.role === 'HR' || req.user.role === 'MANAGER') {
     employeeIds = await teamEmployeeIds(req.user);
-    const me = await myEmployee(req.user);
-    if (me) employeeIds.push(me._id);
   } else {
     throw ApiError.forbidden('You do not have permission to view missing reports.');
   }
@@ -183,11 +185,20 @@ exports.missing = catchAsync(async (req, res) => {
 exports.create = catchAsync(async (req, res) => {
   let employeeId = req.body.employee;
 
-  // Determine target employee
-  if (!employeeId || !SEES_ALL.includes(req.user.role)) {
+  // Determine target employee. True admins may file for anyone; an HR may only
+  // file for an employee assigned to them (or a live access-request grant);
+  // everyone else (including MANAGER) always files their own.
+  if (!employeeId) {
     const me = await myEmployee(req.user);
     if (!me) throw ApiError.badRequest('No employee record linked to your account.');
     employeeId = me._id;
+  } else if (!SEES_ALL.includes(req.user.role)) {
+    const allowed = req.user.role === 'HR' && (await hrOwnsEmployee(req.user, employeeId));
+    if (!allowed) {
+      const me = await myEmployee(req.user);
+      if (!me) throw ApiError.badRequest('No employee record linked to your account.');
+      employeeId = me._id;
+    }
   }
 
   const date = req.body.date ? startOfDay(req.body.date) : startOfDay(new Date());
@@ -285,6 +296,11 @@ exports.update = catchAsync(async (req, res) => {
       // Manager can only review their team's reports
       const isTeam = report.employee.manager === req.user.employeeId;
       if (!isTeam) throw ApiError.forbidden('You can only review reports from your team.');
+    } else if (req.user.role === 'HR') {
+      // HR can only review reports for employees assigned to them (or a live
+      // access-request grant) — not every employee's report.
+      const owns = await hrOwnsEmployee(req.user, report.employee._id);
+      if (!owns) throw ApiError.forbidden('You can only review reports for employees assigned to you.');
     }
     // Reviewer can transition Submitted -> Reviewed
     if (action === 'Reviewed') {
@@ -356,10 +372,8 @@ exports.sendReminders = catchAsync(async (req, res) => {
   if (SEES_ALL.includes(req.user.role)) {
     const emps = await Employee.find({ status: 'Active' }).select('_id');
     employeeIds = emps.map((e) => e._id);
-  } else if (req.user.role === 'MANAGER') {
+  } else if (req.user.role === 'HR' || req.user.role === 'MANAGER') {
     employeeIds = await teamEmployeeIds(req.user);
-    const me = await myEmployee(req.user);
-    if (me) employeeIds.push(me._id);
   }
 
   const date = req.body.date ? startOfDay(req.body.date) : startOfDay(new Date());
@@ -379,7 +393,7 @@ exports.sendReminders = catchAsync(async (req, res) => {
     _id: { $in: employeeIds },
     status: 'Active',
     _id: { $nin: Array.from(submittedSet) },
-  }).select('employeeId fullName email user manager')
+  }).select('employeeId fullName email user manager assignedHrId')
     .populate('user', 'email fullName role')
     .populate('manager', 'employeeId fullName user')
     .lean();
@@ -492,8 +506,14 @@ async function sendEscalationNotification(employee, manager, date, originalNotif
   }
 }
 
+// Escalates ONLY to this employee's assigned HR (per requirement #21 — HR scope
+// isolation) plus true admins, never every HR in the company (requirement #18 —
+// notifications must go only to the authorized HR/Manager, not broadcast).
 async function sendHREscalationNotification(employee, date, originalNotificationId) {
-  const hrUsers = await User.find({ role: { $in: ['HR', 'ADMIN', 'SUPER_ADMIN'] }, status: 'active' })
+  const roleFilter = employee.assignedHrId
+    ? { $or: [{ employeeId: employee.assignedHrId, role: 'HR' }, { role: { $in: ['ADMIN', 'SUPER_ADMIN'] } }] }
+    : { role: { $in: ['ADMIN', 'SUPER_ADMIN'] } }; // no assigned HR on record → escalate to admins only
+  const hrUsers = await User.find({ ...roleFilter, status: 'active' })
     .select('email fullName')
     .lean();
 

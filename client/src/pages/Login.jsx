@@ -44,7 +44,6 @@ export default function Login() {
           <button type="button" className="toggle" onClick={() => setShow(!show)}>{show ? 'Hide' : 'Show'}</button>
         </div>
         <button className="btn" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
-        <div className="demo">Dev accounts: hr@cyethack.com / Hr@123 · employee@cyethack.com / Employee@123</div>
       </form>
     </div>
   );

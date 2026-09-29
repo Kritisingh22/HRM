@@ -26,5 +26,7 @@ router.use('/notifications', require('./notificationRoutes'));
 router.use('/permissions', require('./permissionRoutes'));
 router.use('/requirements', require('./requirementRoutes'));
 router.use('/transfers', require('./transferRoutes'));
+router.use('/sessions', require('./sessionRoutes'));
+router.use('/access-requests', require('./accessRequestRoutes'));
 
 module.exports = router;

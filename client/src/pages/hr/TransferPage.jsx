@@ -36,6 +36,7 @@ export default function TransferPage() {
   const { hasPermission } = useAuth();
   const toast = useToast();
   const { rows, loading, error, reload } = useList('/api/transfers');
+  const emps = useList('/api/employees');
 
   const canWrite = hasPermission('transfers:write');
   const canApprove = hasPermission('transfers:approve');
@@ -101,7 +102,7 @@ export default function TransferPage() {
       {editing && (
         <TransferForm
           initial={editing}
-          employees={rows.map(r => r.employee).filter(Boolean)}
+          employees={emps.rows || []}
           onClose={() => setEditing(null)}
           onSaved={async (msg) => { setEditing(null); toast.success(msg); await reload(); }}
           onError={(e) => toast.error(errText(e))}
@@ -205,7 +206,7 @@ function TransferForm({ initial, employees, onClose, onSaved, onError }) {
           <Field label="Employee" required error={fieldErr.employee}>
             <select value={f.employee} onChange={(e) => handleEmployeeChange(e.target.value)} disabled={isEdit}>
               <option value="">— Select Employee —</option>
-              {employees.map((emp) => (
+              {employees.filter((emp) => emp.status !== 'Exited').map((emp) => (
                 <option key={emp._id} value={emp._id}>{emp.fullName} ({emp.employeeId}) — {emp.department || '—'}</option>
               ))}
             </select>

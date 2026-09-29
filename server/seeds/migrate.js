@@ -53,7 +53,6 @@ const REAL_EMPLOYEES = [
     status: 'Active',
     joiningDate: '2025-01-06',
     role: 'HR',
-    // password: first 4 alphabetic chars of first name + employeeId
     password: 'JayaCY0125JS201',
     bankName: 'HDFC Bank',
     accountNumber: '50100123456789',

@@ -1,11 +1,13 @@
 /* NotificationBell — shows unread notification count in topbar, opens dropdown. */
 import { useCallback, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import { useAuth } from '../auth/AuthContext';
 import { useToast } from '../components/Toast';
 
 export default function NotificationBell() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const toast = useToast();
   const [count, setCount] = useState(0);
   const [open, setOpen] = useState(false);
@@ -55,7 +57,7 @@ export default function NotificationBell() {
   function goToNotifications(e) {
     e.stopPropagation();
     setOpen(false);
-    window.location.href = '/employee/notifications';
+    navigate('/' + (user?.portal || 'employee') + '/notifications');
   }
 
   if (count === 0 && notifications.length === 0) {
