@@ -110,6 +110,23 @@ async function apiForm(method, path, { access, form } = {}) {
   await new Promise((r) => server.once("listening", r));
 
   try {
+    // ============ HEALTH ENDPOINT (host platform readiness probe) ============
+    const health = await api("GET", "/api/health");
+    ok(
+      "170. GET /api/health needs no auth → 200 { status: ok }",
+      health.status === 200 && health.data.status === "ok",
+    );
+    ok(
+      "171. /api/health reports the live MongoDB connection state",
+      health.data.database === "connected",
+    );
+    ok(
+      "172. /api/health leaks no host, db name, URI or credentials",
+      !/mongodb/i.test(JSON.stringify(health.data)) &&
+        !/as0bfdl|onrender|:\/\//i.test(JSON.stringify(health.data)) &&
+        !/password|secret|token/i.test(JSON.stringify(health.data)),
+    );
+
     // ============ M3: strict Content-Security-Policy on the served portal ============
     const cspRes = await fetch(BASE + "/");
     const csp = cspRes.headers.get("content-security-policy") || "";

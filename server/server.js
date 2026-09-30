@@ -11,9 +11,19 @@ const { startScheduler, stopScheduler } = require('./scheduler');
     // Start background scheduler (reminders, overdue marking, etc.)
     startScheduler();
     
-    const server = app.listen(cfg.PORT, () => {
+    // Bind explicitly to 0.0.0.0 so the platform-assigned port (Render sets
+    // process.env.PORT dynamically) is reachable from outside the container.
+    // The port always comes from process.env.PORT via cfg — never hardcoded.
+    const server = app.listen(cfg.PORT, '0.0.0.0', () => {
+      const { port } = server.address();
       // eslint-disable-next-line no-console
-      console.log('Cyethack HR API + portal running: http://localhost:' + cfg.PORT + '  (' + cfg.NODE_ENV + ')');
+      console.log('Cyethack HR API + portal listening on 0.0.0.0:' + port + '  (' + cfg.NODE_ENV + ')');
+    });
+
+    server.on('error', (err) => {
+      // eslint-disable-next-line no-console
+      console.error('Failed to start HTTP server:', err.message);
+      process.exit(1);
     });
 
     // Graceful shutdown
