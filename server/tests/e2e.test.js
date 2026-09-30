@@ -215,6 +215,12 @@ async function apiForm(method, path, { access, form } = {}) {
         String(linkedLegacyEmployee.user) === String(repairedLegacy._id) &&
         linkedLegacyEmployee.assignedHrId === "CY0125JS201",
     );
+    // LEGACY-001 is a throwaway fixture, but it is linked to the real HR and the
+    // real manager — leaving it behind would silently shift the seeded roster
+    // counts the RBAC scope tests below assert on. Remove it now that it has
+    // proven the repair works.
+    await Employee.deleteOne({ _id: linkedLegacyEmployee._id });
+    await User.deleteOne({ _id: repairedLegacy._id });
 
     const empty = await api("POST", "/api/auth/login", {
       body: { email: "", password: "" },
