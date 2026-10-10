@@ -289,22 +289,81 @@ exports.generatePayslip = catchAsync(async (req, res) => {
   }
 
   // Get salary structure
-  const salaryStructure = await SalaryStructure.findOne({
+  let salaryStructure = await SalaryStructure.findOne({
     employee: employee,
     effectiveFrom: { $lte: new Date() },
     isActive: true,
     $or: [{ effectiveTo: { $exists: false } }, { effectiveTo: null }, { effectiveTo: { $gte: new Date() } }],
   }).sort({ effectiveFrom: -1 });
 
+  // Fallback: create a default salary structure from employee's salary field if none exists
+  let salaryStructureId;
+  let calculation;
   if (!salaryStructure) {
-    throw ApiError.badRequest('No active salary structure found for this employee.');
-  }
+    if (!employeeDoc.salary || employeeDoc.salary <= 0) {
+      throw ApiError.badRequest('No active salary structure found and employee has no base salary.');
+    }
+    // Create a default salary structure from employee's base salary
+    // Assume 50% basic, 30% HRA, 20% allowances; standard deductions
+    const baseSalary = employeeDoc.salary;
+    const basic = Math.round(baseSalary * 0.5);
+    const hra = Math.round(baseSalary * 0.3);
+    const allowances = { transport: Math.round(baseSalary * 0.1), medical: Math.round(baseSalary * 0.1) };
+    const deductions = {
+      pf: Math.min(Math.round(baseSalary * 0.12), 1800),
+      tds: 0,
+      esi: 0,
+      other: 0,
+    };
+    // Calculate using the same logic as calculatePayslip but with default structure
+    const policy = await getActivePolicyForDate(new Date());
+    const standardDays = 26; // Standard working days per month
+    const dailyRate = baseSalary / standardDays;
+    
+    // Get leave days for the period
+    const [year, month] = period.split('-').map(Number);
+    const from = new Date(year, month - 1, 1);
+    const to = new Date(year, month, 0);
+    const leaves = await Leave.aggregate([
+      { $match: { employee: employeeDoc._id, status: 'Approved', from: { $lte: to }, to: { $gte: from } } },
+      { $project: { from: 1, to: 1, days: 1, halfDay: 1 } },
+    ]);
+    let approvedLeaveDays = 0;
+    let unpaidLeaveDays = 0;
+    for (const leave of leaves) {
+      const leaveFrom = new Date(Math.max(new Date(leave.from), from));
+      const leaveTo = new Date(Math.min(new Date(leave.to), to));
+      const leaveDays = countWorkingDays(leaveFrom, leaveTo, policy) * (leave.halfDay ? 0.5 : 1);
+      if (leave.type === 'Unpaid Leave') {
+        unpaidLeaveDays += leaveDays;
+      } else {
+        approvedLeaveDays += leaveDays;
+      }
+    }
+    const actualWorkingDays = standardDays - approvedLeaveDays - unpaidLeaveDays;
+    const gross = Math.round(dailyRate * actualWorkingDays);
+    const totalDeductions = Object.values(deductions).reduce((a, b) => a + b, 0);
+    const net = Math.max(0, gross - totalDeductions);
 
-  // Get active calendar policy
-  const policy = await getActivePolicyForDate(new Date());
-  
-  // Calculate payslip
-  const calculation = await calculatePayslip(req.user, period, salaryStructure, policy);
+    calculation = {
+      gross,
+      net,
+      deductions,
+      workingDays: actualWorkingDays,
+      standardDays,
+      approvedLeaveDays,
+      unpaidLeaveDays,
+      dailyRate: Math.round(dailyRate * 100) / 100,
+    };
+    salaryStructureId = null; // No SalaryStructure document
+  } else {
+    salaryStructureId = salaryStructure._id;
+    // Get active calendar policy
+    const policy = await getActivePolicyForDate(new Date());
+    
+    // Calculate payslip
+    calculation = await calculatePayslip(req.user, period, salaryStructure, policy);
+  }
 
   if (regenerate) {
     await Payroll.findOneAndDelete({ employee, period });
@@ -312,7 +371,7 @@ exports.generatePayslip = catchAsync(async (req, res) => {
 
   const payslip = await Payroll.create({
     employee: employee,
-    salaryStructure: salaryStructure._id,
+    salaryStructure: salaryStructureId,
     period,
     gross: calculation.gross,
     deductions: calculation.deductions,
@@ -571,3 +630,24 @@ exports.downloadPDF = catchAsync(async (req, res) => {
   const signedUrl = await getSignedUrl(payslip.fileKey, 3600);
   res.redirect(signedUrl);
 });
+
+// Alias for route compatibility
+exports.generate = exports.generatePayslip;
+
+// Generate payslip for a specific employee (employeeId from params)
+exports.generateForEmployee = catchAsync(async (req, res) => {
+  // Find employee by employeeId (string like CY0525RS109) not _id
+  const employeeDoc = await Employee.findOne({ employeeId: req.params.employeeId });
+  if (!employeeDoc) throw ApiError.notFound('Employee not found.');
+  
+  // Check permission for this employee
+  if (!(await canWritePayrollOf(req.user, employeeDoc._id))) {
+    throw ApiError.forbidden('You are not authorized to generate payroll for this employee.');
+  }
+  
+  // Call generatePayslip with the employee's _id
+  req.body.employee = employeeDoc._id;
+  return exports.generatePayslip(req, res);
+});
+
+module.exports = exports;

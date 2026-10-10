@@ -394,6 +394,65 @@ async function seedDatabase() {
     },
   ]);
 
+  // sample salary structures (required for payroll generation)
+  const SalaryStructure = require("../models/SalaryStructure");
+  await SalaryStructure.create([
+    {
+      employee: empDocs["CY0525RS109"]._id,
+      basic: 15000,
+      hra: 5000,
+      allowances: { transport: 2000, medical: 1500 },
+      deductions: { pf: 1800, tds: 2000 },
+      effectiveFrom: new Date("2026-01-01"),
+      isActive: true,
+    },
+    {
+      employee: empDocs["CY0226AR110"]._id,
+      basic: 50000,
+      hra: 15000,
+      allowances: { transport: 3000, medical: 2000, special: 5000 },
+      deductions: { pf: 3600, tds: 8000 },
+      effectiveFrom: new Date("2026-01-01"),
+      isActive: true,
+    },
+    {
+      employee: empDocs["CY0626AD111"]._id,
+      basic: 20000,
+      hra: 8000,
+      allowances: { transport: 2000, medical: 1500 },
+      deductions: { pf: 2400, tds: 3000 },
+      effectiveFrom: new Date("2026-01-01"),
+      isActive: true,
+    },
+    {
+      employee: empDocs["CY0726SS112"]._id,
+      basic: 20000,
+      hra: 8000,
+      allowances: { transport: 2000, medical: 1500 },
+      deductions: { pf: 2400, tds: 3000 },
+      effectiveFrom: new Date("2026-01-01"),
+      isActive: true,
+    },
+    {
+      employee: empDocs["CY0626AD111"]._id,
+      basic: 20000,
+      hra: 8000,
+      allowances: { transport: 2000, medical: 1500 },
+      deductions: { pf: 2400, tds: 3000 },
+      effectiveFrom: new Date("2026-01-01"),
+      isActive: true,
+    },
+    {
+      employee: empDocs["CY0726SS112"]._id,
+      basic: 20000,
+      hra: 8000,
+      allowances: { transport: 2000, medical: 1500 },
+      deductions: { pf: 2400, tds: 3000 },
+      effectiveFrom: new Date("2026-01-01"),
+      isActive: true,
+    },
+  ]);
+
   // sample hiring
   await Hiring.create([
     {
