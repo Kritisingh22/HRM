@@ -1,6 +1,5 @@
-/* Employee — HR record for a person. Linked to a User (the login identity)
- * where one exists. Field shape mirrors the existing portal's employee data. */
-const mongoose = require("mongoose");
+'use strict';
+const mongoose = require('mongoose');
 
 const employeeSchema = new mongoose.Schema(
   {
@@ -11,7 +10,7 @@ const employeeSchema = new mongoose.Schema(
       trim: true,
       index: true,
     }, // e.g. CHS-0001
-    user: { type: mongoose.Schema.Types.ObjectId, ref: "User", index: true },
+    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
     fullName: { type: String, required: true, trim: true },
     email: {
       type: String,
@@ -23,21 +22,26 @@ const employeeSchema = new mongoose.Schema(
     phone: { type: String, trim: true },
     gender: {
       type: String,
-      enum: ["Male", "Female", "Other", "Prefer not to say"],
+      enum: ['Male', 'Female', 'Other', 'Prefer not to say'],
     },
     department: { type: String, trim: true },
     designation: { type: String, trim: true },
     manager: { type: String, trim: true }, // employeeId of the manager (mirrors portal data)
-    employmentType: { type: String, default: "Full-time" },
+    employmentType: { type: String, default: 'Full-time' },
     workMode: {
       type: String,
-      enum: ["On-site", "Hybrid", "Remote", "Work from Home"],
-      default: "On-site",
+      enum: ['On-site', 'Hybrid', 'Remote', 'Work from Home'],
+      default: 'On-site',
+    },
+    workLocation: {
+      type: String,
+      enum: ['office', 'onsite'],
+      default: 'office',
     },
     bloodGroup: {
       type: String,
-      enum: ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-", "Unknown"],
-      default: "Unknown",
+      enum: ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-', 'Unknown'],
+      default: 'Unknown',
     },
     assignedHrId: { type: String, trim: true, index: true, default: null },
     location: { type: String },
@@ -48,8 +52,8 @@ const employeeSchema = new mongoose.Schema(
     grade: { type: String },
     status: {
       type: String,
-      enum: ["Active", "On Leave", "Probation", "Exited"],
-      default: "Active",
+      enum: ['Active', 'On Leave', 'Probation', 'Exited'],
+      default: 'Active',
       index: true,
     },
     // Bank details for payslip generation
@@ -61,4 +65,4 @@ const employeeSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
-module.exports = mongoose.model("Employee", employeeSchema);
+module.exports = mongoose.model('Employee', employeeSchema);

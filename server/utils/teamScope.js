@@ -5,6 +5,7 @@
  * Employee.manager = the manager's employeeId (a STRING), never an ObjectId. */
 const Employee = require("../models/Employee");
 const AccessRequest = require("../models/AccessRequest");
+const User = require("../models/User");
 
 const SEES_ALL = ["ADMIN", "SUPER_ADMIN"];
 
@@ -28,10 +29,22 @@ async function grantedEmployeeIds(hrEmployeeId) {
 async function scopeFilter(user) {
   if (!user) return { _id: null };
   if (SEES_ALL.includes(user.role)) return {};
-  if (user.role === "MANAGER")
+  if (user.role === "MANAGER") {
+    // A manager manages HR + employees: their direct reports, the HR users among
+    // those reports, AND the employees assigned to those HR users.
+    const direct = await Employee.find({ manager: user.employeeId }).select("user");
+    const hrUsers = direct.length
+      ? await User.find({ _id: { $in: direct.map((e) => e.user).filter(Boolean) }, role: "HR" }).select("employeeId")
+      : [];
+    const hrIds = hrUsers.map((u) => u.employeeId).filter(Boolean);
     return {
-      $or: [{ manager: user.employeeId }, { employeeId: user.employeeId }],
+      $or: [
+        { manager: user.employeeId },
+        { employeeId: user.employeeId },
+        ...(hrIds.length ? [{ assignedHrId: { $in: hrIds } }] : []),
+      ],
     };
+  }
   if (user.role === "HR") {
     const granted = await grantedEmployeeIds(user.employeeId);
     return {

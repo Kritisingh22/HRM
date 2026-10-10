@@ -1,11 +1,11 @@
-/* Leave — a leave request tied to an employee (and the requesting user). */
+'use strict';
 const mongoose = require('mongoose');
 
 const leaveSchema = new mongoose.Schema(
   {
     employee: { type: mongoose.Schema.Types.ObjectId, ref: 'Employee', required: true, index: true },
     requestedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
-    type: { type: String, enum: ['Casual Leave', 'Sick Leave', 'Earned Leave', 'Unpaid Leave'], required: true },
+    type: { type: String, enum: ['Casual Leave', 'Sick Leave', 'Earned Leave', 'Unpaid Leave'], required: true, index: true },
     from: { type: Date, required: true },
     to: { type: Date, required: true },
     days: { type: Number, required: true, min: 0.5 },
@@ -17,7 +17,10 @@ const leaveSchema = new mongoose.Schema(
     decidedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     appliedOn: { type: Date, default: Date.now }
   },
-  { timestamps: true }
+  { timestamps: true },
 );
+
+leaveSchema.index({ employee: 1, status: 1 });
+leaveSchema.index({ from: 1, to: 1 });
 
 module.exports = mongoose.model('Leave', leaveSchema);

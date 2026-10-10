@@ -32,6 +32,7 @@ router.post(
   ctrl.generateForEmployee,
 );
 router.get("/:id/payslip", ctrl.getPayslip); // safe print/download projection
+router.get("/:id/download", ctrl.downloadPDF); // download PDF with signed URL
 router.get("/:id", ctrl.getOne); // object-level ownership
 router.post("/", requirePayrollPermission("payroll:write"), ctrl.create);
 router.put("/:id", requirePayrollPermission("payroll:write"), ctrl.update);

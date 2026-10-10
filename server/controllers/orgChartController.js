@@ -17,13 +17,16 @@
  * date of birth, or any other private/HR data (see SAFE_FIELDS). Scoping is
  * enforced HERE on the server; it does not rely on the client filtering anything.
  */
-const Employee = require("../models/Employee");
-const catchAsync = require("../utils/catchAsync");
-const { SEES_ALL } = require("../utils/teamScope");
+const Employee = require('../models/Employee');
+const catchAsync = require('../utils/catchAsync');
+const { SEES_ALL } = require('../utils/teamScope');
 
 // The only fields ever projected into the org chart. Anything sensitive
 // (salary, email, phone, dob, address, …) is intentionally excluded.
-const SAFE_FIELDS = "employeeId fullName designation department manager status";
+const SAFE_FIELDS = 'employeeId fullName designation department manager status';
+
+// HR sees the full company org chart along with ADMIN/SUPER_ADMIN
+const ORG_COMPANY_ROLES = ['HR', 'ADMIN', 'SUPER_ADMIN'];
 
 /* GET /api/org-chart */
 exports.tree = catchAsync(async (req, res) => {
@@ -32,8 +35,8 @@ exports.tree = catchAsync(async (req, res) => {
   // chains; the response is filtered to the permitted subset below.
   const all = await Employee.find().select(SAFE_FIELDS).limit(5000);
 
-  const byId = new Map(); // employeeId -> employee doc
-  const childrenOf = new Map(); // manager employeeId -> [child employeeId]
+  const byId = new Map();                 // employeeId -> employee doc
+  const childrenOf = new Map();           // manager employeeId -> [child employeeId]
   all.forEach((e) => {
     byId.set(e.employeeId, e);
     if (e.manager) {
@@ -46,23 +49,21 @@ exports.tree = catchAsync(async (req, res) => {
   const meId = req.user.employeeId || null;
   let scope, permitted; // permitted: Set<employeeId>, or null = whole company
 
-  if (role === "HR" || SEES_ALL.includes(role)) {
-    scope = "company";
-    permitted = null; // full company chart
-  } else if (role === "MANAGER") {
-    scope = "team";
+  if (ORG_COMPANY_ROLES.includes(role)) {
+    scope = 'company';
+    permitted = null;                     // full company chart
+  } else if (role === 'MANAGER') {
+    scope = 'team';
     permitted = new Set();
-    (function collectDown(id) {
-      // self + all direct/indirect reports
+    (function collectDown(id) {            // self + all direct/indirect reports
       if (!id || permitted.has(id) || !byId.has(id)) return;
       permitted.add(id);
       (childrenOf.get(id) || []).forEach(collectDown);
     })(meId);
   } else {
-    scope = "self"; // EMPLOYEE (and any non-privileged role)
+    scope = 'self';                        // EMPLOYEE (and any non-privileged role)
     permitted = new Set();
-    let cur = meId,
-      guard = 0; // self + manager chain upward to the root
+    let cur = meId, guard = 0;             // self + manager chain upward to the root
     while (cur && byId.has(cur) && !permitted.has(cur) && guard++ < 500) {
       permitted.add(cur);
       cur = byId.get(cur).manager || null;
@@ -86,14 +87,13 @@ exports.tree = catchAsync(async (req, res) => {
       department: e.department,
       manager: mgrInScope ? e.manager : null,
       status: e.status,
-      reports: [],
+      reports: []
     });
   });
 
   const roots = [];
   nodes.forEach((node) => {
-    if (node.manager && nodes.has(node.manager))
-      nodes.get(node.manager).reports.push(node);
+    if (node.manager && nodes.has(node.manager)) nodes.get(node.manager).reports.push(node);
     else roots.push(node);
   });
 

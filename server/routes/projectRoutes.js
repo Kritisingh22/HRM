@@ -9,4 +9,5 @@ router.get('/', ctrl.list);                                      // projects you
 router.get('/:id', ctrl.getOne);                                 // object-level access
 router.post('/', requirePermission('projects:write'), ctrl.create);
 router.put('/:id', requirePermission('projects:write'), ctrl.update);
+router.put('/:id/tasks/:taskId', ctrl.updateTaskStatus);   // assignee / in-scope staff only (checked in controller)
 module.exports = router;

@@ -43,6 +43,9 @@ app.use(cookieParser());
 // API
 app.use('/api', apiLimiter, apiRoutes);
 
+// Serve uploaded files (payslips, documents) from <cwd>/uploads
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
 // Serve the EXISTING portal frontend unchanged (public/). index.html is the portal.
 app.use(express.static(path.join(__dirname, 'public'), { extensions: ['html'] }));
 

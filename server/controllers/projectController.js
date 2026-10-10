@@ -5,13 +5,18 @@ const Employee = require('../models/Employee');
 const ApiError = require('../utils/ApiError');
 const catchAsync = require('../utils/catchAsync');
 
-const SEES_ALL = ['HR', 'ADMIN', 'SUPER_ADMIN'];
+const { teamEmployeeIds } = require('../utils/teamScope');
+const SEES_ALL = ['ADMIN', 'SUPER_ADMIN'];   // HR is scoped to their assigned employees (teamScope)
 async function myEmployee(user) { return Employee.findOne({ $or: [{ user: user._id }, { employeeId: user.employeeId }] }); }
 
 async function scopeFilter(user) {
   if (SEES_ALL.includes(user.role)) return {};
   const me = await myEmployee(user);
   if (!me) return { _id: null };
+  if (user.role === 'HR' || user.role === 'MANAGER') {
+    const ids = await teamEmployeeIds(user);            // self + assigned/team (+ live access grants)
+    return { $or: [{ manager: { $in: ids } }, { members: { $in: ids } }] };
+  }
   return { $or: [{ manager: me._id }, { members: me._id }] };
 }
 
@@ -27,7 +32,8 @@ exports.getOne = catchAsync(async (req, res) => {
   if (!p) throw ApiError.notFound('Project not found.');
   if (!SEES_ALL.includes(req.user.role)) {
     const me = await myEmployee(req.user);
-    const ok = me && (String(p.manager) === String(me._id) || (p.members || []).map(String).includes(String(me._id)));
+    const reach = ['HR', 'MANAGER'].includes(req.user.role) ? (await teamEmployeeIds(req.user)).map(String) : me ? [String(me._id)] : [];
+    const ok = me && (reach.includes(String(p.manager)) || (p.members || []).map(String).some((m) => reach.includes(m)));
     if (!ok) throw ApiError.forbidden('You do not have access to this project.');
   }
   res.json({ project: p });
@@ -59,3 +65,28 @@ async function findProject(id) {
   if (/^[0-9a-fA-F]{24}$/.test(id)) return Project.findById(id);
   return Project.findOne({ projectId: id });
 }
+
+
+/* PUT /api/projects/:id/tasks/:taskId — a member updates the status of a task
+ * ASSIGNED TO THEM (or the project manager / HR in scope updates any task). The
+ * assignee is checked against the session, never a client-supplied id. */
+exports.updateTaskStatus = catchAsync(async (req, res) => {
+  const p = await findProject(req.params.id);
+  if (!p) throw ApiError.notFound('Project not found.');
+  const task = p.tasks.id(req.params.taskId);
+  if (!task) throw ApiError.notFound('Task not found.');
+  const status = req.body.status;
+  if (!['To Do', 'In Progress', 'Done'].includes(status)) throw ApiError.badRequest('Invalid task status.');
+  const me = await myEmployee(req.user);
+  const isAssignee = me && task.assignee && String(task.assignee) === String(me._id);
+  let allowed = isAssignee || SEES_ALL.includes(req.user.role);
+  if (!allowed && ['HR', 'MANAGER'].includes(req.user.role)) {
+    const reach = (await teamEmployeeIds(req.user)).map(String);
+    allowed = reach.includes(String(p.manager)) || (task.assignee && reach.includes(String(task.assignee)));
+  }
+  if (!allowed) throw ApiError.forbidden('You can only update tasks assigned to you.');
+  task.status = status;
+  if (p.tasks.length) p.progress = Math.round((p.tasks.filter((t) => t.status === 'Done').length / p.tasks.length) * 100);
+  await p.save();
+  res.json({ project: p });
+});

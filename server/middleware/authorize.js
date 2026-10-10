@@ -2,7 +2,7 @@
  * verified user, so these cannot be bypassed from the browser. Object-level
  * (row-level) ownership checks live in the controllers themselves. */
 const ApiError = require('../utils/ApiError');
-const { hasPermission } = require('../utils/permissions');
+const { hasPermission, userHasPermission } = require('../utils/permissions');
 
 // require one of the given roles
 function requireRole(...roles) {
@@ -17,9 +17,13 @@ function requireRole(...roles) {
 // require a specific "<resource>:<action>" permission
 function requirePermission(permission) {
   return (req, res, next) => {
-    if (!req.user || !hasPermission(req.user.role, permission)) {
+    console.log(`[requirePermission] Checking permission: ${permission} for user: ${req.user?.email} role: ${req.user?.role}`);
+    console.log(`[requirePermission] User permissions: ${JSON.stringify(req.user?.permissions)}`);
+    if (!req.user || !userHasPermission(req.user, permission)) {
+      console.log(`[requirePermission] Permission denied for ${permission}`);
       return next(ApiError.forbidden('You do not have permission to perform this action.'));
     }
+    console.log(`[requirePermission] Permission granted for ${permission}`);
     next();
   };
 }

@@ -6,9 +6,14 @@ const router = express.Router();
 router.use(authenticate);
 
 router.get('/', ctrl.list);
-router.get('/unread-count', ctrl.unreadCount);
-router.put('/:id/read', ctrl.markRead);
-router.put('/read-all', ctrl.markAllRead);
-router.delete('/:id', ctrl.remove);
+router.get('/unread-count', ctrl.getUnreadCount);
+router.put('/:id/read', ctrl.markAsRead);
+router.put('/read-all', ctrl.markAllAsRead);
+router.delete('/:id', ctrl.delete);
+
+// Scheduled jobs (protected by internal auth or cron secret)
+router.post('/jobs/training-reminders', ctrl.sendTrainingReminders);
+router.post('/jobs/leave-balance-reminders', ctrl.sendLeaveBalanceReminders);
+router.post('/jobs/payroll-notifications', ctrl.sendPayrollNotifications);
 
 module.exports = router;

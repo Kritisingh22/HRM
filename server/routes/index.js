@@ -1,24 +1,8 @@
 /* Mounts every API router under /api. */
 const express = require('express');
-const { mongoose } = require('../config/database');
 const router = express.Router();
 
-// Unauthenticated liveness/readiness probe for the host platform (Render) and
-// for humans. Reports whether the API process is up AND whether the MongoDB
-// connection is live, so "API running but DB down" is distinguishable from
-// "all good". It deliberately exposes only a state WORD — never the host,
-// database name, URI, or any credential.
-const DB_STATES = ['disconnected', 'connected', 'connecting', 'disconnecting'];
-
-router.get('/health', (req, res) => {
-  const database = DB_STATES[mongoose.connection.readyState] || 'unknown';
-  const ready = database === 'connected';
-  res.status(ready ? 200 : 503).json({
-    status: 'ok', // the API process itself is up and serving
-    database, // 'connected' | 'disconnected' | 'connecting' | 'disconnecting'
-    time: new Date().toISOString(),
-  });
-});
+router.get('/health', (req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
 
 router.use('/auth', require('./authRoutes'));
 router.use('/users', require('./userRoutes'));
@@ -38,11 +22,22 @@ router.use('/reports', require('./reportRoutes'));
 router.use('/analytics', require('./analyticsRoutes'));
 router.use('/audit', require('./auditRoutes'));
 router.use('/daily-reports', require('./dailyReportRoutes'));
-router.use('/notifications', require('./notificationRoutes'));
 router.use('/permissions', require('./permissionRoutes'));
+router.use('/payslip-requests', require('./payslipRequestRoutes'));
 router.use('/requirements', require('./requirementRoutes'));
 router.use('/transfers', require('./transferRoutes'));
 router.use('/sessions', require('./sessionRoutes'));
-router.use('/access-requests', require('./accessRequestRoutes'));
+router.use('/dashboard', require('./dashboardRoutes'));
+router.use('/todos', require('./todoRoutes'));
+
+// New routes for enhanced HRM features
+router.use('/leave-types', require('./leaveTypeRoutes'));
+router.use('/calendar', require('./calendarRoutes'));
+router.use('/salary-structures', require('./salaryStructureRoutes'));
+router.use('/employee-documents', require('./employeeDocumentRoutes'));
+router.use('/training', require('./trainingRoutes'));
+router.use('/certifications', require('./certificationRoutes'));
+router.use('/notifications', require('./notificationRoutes'));
+router.use('/calendar-policy', require('./calendarRoutes'));
 
 module.exports = router;

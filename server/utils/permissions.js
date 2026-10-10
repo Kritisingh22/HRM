@@ -20,7 +20,8 @@ const PERMISSIONS = {
     'employees:*', 'leaves:*', 'attendance:*', 'payroll:*', 'hiring:*',
     'performance:*', 'projects:*', 'documents:*', 'notices:*', 'helpdesk:*',
     'offboarding:*', 'reports:read', 'analytics:read', 'audit:read',
-    'dailyReports:*', 'notifications:*', 'requirements:*', 'transfers:*'
+    'dailyReports:*', 'notifications:*', 'requirements:*', 'transfers:*',
+    'payslipRequests:*'
   ],
 
   HR: [
@@ -39,7 +40,8 @@ const PERMISSIONS = {
     'reports:read', 'analytics:read', 'audit:read',
     'dailyReports:read', 'dailyReports:write', 'dailyReports:approve',
     'notifications:read',
-    'requirements:*', 'transfers:*'
+    'requirements:*', 'transfers:*',
+    'payslipRequests:read', 'payslipRequests:create', 'payslipRequests:review'
   ],
 
   MANAGER: [
@@ -49,17 +51,18 @@ const PERMISSIONS = {
     'performance:read', 'performance:write',   // for their team (scoped in controller)
     'projects:read', 'projects:write',
     'documents:read',
-    'notices:read',
+    'notices:read', 'notices:write',
     'helpdesk:read', 'helpdesk:write', 'helpdesk:manage',
     'reports:read', 'analytics:read',
     'dailyReports:read', 'dailyReports:write', 'dailyReports:approve',
     'notifications:read',
     'requirements:read', 'requirements:write', 'requirements:read_own', 'requirements:write_own',
+    'payslipRequests:read', 'payslipRequests:create', 'payslipRequests:review',
     // own self-service
     'leaves:read_own', 'leaves:write_own', 'attendance:read_own', 'payroll:read_own',
     'employees:read_own', 'performance:read_own', 'projects:read_own', 'documents:read_own',
     'documents:write_own', 'helpdesk:write_own', 'dailyReports:read_own', 'dailyReports:write_own',
-    'notifications:read_own'
+    'notifications:read_own', 'payslipRequests:read_own', 'payslipRequests:create_own'
   ],
 
   EMPLOYEE: [
@@ -73,7 +76,8 @@ const PERMISSIONS = {
     'notices:read',
     'helpdesk:read_own', 'helpdesk:write_own',
     'dailyReports:read_own', 'dailyReports:write_own',
-    'notifications:read_own'
+    'notifications:read_own',
+    'payslipRequests:read_own', 'payslipRequests:create_own'
   ]
 };
 
@@ -82,11 +86,12 @@ const MODULES = [
   'dashboard', 'employees', 'attendance', 'leave', 'payroll', 'payslips',
   'recruitment', 'documents', 'projects', 'reports', 'analytics',
   'requirements', 'transfers', 'notifications', 'settings', 'offboarding',
-  'hiring', 'performance', 'helpdesk', 'notices', 'orgChart', 'dailyReports', 'audit'
+  'hiring', 'performance', 'helpdesk', 'notices', 'orgChart', 'dailyReports', 'audit',
+  'payslipRequests'
 ];
 
 // Action list for permission management
-const ACTIONS = ['view', 'create', 'edit', 'delete', 'approve', 'reject', 'download', 'export', 'manage', 'assignPermissions'];
+const ACTIONS = ['view', 'create', 'edit', 'delete', 'approve', 'reject', 'download', 'export', 'manage', 'assignPermissions', 'review', 'resolve', 'cancel'];
 
 function permissionsFor(role) { return PERMISSIONS[role] || []; }
 
