@@ -9,6 +9,7 @@
     "dev": "node server.js",
     "dev:mem": "node tests/dev-server-mem.js",
     "seed": "node seeds/seed.js",
+    "seed:demo": "node seeds/demo-seeder.js",
     "test": "node tests/e2e.test.js && node tests/role-workspace.test.js"
   },
   "engines": {
