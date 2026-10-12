@@ -32,6 +32,14 @@ app.use(
         connectSrc: ["'self'"]
       }
     },
+    // Additional security headers
+    hsts: {
+      maxAge: 63072000, // 2 years
+      includeSubDomains: true,
+      preload: true
+    },
+    noSniff: true,
+    referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
     crossOriginEmbedderPolicy: false
   })
 );

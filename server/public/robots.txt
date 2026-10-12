@@ -1,0 +1,7 @@
+# Cyethack HR Portal - Internal Application
+# This is a private HR tool and should not be indexed by search engines.
+
+User-agent: *
+Disallow: /
+
+# No sitemap for private application
