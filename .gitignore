@@ -17,6 +17,9 @@ client/build/
 server/uploads/*
 !server/uploads/.gitkeep
 
+# Local Google Drive service-account keys (never commit)
+server/secrets/
+
 # Logs
 *.log
 npm-debug.log*
@@ -30,3 +33,4 @@ Thumbs.db
 
 # Test artifacts
 coverage/
+INTEGRATION_REPORT.md

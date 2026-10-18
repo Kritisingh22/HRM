@@ -8,6 +8,7 @@ const Employee = require("../models/Employee");
 const ApiError = require("../utils/ApiError");
 const catchAsync = require("../utils/catchAsync");
 const { userHasPermission } = require("../utils/permissions");
+const { logAudit } = require("../utils/audit");
 // Shared scoping (single source of truth) — replaces this file's own local
 // hrAssignedIds, which duplicated the logic AND didn't honor an approved
 // cross-HR access-request grant the way the shared util now does.
@@ -151,6 +152,64 @@ exports.weeklySummary = catchAsync(async (req, res) => {
     .sort({ weekStart: -1 })
     .limit(limit);
   res.json({ count: summaries.length, summaries });
+});
+
+/* Server local clock — check-in/out timestamps are minted HERE, never taken
+ * from the client, so the recorded time is the trusted backend time. */
+function serverClock() {
+  const now = new Date();
+  const pad2 = (n) => String(n).padStart(2, "0");
+  return {
+    date: `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`,
+    time: `${pad2(now.getHours())}:${pad2(now.getMinutes())}`,
+  };
+}
+
+/* POST /api/attendance/check-in — self-service. The employee is resolved from
+ * the verified token (never from the body), any authenticated employee may
+ * punch themselves in, and the time is server-recorded. No attendance:write
+ * permission is needed because the write target is exclusively the caller. */
+exports.checkIn = catchAsync(async (req, res) => {
+  const me = await myEmployee(req.user);
+  if (!me) throw ApiError.badRequest("No employee record is linked to your account.");
+  const { date, time } = serverClock();
+  let rec = await Attendance.findOne({ employee: me._id, date });
+  if (rec && rec.checkIn) throw ApiError.conflict("You have already checked in today.");
+  const status = req.body && req.body.status === "wfh" ? "wfh" : "present";
+  if (!rec) {
+    rec = await Attendance.create({ employee: me._id, date, status, checkIn: time });
+  } else {
+    rec.status = status;
+    rec.checkIn = time;
+    await rec.save();
+  }
+  logAudit(req, {
+    action: "attendance.check_in",
+    targetType: "Attendance",
+    targetId: String(rec._id),
+    description: `Checked in at ${time} on ${date}`,
+  });
+  res.status(201).json({ attendance: rec });
+});
+
+/* POST /api/attendance/check-out — self-service, same identity rule. Requires
+ * a check-in first so an orphan check-out can never be recorded. */
+exports.checkOut = catchAsync(async (req, res) => {
+  const me = await myEmployee(req.user);
+  if (!me) throw ApiError.badRequest("No employee record is linked to your account.");
+  const { date, time } = serverClock();
+  const rec = await Attendance.findOne({ employee: me._id, date });
+  if (!rec || !rec.checkIn) throw ApiError.badRequest("Check in first, then check out.");
+  if (rec.checkOut) throw ApiError.conflict("You have already checked out today.");
+  rec.checkOut = time;
+  await rec.save();
+  logAudit(req, {
+    action: "attendance.check_out",
+    targetType: "Attendance",
+    targetId: String(rec._id),
+    description: `Checked out at ${time} on ${date}`,
+  });
+  res.json({ attendance: rec });
 });
 
 /* POST /api/attendance/weekly-summary/run — manually (re)run the derivation

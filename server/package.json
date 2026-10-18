@@ -10,7 +10,16 @@
     "dev:mem": "node tests/dev-server-mem.js",
     "seed": "node seeds/seed.js",
     "seed:demo": "node seeds/demo-seeder.js",
-    "test": "node tests/e2e.test.js && node tests/role-workspace.test.js"
+    "seed:transfer-demo": "DEMO_MODE=true node scripts/seedDemoAccounts.js",
+    "test:transfer": "node scripts/testTransferWorkflow.js",
+    "test": "node tests/payslip-pdf.test.js && node tests/attendance-self.test.js && node tests/payroll-generate.test.js && node tests/documents-api.test.js && node tests/documents-drive-unit.test.js && node tests/e2e.test.js && node tests/role-workspace.test.js",
+    "test:payslip": "node tests/payslip-pdf.test.js",
+    "test:attendance": "node tests/attendance-self.test.js",
+    "test:payroll-generate": "node tests/payroll-generate.test.js",
+    "test:docs": "node tests/documents-api.test.js && node tests/documents-drive-unit.test.js",
+    "test:docs-live": "node tests/documents-live.test.js",
+    "check:storage": "node scripts/check-storage.js",
+    "reconcile:storage": "node scripts/reconcile-storage.js"
   },
   "engines": {
     "node": ">=16"
@@ -23,6 +32,7 @@
     "express": "^4.21.2",
     "express-rate-limit": "^7.4.1",
     "express-validator": "^7.2.1",
+    "googleapis": "^186.0.0",
     "helmet": "^8.0.0",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.9.5",

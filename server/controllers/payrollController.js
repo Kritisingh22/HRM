@@ -1,10 +1,14 @@
 'use strict';
+const mongoose = require('mongoose');
 const Payroll = require('../models/Payroll');
 const Employee = require('../models/Employee');
+const EmployeeDocument = require('../models/EmployeeDocument');
 const SalaryStructure = require('../models/SalaryStructure');
 const Leave = require('../models/Leave');
 const WorkCalendarPolicy = require('../models/WorkCalendarPolicy');
-const { uploadToStorage, getSignedUrl } = require('../services/storage');
+const cfg = require('../config/env');
+const { buildPayslipPdf, payslipFilename, maskAccount } = require('../services/payslipPdf');
+const { putObject, removeObject } = require('../services/storage');
 const ApiError = require('../utils/ApiError');
 const catchAsync = require('../utils/catchAsync');
 const { logAudit } = require('../utils/audit');
@@ -93,7 +97,7 @@ exports.getPayslip = catchAsync(async (req, res) => {
         reference: slip.reference || null,
         utr: slip.utr || null,
         bankName: employee.bankName || null,
-        accountNumber: employee.accountNumber || null,
+        accountNumber: maskAccount(employee.accountNumber),
         ifsc: employee.ifsc || null,
         accountHolderName: employee.accountHolderName || null,
         amount: slip.net,
@@ -134,6 +138,7 @@ exports.update = catchAsync(async (req, res) => {
   if (!(await canWritePayrollOf(req.user, slip.employee))) {
     throw ApiError.forbidden('You are not authorized to update this payslip.');
   }
+  const prevStatus = slip.status;
   ['gross', 'status', 'payDate'].forEach((k) => {
     if (req.body[k] !== undefined) slip[k] = req.body[k];
   });
@@ -146,6 +151,20 @@ exports.update = catchAsync(async (req, res) => {
   }
   await slip.save();
   res.json({ payslip: slip });
+
+  // Optional (flag-gated): archive the official PDF the moment HR moves the
+  // payslip into "Processed". Runs after the response; failures are logged and
+  // never surface as a payroll error. Never modifies the payroll record.
+  if (cfg.PAYSLIP_ARCHIVE_TO_DRIVE && slip.status === 'Processed' && prevStatus !== 'Processed') {
+    (async () => {
+      try {
+        const full = await loadAuthorizedPayslip(req);
+        await archivePayslipFor(req, full);
+      } catch (e) {
+        console.error('[payroll] payslip auto-archive failed:', e.message);
+      }
+    })();
+  }
 });
 
 async function canReadPayrollOf(user, employeeDoc) {
@@ -212,7 +231,7 @@ async function calculatePayslip(employee, period, salaryStructure, policy) {
   const from = new Date(year, month - 1, 1);
   const to = new Date(year, month, 0); // Last day of month
 
-  const workingDays = countWorkingDays(from, policy);
+  const workingDays = countWorkingDays(from, to, policy);
   const standardDays = workingDays; // Total working days in month
 
   const leaves = await getEmployeeLeaves(employee._id, from, to);
@@ -222,7 +241,7 @@ async function calculatePayslip(employee, period, salaryStructure, policy) {
   for (const leave of leaves) {
     const leaveFrom = new Date(Math.max(leave.from, from));
     const leaveTo = new Date(Math.min(leave.to, to));
-    const leaveDays = countWorkingDays(leaveFrom, leave, policy) * (leave.halfDay ? 0.5 : 1);
+    const leaveDays = countWorkingDays(leaveFrom, leaveTo, policy) * (leave.halfDay ? 0.5 : 1);
     
     if (leave.type === 'Unpaid Leave') {
       unpaidLeaveDays += leaveDays;
@@ -232,8 +251,14 @@ async function calculatePayslip(employee, period, salaryStructure, policy) {
   }
 
   const actualWorkingDays = standardDays - approvedLeaveDays - unpaidLeaveDays;
+  /* `allowances`/`deductions` are Mongoose Maps — Object.values() on a Map
+     is empty, so unwrap them first or every structure amount reads 0. */
+  const allowances =
+    salaryStructure.allowances instanceof Map
+      ? Object.fromEntries(salaryStructure.allowances)
+      : salaryStructure.allowances || {};
   const dailyRate = (salaryStructure.basic + salaryStructure.hra + 
-    Object.values(salaryStructure.allowances || {}).reduce((a, b) => a + b, 0)) / standardDays;
+    Object.values(allowances).reduce((a, b) => a + Number(b || 0), 0)) / standardDays;
 
   const gross = dailyRate * actualWorkingDays;
   
@@ -246,9 +271,13 @@ async function calculatePayslip(employee, period, salaryStructure, policy) {
   };
 
   // Add custom deductions
-  for (const [key, value] of Object.entries(salaryStructure.deductions || {})) {
+  const structureDeductions =
+    salaryStructure.deductions instanceof Map
+      ? Object.fromEntries(salaryStructure.deductions)
+      : salaryStructure.deductions || {};
+  for (const [key, value] of Object.entries(structureDeductions)) {
     if (deductions[key] !== undefined) {
-      deductions[key] += value;
+      deductions[key] += Number(value || 0);
     }
   }
 
@@ -362,7 +391,7 @@ exports.generatePayslip = catchAsync(async (req, res) => {
     const policy = await getActivePolicyForDate(new Date());
     
     // Calculate payslip
-    calculation = await calculatePayslip(req.user, period, salaryStructure, policy);
+    calculation = await calculatePayslip(employeeDoc, period, salaryStructure, policy);
   }
 
   if (regenerate) {
@@ -431,7 +460,7 @@ exports.bulkGenerate = catchAsync(async (req, res) => {
         continue;
       }
 
-      const calculation = await calculatePayslip(req.user, period, salaryStructure, policy);
+      const calculation = await calculatePayslip(emp, period, salaryStructure, policy);
 
       await Payroll.create({
         employee: emp._id,
@@ -477,158 +506,192 @@ exports.approve = catchAsync(async (req, res) => {
   res.json({ payslip });
 });
 
-exports.generatePDF = catchAsync(async (req, res) => {
-  const payslip = await Payroll.findById(req.params.id)
-    .populate('employee', 'employeeId fullName email phone department designation manager employmentType location joiningDate bankName accountNumber ifsc accountHolderName')
+/* ---------------------------------------------------------------------------
+   Payslip PDF (professional, invoice-style document)
+
+   The PDF is generated on the server from the authorized MongoDB record and
+   streamed back directly — it is never written to disk/storage and the payroll
+   document is never modified. Authorization reuses the same object-level rules
+   as every other payslip read:
+     - EMPLOYEE        → own payslips only
+     - HR / MANAGER    → their existing team / assigned-employee scope
+     - ADMIN / SUPER_ADMIN → all except Management/Project-Management salaries
+   --------------------------------------------------------------------------- */
+
+/** Optional company profile for the PDF header — only configured values are shown. */
+function companyProfile() {
+  return {
+    name: cfg.COMPANY_NAME,
+    address: cfg.COMPANY_ADDRESS,
+    email: cfg.COMPANY_EMAIL,
+    phone: cfg.COMPANY_PHONE,
+    website: cfg.COMPANY_WEBSITE
+  };
+}
+
+/** Load a payslip + its employee (safe fields only) and enforce read access. */
+async function loadAuthorizedPayslip(req) {
+  const { id } = req.params;
+  if (!mongoose.isValidObjectId(id)) {
+    throw ApiError.badRequest('Invalid payslip id.');
+  }
+  const slip = await Payroll.findById(id)
+    .populate(
+      'employee',
+      'employeeId fullName department designation employmentType location joiningDate bankName accountNumber',
+    )
     .populate('salaryStructure');
-
-  if (!payslip) throw ApiError.notFound('Payslip not found.');
-
-  if (!(await canReadPayrollOf(req.user, payslip.employee))) {
+  if (!slip) throw ApiError.notFound('Payslip not found.');
+  if (!(await canReadPayrollOf(req.user, slip.employee))) {
     throw ApiError.forbidden('You do not have permission to view this payslip.');
   }
-
-  // Generate PDF using pdf-lib
-  const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
-  const pdfDoc = await PDFDocument.create();
-  const page = pdfDoc.addPage([595, 842]); // A4
-  const { width, height } = page.getSize();
-  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-  const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-
-  const employee = payslip.employee;
-  const salary = payslip.salaryStructure || {};
-  const payment = payslip.payment || {};
-
-  // Helper to draw text
-  const drawText = (text, x, y, size = 10, font = font, color = rgb(0, 0, 0)) => {
-    page.drawText(text, { x, y, size, font, color });
-  };
-
-  // Header
-  drawText('CYETHACK', 50, height - 50, 24, boldFont, rgb(0.31, 0.6, 0.53));
-  drawText('Payslip', 50, height - 80, 18, boldFont);
-  drawText(`Period: ${payslip.period}`, width - 200, height - 50, 12, font);
-  drawText(`Status: ${payslip.status}`, width - 200, height - 70, 12, font);
-
-  // Employee Details
-  let y = height - 130;
-  drawText('Employee Details', 50, y, 14, boldFont);
-  y -= 25;
-  const empDetails = [
-    ['Employee ID', employee.employeeId],
-    ['Name', employee.fullName],
-    ['Email', employee.email || '—'],
-    ['Phone', employee.phone || '—'],
-    ['Department', employee.department || '—'],
-    ['Designation', employee.designation || '—'],
-    ['Employment Type', employee.employmentType || 'Full-time'],
-    ['Location', employee.location || '—'],
-  ];
-  for (const [label, value] of empDetails) {
-    drawText(`${label}:`, 50, y, 10, boldFont);
-    drawText(value, 200, y, 10);
-    y -= 20;
+  // Prefer the record's own linked structure; otherwise use the employee's
+  // currently active structure. The renderer only shows its components when
+  // they reconcile with the recorded gross — never invented figures.
+  if (!slip.salaryStructure && slip.employee) {
+    slip.salaryStructure = await SalaryStructure.findOne({
+      employee: slip.employee._id,
+      isActive: true,
+    }).sort({ effectiveFrom: -1 });
   }
+  return slip;
+}
 
-  // Earnings & Deductions
-  y -= 10;
-  drawText('Earnings & Deductions', 50, y, 14, boldFont);
-  y -= 25;
-
-  // Earnings
-  drawText('Earnings', 50, y, 12, boldFont);
-  y -= 20;
-  const earnings = [
-    ['Basic Salary', salary.basic || 0],
-    ['HRA', salary.hra || 0],
-    ...Object.entries(salary.allowances || {}).map(([k, v]) => [k, v]),
-  ];
-  let totalEarnings = 0;
-  for (const [label, value] of earnings) {
-    drawText(label, 50, y, 10);
-    drawText(`₹${Number(value).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, 300, y, 10);
-    totalEarnings += value;
-    y -= 18;
-  }
-  drawText('Gross Earnings', 50, y, 10, boldFont);
-  drawText(`₹${totalEarnings.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, 300, y, 10, boldFont);
-  y -= 30;
-
-  // Deductions
-  drawText('Deductions', 50, y, 12, boldFont);
-  y -= 20;
-  const deductions = payslip.deductions || {};
-  let totalDeductions = 0;
-  for (const [key, value] of Object.entries(deductions)) {
-    drawText(key.toUpperCase(), 50, y, 10);
-    drawText(`₹${Number(value).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, 300, y, 10);
-    totalDeductions += value;
-    y -= 18;
-  }
-  drawText('Total Deductions', 50, y, 10, boldFont);
-  drawText(`₹${totalDeductions.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, 300, y, 10, boldFont);
-  y -= 30;
-
-  // Net Pay
-  drawText('Net Pay', 50, y, 14, boldFont, rgb(0.31, 0.6, 0.53));
-  drawText(`₹${payslip.net.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, 300, y, 14, boldFont, rgb(0.31, 0.6, 0.53));
-  y -= 40;
-
-  // Payment Info
-  drawText('Payment Details', 50, y, 12, boldFont);
-  y -= 20;
-  const paymentInfo = [
-    ['Payment Status', payment.status || payslip.status],
-    ['Payment Date', payment.date ? new Date(payment.date).toLocaleDateString('en-IN') : '—'],
-    ['Mode', payment.mode || 'Bank Transfer'],
-    ['Reference', payment.reference || '—'],
-    ['Bank', employee.bankName || '—'],
-    ['Account', employee.accountNumber ? '****' + employee.accountNumber.slice(-4) : '—'],
-  ];
-  for (const [label, value] of paymentInfo) {
-    drawText(`${label}:`, 50, y, 10, boldFont);
-    drawText(value, 200, y, 10);
-    y -= 18;
-  }
-
-  // Footer
-  y = 60;
-  drawText('This is a system-generated payslip.', 50, y, 8, font, rgb(0.5, 0.5, 0.5));
-  drawText(`Generated on: ${new Date().toLocaleDateString('en-IN')}`, 50, y - 15, 8, font, rgb(0.5, 0.5, 0.5));
-  drawText('CYETHACK Solutions', width - 150, y, 8, font, rgb(0.5, 0.5, 0.5));
-
-  const pdfBytes = await pdfDoc.save();
-  
-  // Store PDF in object storage
-  const fileKey = `payslips/${payslip.employee.employeeId}/${payslip.period}.pdf`;
-  await uploadToStorage(fileKey, Buffer.from(pdfBytes), 'application/pdf');
-  
-  // Update payslip with file key
-  payslip.fileKey = fileKey;
-  await payslip.save();
-
+/** Stream the generated PDF with safe headers (inline or attachment). */
+function sendPayslipPdf(res, bytes, filename, { download = false } = {}) {
+  const buffer = Buffer.from(bytes);
   res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', `inline; filename="payslip-${payslip.period}-${employee.employeeId}.pdf"`);
-  res.send(Buffer.from(pdfBytes));
+  res.setHeader(
+    'Content-Disposition',
+    `${download ? 'attachment' : 'inline'}; filename="${filename}"`,
+  );
+  res.setHeader('Content-Length', buffer.length);
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.send(buffer);
+}
+
+/* GET /api/payroll/:id/payslip/pdf — official payslip PDF (inline).
+ * Add ?download=1 to force the attachment / save dialog. */
+exports.payslipPdf = catchAsync(async (req, res) => {
+  const slip = await loadAuthorizedPayslip(req);
+  const bytes = await buildPayslipPdf({
+    payroll: slip,
+    employee: slip.employee,
+    salaryStructure: slip.salaryStructure,
+    company: companyProfile(),
+    currency: cfg.PAYROLL_CURRENCY,
+  });
+  sendPayslipPdf(res, bytes, payslipFilename(slip.employee.employeeId, slip.period), {
+    download: req.query.download === '1'
+  });
 });
 
+/* GET /api/payroll/:id/download — the same official PDF as an attachment. */
 exports.downloadPDF = catchAsync(async (req, res) => {
-  const payslip = await Payroll.findById(req.params.id)
-    .populate('employee', 'employeeId fullName');
+  const slip = await loadAuthorizedPayslip(req);
+  const bytes = await buildPayslipPdf({
+    payroll: slip,
+    employee: slip.employee,
+    salaryStructure: slip.salaryStructure,
+    company: companyProfile(),
+    currency: cfg.PAYROLL_CURRENCY,
+  });
+  sendPayslipPdf(res, bytes, payslipFilename(slip.employee.employeeId, slip.period), {
+    download: true
+  });
+});
 
-  if (!payslip) throw ApiError.notFound('Payslip not found.');
-  if (!(await canReadPayrollOf(req.user, payslip.employee))) {
-    throw ApiError.forbidden('You do not have permission to view this payslip.');
+/* ---------------- payslip archive (object storage) ---------------- */
+
+/** Generate + store the payslip PDF as a private, retained EmployeeDocument. */
+async function archivePayslipFor(req, slip) {
+  const filename = payslipFilename(slip.employee.employeeId, slip.period);
+  // Idempotent: reuse an existing active archive for this payslip.
+  const existing = await EmployeeDocument.findOne({
+    relatedModel: 'Payroll',
+    relatedId: slip._id,
+    uploadStatus: 'active',
+  }).select('_id');
+  if (existing) return { existing: true, documentId: existing._id };
+
+  const bytes = await buildPayslipPdf({
+    payroll: slip,
+    employee: slip.employee,
+    salaryStructure: slip.salaryStructure,
+    company: companyProfile(),
+    currency: cfg.PAYROLL_CURRENCY,
+  });
+  const buffer = Buffer.from(bytes);
+  const docId = new mongoose.Types.ObjectId();
+  const put = await putObject({
+    key: `payslips/${slip.employee.employeeId}/${filename}`,
+    buffer,
+    contentType: 'application/pdf',
+    originalName: filename,
+    appProperties: {
+      documentId: String(docId),
+      payrollId: String(slip._id),
+      employeeId: String(slip.employee._id),
+    },
+  });
+
+  try {
+    const document = await EmployeeDocument.create({
+      _id: docId,
+      employee: slip.employee._id,
+      type: `Payslip ${slip.period}`,
+      category: 'payslip',
+      fileKey: put.key,
+      storageProvider: put.provider,
+      driveFileId: put.driveFileId || undefined,
+      driveFolderId: put.folderId || undefined,
+      checksum: put.checksum,
+      retention: 'retain',
+      originalName: filename,
+      mimeType: 'application/pdf',
+      fileSize: put.size,
+      uploadedBy: req.user._id,
+      uploaderRole: req.user.role,
+      visibility: 'private',
+      relatedModel: 'Payroll',
+      relatedId: slip._id,
+    });
+    return { existing: false, document };
+  } catch (e) {
+    await removeObject({ provider: put.provider, key: put.key }).catch(() => {});
+    throw e;
+  }
+}
+
+/* POST /api/payroll/:id/payslip/archive — file the generated payslip PDF into
+ * object storage (payroll:write + object scope). The employee keeps using the
+ * regular payslip endpoint; HR/Manager reach the archive through the
+ * employee-documents endpoints. 409 when the payslip is already archived. */
+exports.archivePayslipPdf = catchAsync(async (req, res) => {
+  if (!userHasPermission(req.user, 'payroll:write')) {
+    throw ApiError.forbidden('You do not have permission to archive payslips.');
+  }
+  const slip = await loadAuthorizedPayslip(req);
+  if (!(await canWritePayrollOf(req.user, slip.employee._id))) {
+    throw ApiError.forbidden('You are not authorized to archive this payslip.');
   }
 
-  if (!payslip.fileKey) {
-    // Generate on-demand if not exists
-    return exports.generatePDF(req, res);
+  const result = await archivePayslipFor(req, slip);
+  if (result.existing) {
+    return res.status(409).json({
+      error: 'This payslip is already archived.',
+      existingId: String(result.documentId),
+    });
   }
 
-  const signedUrl = await getSignedUrl(payslip.fileKey, 3600);
-  res.redirect(signedUrl);
+  logAudit(req, {
+    action: 'payslip.archive',
+    targetType: 'Payroll',
+    targetId: slip._id,
+    description: `Archived payslip PDF for ${slip.employee.employeeId} ${slip.period} via ${result.document.storageProvider}`,
+  });
+
+  return res.status(201).json({ document: result.document });
 });
 
 // Alias for route compatibility

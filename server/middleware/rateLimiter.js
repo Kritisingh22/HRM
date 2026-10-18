@@ -1,6 +1,7 @@
 /* Rate limiters. The login limiter blunts brute-force guessing at the IP level;
  * per-account lockout (in the auth controller) handles the targeted case. */
 const rateLimit = require('express-rate-limit');
+const cfg = require('../config/env');
 
 const skipInTest = () => process.env.NODE_ENV === 'test';
 
@@ -34,4 +35,17 @@ const bootstrapLimiter = rateLimit({
   message: { error: 'Too many bootstrap attempts from this address. Please try again later.' }
 });
 
-module.exports = { loginLimiter, apiLimiter, bootstrapLimiter };
+// Uploads move real bytes to object storage — cap them per authenticated user
+// (falling back to per-IP for anonymous requests, which the API rejects anyway).
+const uploadLimiter = rateLimit({
+  windowMs: Math.max(1, cfg.UPLOAD_RATE_WINDOW_MIN) * 60 * 1000,
+  max: Math.max(1, cfg.UPLOAD_RATE_MAX),
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: skipInTest,
+  keyGenerator: (req) =>
+    req.user && req.user._id ? 'user:' + String(req.user._id) : (rateLimit.ipKeyGenerator ? rateLimit.ipKeyGenerator(req) : req.ip),
+  message: { error: 'Too many document uploads. Please wait a few minutes and try again.' }
+});
+
+module.exports = { loginLimiter, apiLimiter, bootstrapLimiter, uploadLimiter };

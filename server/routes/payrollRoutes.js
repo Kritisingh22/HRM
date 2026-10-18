@@ -20,7 +20,11 @@ function requirePayrollPermission(permission) {
   };
 }
 
-router.post("/employee/:employeeId/generate", ctrl.generateForEmployee);
+router.post(
+  "/employee/:employeeId/generate",
+  requirePayrollPermission("payroll:write"),
+  ctrl.generateForEmployee,
+);
 
 // Debug endpoint to test teamEmployeeIds
 router.get("/debug/team-ids", authenticate, async (req, res) => {
@@ -39,9 +43,10 @@ router.post(
   requirePayrollPermission("payroll:write"),
   ctrl.generate,
 );
-router.post("/employee/:employeeId/generate", ctrl.generateForEmployee);
 router.get("/:id/payslip", ctrl.getPayslip); // safe print/download projection
-router.get("/:id/download", ctrl.downloadPDF); // download PDF with signed URL
+router.get("/:id/payslip/pdf", ctrl.payslipPdf); // official payslip PDF (inline; ?download=1)
+router.post("/:id/payslip/archive", requirePayrollPermission("payroll:write"), ctrl.archivePayslipPdf); // file the PDF into object storage
+router.get("/:id/download", ctrl.downloadPDF); // same PDF as an attachment
 router.get("/:id", ctrl.getOne); // object-level ownership
 router.post("/", requirePayrollPermission("payroll:write"), ctrl.create);
 router.put("/:id", requirePayrollPermission("payroll:write"), ctrl.update);

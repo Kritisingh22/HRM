@@ -18,6 +18,10 @@ function errorHandler(err, req, res, next) {
   // translate common Mongoose/Mongo errors into safe messages
   if (err.name === 'ValidationError') { status = 400; message = 'Validation failed.'; details = Object.values(err.errors).map((e) => e.message); }
   else if (err.name === 'CastError') { status = 400; message = 'Invalid identifier.'; }
+  else if (err.name === 'MulterError') {
+    status = err.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
+    message = err.code === 'LIMIT_FILE_SIZE' ? 'File is too large. Reduce its size and try again.' : 'The upload was rejected.';
+  }
   else if (err.code === 11000) { status = 409; message = 'That record already exists.'; }
 
   if (status >= 500) {

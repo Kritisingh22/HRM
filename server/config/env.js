@@ -1,4 +1,5 @@
 /* Central configuration, loaded from environment variables (.env). */
+const path = require('path');
 require('dotenv').config();
 
 const NODE_ENV = process.env.NODE_ENV || 'development';
@@ -35,7 +36,48 @@ const cfg = {
   SMTP_SECURE: process.env.SMTP_SECURE === 'true', // true for 465, false for other ports
   SMTP_USER: process.env.SMTP_USER || '',
   SMTP_PASS: process.env.SMTP_PASS || '',
+
+  // Official company details rendered on generated documents (payslip PDF).
+  // The address / email / phone / website lines appear ONLY when configured —
+  // nothing is invented. PAYROLL_CURRENCY keeps every amount on the document
+  // in the single configured currency.
+  COMPANY_NAME: process.env.COMPANY_NAME || 'CYETHACK Solution',
+  COMPANY_ADDRESS: process.env.COMPANY_ADDRESS || '',
+  COMPANY_EMAIL: process.env.COMPANY_EMAIL || '',
+  COMPANY_PHONE: process.env.COMPANY_PHONE || '',
+  COMPANY_WEBSITE: process.env.COMPANY_WEBSITE || '',
+  PAYROLL_CURRENCY: (process.env.PAYROLL_CURRENCY || 'INR').toUpperCase(),
   EMAIL_FROM: process.env.EMAIL_FROM || 'HRM Portal <noreply@cyethack.com>',
+
+  // ---- Document storage (object storage provider for uploaded files) ----
+  // Bytes live in the configured provider; MongoDB stores metadata + the file ID.
+  // '' = automatic: use Google Drive when it is fully configured, else local disk.
+  DOCUMENT_STORAGE: (process.env.DOCUMENT_STORAGE || '').toLowerCase(),
+  GOOGLE_DRIVE_FOLDER_ID: process.env.GOOGLE_DRIVE_FOLDER_ID || '',
+  GOOGLE_DRIVE_AUTH_MODE: (process.env.GOOGLE_DRIVE_AUTH_MODE || 'service_account').toLowerCase(),
+  // Service account key: either the path to the JSON key file (kept OUTSIDE git,
+  // e.g. server/secrets/), or the full JSON inline. One of the two is required.
+  GOOGLE_SERVICE_ACCOUNT_FILE: process.env.GOOGLE_SERVICE_ACCOUNT_FILE || path.join(__dirname, '..', 'secrets', 'gdrive-sa.json'),
+  GOOGLE_SERVICE_ACCOUNT_JSON: process.env.GOOGLE_SERVICE_ACCOUNT_JSON || '',
+  // Alternative: OAuth refresh token on behalf of a user account (files are then
+  // owned by that user instead of the service account).
+  GOOGLE_OAUTH_CLIENT_ID: process.env.GOOGLE_OAUTH_CLIENT_ID || '',
+  GOOGLE_OAUTH_CLIENT_SECRET: process.env.GOOGLE_OAUTH_CLIENT_SECRET || '',
+  GOOGLE_OAUTH_REFRESH_TOKEN: process.env.GOOGLE_OAUTH_REFRESH_TOKEN || '',
+  // Optional: a subfolder used ONLY by the live test suite / round-trip check.
+  GOOGLE_DRIVE_TEST_FOLDER_ID: process.env.GOOGLE_DRIVE_TEST_FOLDER_ID || '',
+
+  // Upload guardrails (multipart document endpoints).
+  UPLOAD_MAX_MB: parseInt(process.env.UPLOAD_MAX_MB || '10', 10),
+  UPLOAD_ALLOWED_MIME: (process.env.UPLOAD_ALLOWED_MIME || '').trim(), // EXTRA types, comma-separated
+  UPLOAD_RESUMABLE_THRESHOLD_MB: parseInt(process.env.UPLOAD_RESUMABLE_THRESHOLD_MB || '5', 10),
+  UPLOAD_RATE_MAX: parseInt(process.env.UPLOAD_RATE_MAX || '30', 10),
+  UPLOAD_RATE_WINDOW_MIN: parseInt(process.env.UPLOAD_RATE_WINDOW_MIN || '15', 10),
+
+  // When true, the payslip PDF is also archived to object storage the moment HR
+  // processes it. Off by default — POST /api/payroll/:id/payslip/archive always
+  // works on demand. Archiving never changes the payroll record itself.
+  PAYSLIP_ARCHIVE_TO_DRIVE: process.env.PAYSLIP_ARCHIVE_TO_DRIVE === 'true',
 
   // Daily Report reminder configuration
   DAILY_REPORT_DEADLINE_HOUR: parseInt(process.env.DAILY_REPORT_DEADLINE_HOUR || '17', 10), // 5 PM default

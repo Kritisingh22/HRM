@@ -102,6 +102,8 @@ Copy `server/.env.example` to `server/.env` and set values:
 
 Generate secrets with `openssl rand -base64 48`. Never commit `.env`.
 
+Document storage (`DOCUMENT_STORAGE`, `GOOGLE_DRIVE_*`, upload limits) has its own block in `server/.env.example` — see **[§25 Document storage](#25-document-storage--google-drive--mongodb)**.
+
 ## 9. Backend setup
 
 ```bash
@@ -262,3 +264,56 @@ Full step-by-step (Docker + Atlas + first-admin + storage + checklist) is in **[
 ### A note on the frontend-preservation rule
 
 The existing portal design was **not changed**. `server/public/index.html` is your original file with a single `<script src="/frontend-integration.js">` line added before `</body>`; that script connects the existing login/session/logout and the Employees table to the real API without touching any existing markup, CSS, or logic. The demo `localStorage` value the old portal used is kept only as a UI-state mirror — it is **not** the authentication; the real security is the server-side JWT + httpOnly refresh cookie.
+
+## 25. Document storage — Google Drive + MongoDB
+
+Document **files** live in a private Google Drive folder; their **metadata, ownership and permissions** live in MongoDB. Nothing about the provider reaches the browser: uploads and downloads go through the authenticated API, which streams the bytes and re-checks authorisation on every single request (no Drive links, file ids, storage keys or tokens in any response).
+
+**How the provider is selected** (`server/services/storage.js`):
+
+| `DOCUMENT_STORAGE` | Behaviour |
+| --- | --- |
+| unset / `auto` | Google Drive when fully configured, otherwise local disk (`server/uploads`) |
+| `local` | always `server/uploads` (legacy default — pre-existing files keep working) |
+| `google-drive` | always Drive; a misconfigured Drive fails loudly instead of silently falling back |
+
+Every record remembers the provider it was written with (`storageProvider`), so switching to Drive later needs **no migration** — old local files stay readable and new ones go to Drive.
+
+**Google Drive setup (once):**
+
+1. In Google Cloud Console: create/select a project → **enable the Google Drive API**.
+2. Create a **service account** → **Keys → Add key → JSON** → save the file to `server/secrets/gdrive-sa.json` (the `server/secrets/` folder is git-ignored).
+3. In Google Drive, create (or pick) the target folder → **Share** it with the service-account email (`…@….iam.gserviceaccount.com`) as **Editor**. Do **not** make the folder public.
+4. Set the environment variables (see `server/.env.example`):
+
+| Variable | Meaning |
+| --- | --- |
+| `DOCUMENT_STORAGE` | `local` / `google-drive` / unset = auto |
+| `GOOGLE_DRIVE_FOLDER_ID` | the folder shared with the service account (required for Drive) |
+| `GOOGLE_DRIVE_AUTH_MODE` | `service_account` (default) or `oauth` |
+| `GOOGLE_SERVICE_ACCOUNT_FILE` | path to the JSON key (default `server/secrets/gdrive-sa.json`) |
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | alternative: the JSON itself (e.g. a Render/Railway secret) |
+| `GOOGLE_OAUTH_CLIENT_ID` / `_CLIENT_SECRET` / `_REFRESH_TOKEN` | for OAuth mode instead of a service account |
+| `UPLOAD_MAX_MB` | per-file upload limit (default 10) |
+| `UPLOAD_ALLOWED_MIME` | allowed content types (default: pdf, png/jpeg/webp, docx/xlsx, plain text) |
+| `UPLOAD_RESUMABLE_THRESHOLD_MB` | files at/above this use Drive resumable uploads (default 5) |
+| `UPLOAD_RATE_MAX` / `UPLOAD_RATE_WINDOW_MIN` | per-user upload rate limit (default 30 per 15 min) |
+| `PAYSLIP_ARCHIVE_TO_DRIVE` | `true` = also archive a payslip PDF to Drive whenever a payroll record is marked Processed |
+
+Validate the setup before trusting it — `npm run check:storage` checks config + folder access; add `-- --roundtrip` to upload, download and delete a probe file inside a controlled test folder (`GOOGLE_DRIVE_TEST_FOLDER_ID` or an auto-created `hrm-portal-checks` subfolder).
+
+**Endpoints (all authenticated; scope enforced server-side):**
+
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /api/documents` | multipart upload (`file`, `title`, `category`, optional `owner`, `visibility`) — HR/Manager/Employee. Non-writers are forced to their own private record; HR scoped to their employees; admins may file company-wide |
+| `GET /api/documents` | register list (role-scoped; `?q=`, `?category=`; admins `?includeDeleted=1` for the audit view) |
+| `GET /api/documents/:id/download` | streamed through the backend (inline by default; `?download=1` = attachment) |
+| `PUT /api/documents/:id/verify` | mark verified (HR/Admin) |
+| `DELETE /api/documents/:id` | soft delete/archive; retained categories (Payslip, Contract, ID Proof, HR Manual, Policy, Circular, Company Document) keep their bytes |
+| `GET/POST /api/employee-documents` + `/:id/download`, `/:id/verify`, `DELETE /:id` | per-employee personnel-file store (subject employee, HR scope, uploader and admins) |
+| `POST /api/payroll/:id/payslip/archive` | archive the generated payslip PDF as a private retained employee document (idempotent; payroll record untouched) |
+
+**Operations:** `npm run reconcile:storage` reports Drive files with no record (orphans) and records with no file (missing); `-- --fix-missing` flags unreachable records, `-- --trash-orphans --yes` trashes only app-created orphans (recognised by an app marker) — tooling never hard-deletes and never touches foreign files. A Mongo write that fails after a successful Drive upload is compensated automatically (file trashed) or logged for reconciliation.
+
+**Tests:** `npm run test:docs` (register/API matrix + provider seam — no credentials needed) and `GOOGLE_DRIVE_LIVE=1 npm run test:docs-live` (real Drive acceptance run in a dedicated test folder; exits with code 2 — "skipped" — until credentials are configured).

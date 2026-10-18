@@ -32,7 +32,7 @@ const PERMISSIONS = {
     'hiring:read', 'hiring:write', 'hiring:delete',
     'performance:read', 'performance:write',
     'projects:read', 'projects:write',
-    'documents:read', 'documents:write', 'documents:delete',
+    'documents:read', 'documents:write', 'documents:delete', 'documents:verify',
     'notices:read', 'notices:write', 'notices:delete',
     'helpdesk:read', 'helpdesk:write', 'helpdesk:manage',
     'offboarding:read', 'offboarding:write',

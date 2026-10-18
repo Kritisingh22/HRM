@@ -7,8 +7,162 @@ const cfg = require("../config/env");
 const { connectDB, disconnectDB } = require("../config/database");
 const bcrypt = require("bcryptjs");
 
-// Demo users configuration
+// Demo users configuration — Transfer-ready accounts (DEMO-HR-001 format)
+// Run with: npm run seed:demo
 const DEMO_USERS = [
+  // 2 HR accounts
+  {
+    employeeId: "DEMO-HR-001",
+    fullName: "Demo HR One",
+    email: "demo.hr.one@cyethack.demo",
+    role: "HR",
+    password: "DemoHR123!",
+    department: "Human Resources",
+    designation: "HR Manager",
+  },
+  {
+    employeeId: "DEMO-HR-002",
+    fullName: "Demo HR Two",
+    email: "demo.hr.two@cyethack.demo",
+    role: "HR",
+    password: "DemoHR123!",
+    department: "Human Resources",
+    designation: "HR Manager",
+  },
+  // 2 Manager accounts
+  {
+    employeeId: "DEMO-MGR-001",
+    fullName: "Demo Manager One",
+    email: "demo.manager.one@cyethack.demo",
+    role: "MANAGER",
+    password: "DemoMGR123!",
+    department: "Engineering",
+    designation: "Engineering Manager",
+  },
+  {
+    employeeId: "DEMO-MGR-002",
+    fullName: "Demo Manager Two",
+    email: "demo.manager.two@cyethack.demo",
+    role: "MANAGER",
+    password: "DemoMGR123!",
+    department: "Security Operations",
+    designation: "SOC Manager",
+  },
+  // 10 Employee accounts — Team A (5) + Team B (5)
+  {
+    employeeId: "DEMO-EMP-001",
+    fullName: "Demo Employee One",
+    email: "demo.employee.one@cyethack.demo",
+    role: "EMPLOYEE",
+    password: "DemoEMP123!",
+    department: "Engineering",
+    designation: "Software Engineer",
+    managerId: "DEMO-MGR-001",
+    departmentName: "Engineering",
+  },
+  {
+    employeeId: "DEMO-EMP-002",
+    fullName: "Demo Employee Two",
+    email: "demo.employee.two@cyethack.demo",
+    role: "EMPLOYEE",
+    password: "DemoEMP123!",
+    department: "Engineering",
+    designation: "Software Engineer",
+    managerId: "DEMO-MGR-001",
+    departmentName: "Engineering",
+  },
+  {
+    employeeId: "DEMO-EMP-003",
+    fullName: "Demo Employee Three",
+    email: "demo.employee.three@cyethack.demo",
+    role: "EMPLOYEE",
+    password: "DemoEMP123!",
+    department: "Engineering",
+    designation: "Software Engineer",
+    managerId: "DEMO-MGR-001",
+    departmentName: "Engineering",
+  },
+  {
+    employeeId: "DEMO-EMP-004",
+    fullName: "Demo Employee Four",
+    email: "demo.employee.four@cyethack.demo",
+    role: "EMPLOYEE",
+    password: "DemoEMP123!",
+    department: "Engineering",
+    designation: "Software Engineer",
+    managerId: "DEMO-MGR-001",
+    departmentName: "Engineering",
+  },
+  {
+    employeeId: "DEMO-EMP-005",
+    fullName: "Demo Employee Five",
+    email: "demo.employee.five@cyethack.demo",
+    role: "EMPLOYEE",
+    password: "DemoEMP123!",
+    department: "Engineering",
+    designation: "Software Engineer",
+    managerId: "DEMO-MGR-001",
+    departmentName: "Engineering",
+  },
+  {
+    employeeId: "DEMO-EMP-006",
+    fullName: "Demo Employee Six",
+    email: "demo.employee.six@cyethack.demo",
+    role: "EMPLOYEE",
+    password: "DemoEMP123!",
+    department: "Security Operations",
+    designation: "SOC Analyst",
+    managerId: "DEMO-MGR-002",
+    departmentName: "Security Operations",
+  },
+  {
+    employeeId: "DEMO-EMP-007",
+    fullName: "Demo Employee Seven",
+    email: "demo.employee.seven@cyethack.demo",
+    role: "EMPLOYEE",
+    password: "DemoEMP123!",
+    department: "Security Operations",
+    designation: "SOC Analyst",
+    managerId: "DEMO-MGR-002",
+    departmentName: "Security Operations",
+  },
+  {
+    employeeId: "DEMO-EMP-008",
+    fullName: "Demo Employee Eight",
+    email: "demo.employee.eight@cyethack.demo",
+    role: "EMPLOYEE",
+    password: "DemoEMP123!",
+    department: "Security Operations",
+    designation: "SOC Analyst",
+    managerId: "DEMO-MGR-002",
+    departmentName: "Security Operations",
+  },
+  {
+    employeeId: "DEMO-EMP-009",
+    fullName: "Demo Employee Nine",
+    email: "demo.employee.nine@cyethack.demo",
+    role: "EMPLOYEE",
+    password: "DemoEMP123!",
+    department: "Security Operations",
+    designation: "SOC Analyst",
+    managerId: "DEMO-MGR-002",
+    departmentName: "Security Operations",
+  },
+  {
+    employeeId: "DEMO-EMP-010",
+    fullName: "Demo Employee Ten",
+    email: "demo.employee.ten@cyethack.demo",
+    role: "EMPLOYEE",
+    password: "DemoEMP123!",
+    department: "Security Operations",
+    designation: "SOC Analyst",
+    managerId: "DEMO-MGR-002",
+    departmentName: "Security Operations",
+  },
+];
+
+// Also keep original demo accounts as ORIGINAL_DEMO_USERS for backward compatibility
+const ORIGINAL_DEMO_USERS = [
   // 2 HR accounts (including Sanu)
   {
     employeeId: "DEMO-HR001",
@@ -170,18 +324,18 @@ const LEAVE_TYPES = [
   { name: "Paternity Leave", description: "Paternity leave as per policy", defaultEntitlement: 15, isActive: true },
 ];
 
-// Demo leave requests
+// Demo leave requests (using new DEMO-EMP-001 format)
 const DEMO_LEAVE_REQUESTS = [
-  { employeeId: "DEMO-EMP001", type: "Casual Leave", from: "2026-10-15", to: "2026-10-16", reason: "Family function", approvalAuthority: "Manager", status: "Pending" },
-  { employeeId: "DEMO-EMP002", type: "Sick Leave", from: "2026-10-20", to: "2026-10-21", reason: "Fever", approvalAuthority: "Manager", status: "Approved" },
-  { employeeId: "DEMO-EMP003", type: "Earned Leave", from: "2026-11-01", to: "2026-11-05", reason: "Vacation", approvalAuthority: "Manager", status: "Pending" },
-  { employeeId: "DEMO-EMP004", type: "Casual Leave", from: "2026-10-10", to: "2026-10-10", reason: "Personal work", approvalAuthority: "Manager", status: "Rejected" },
-  { employeeId: "DEMO-EMP005", type: "Earned Leave", from: "2026-11-15", to: "2026-11-19", reason: "Wedding", approvalAuthority: "HR", status: "Approved" },
-  { employeeId: "DEMO-EMP006", type: "Sick Leave", from: "2026-10-25", to: "2026-10-26", reason: "Flu", approvalAuthority: "Manager", status: "Approved" },
-  { employeeId: "DEMO-EMP007", type: "Casual Leave", from: "2026-11-10", to: "2026-11-11", reason: "Personal work", approvalAuthority: "Manager", status: "Pending" },
-  { employeeId: "DEMO-EMP008", type: "Earned Leave", from: "2026-12-01", to: "2026-12-10", reason: "Year end vacation", approvalAuthority: "HR", status: "Pending" },
-  { employeeId: "DEMO-EMP009", type: "Sick Leave", from: "2026-10-20", to: "2026-10-21", reason: "Dental appointment", approvalAuthority: "Manager", status: "Approved" },
-  { employeeId: "DEMO-EMP010", type: "Casual Leave", from: "2026-11-20", to: "2026-11-21", reason: "House shifting", approvalAuthority: "Manager", status: "Pending" },
+  { employeeId: "DEMO-EMP-001", type: "Casual Leave", from: "2026-10-15", to: "2026-10-16", reason: "Family function", approvalAuthority: "Manager", status: "Pending" },
+  { employeeId: "DEMO-EMP-002", type: "Sick Leave", from: "2026-10-20", to: "2026-10-21", reason: "Fever", approvalAuthority: "Manager", status: "Approved" },
+  { employeeId: "DEMO-EMP-003", type: "Earned Leave", from: "2026-11-01", to: "2026-11-05", reason: "Vacation", approvalAuthority: "Manager", status: "Pending" },
+  { employeeId: "DEMO-EMP-004", type: "Casual Leave", from: "2026-10-10", to: "2026-10-10", reason: "Personal work", approvalAuthority: "Manager", status: "Rejected" },
+  { employeeId: "DEMO-EMP-005", type: "Earned Leave", from: "2026-11-15", to: "2026-11-19", reason: "Wedding", approvalAuthority: "HR", status: "Approved" },
+  { employeeId: "DEMO-EMP-006", type: "Sick Leave", from: "2026-10-25", to: "2026-10-26", reason: "Flu", approvalAuthority: "Manager", status: "Approved" },
+  { employeeId: "DEMO-EMP-007", type: "Casual Leave", from: "2026-11-10", to: "2026-11-11", reason: "Personal work", approvalAuthority: "Manager", status: "Pending" },
+  { employeeId: "DEMO-EMP-008", type: "Earned Leave", from: "2026-12-01", to: "2026-12-10", reason: "Year end vacation", approvalAuthority: "HR", status: "Pending" },
+  { employeeId: "DEMO-EMP-009", type: "Sick Leave", from: "2026-10-20", to: "2026-10-21", reason: "Dental appointment", approvalAuthority: "Manager", status: "Approved" },
+  { employeeId: "DEMO-EMP-010", type: "Casual Leave", from: "2026-11-20", to: "2026-11-21", reason: "House shifting", approvalAuthority: "Manager", status: "Pending" },
 ];
 
 async function seedDemoData() {
@@ -248,9 +402,10 @@ async function seedDemoData() {
     const empDocs = {};
     const userDocs = {};
 
-    // Check if demo data already exists
-    const existingDemoEmployee = await Employee.findOne({ employeeId: "DEMO-HR001" });
-    if (existingDemoEmployee) {
+    // Check if demo data already exists (check for new format in both User and Employee)
+    const existingDemoUser = await User.findOne({ employeeId: "DEMO-HR-001" });
+    const existingDemoEmployee = await Employee.findOne({ employeeId: "DEMO-HR-001" });
+    if (existingDemoUser || existingDemoEmployee) {
       console.log("  Demo data already exists. Fetching existing employees...");
       // Fetch existing demo employees
       const existingEmployees = await Employee.find({ employeeId: /^DEMO-/ });
@@ -271,7 +426,9 @@ async function seedDemoData() {
         location: u.location || "Office",
         workMode: "Hybrid",
         bloodGroup: "O+",
-        assignedHrId: u.role === "HR" ? u.employeeId : "DEMO-HR001",
+        // Assign HR based on team: Team A (EMP-001 to EMP-005) -> HR-001, Team B -> HR-002
+        assignedHrId: u.employeeId.startsWith("DEMO-HR") ? u.employeeId :
+                      (u.managerId === "DEMO-MGR-001" ? "DEMO-HR-001" : "DEMO-HR-002"),
         salary: u.role === "EMPLOYEE" ? 50000 + Math.floor(Math.random() * 50000) : 
                 u.role === "MANAGER" ? 150000 + Math.floor(Math.random() * 50000) :
                 200000,
@@ -341,7 +498,7 @@ async function seedDemoData() {
     // 5. Create Leave Requests
     console.log("Creating leave requests...");
     for (const lr of DEMO_LEAVE_REQUESTS) {
-      const emp = await Employee.findOne({ employeeId: lr.employeeId });
+      const emp = empDocs[lr.employeeId] || await Employee.findOne({ employeeId: lr.employeeId });
       if (!emp) continue;
       
       const requester = lr.status === "Pending" ? 
@@ -349,7 +506,7 @@ async function seedDemoData() {
         await User.findOne({ role: lr.approvalAuthority });
       
       const leave = await Leave.create({
-        employee: lr.employeeId,
+        employee: emp._id,
         requestedBy: requester?._id,
         type: lr.type,
         from: new Date(lr.from),
@@ -494,26 +651,34 @@ async function seedDemoData() {
     console.log("  Created welcome notifications for all demo employees");
 
     console.log("\nDemo data seeding completed successfully!");
-    console.log("\nDemo Login Credentials:");
+    console.log("\nDemo Login Credentials (Transfer-Ready Accounts):");
     console.log("┌─────────────────────────────────────────────────────────────────┐");
     console.log("│ Role     │ Email                          │ Password          │");
     console.log("├─────────────────────────────────────────────────────────────────┤");
-    console.log("│ HR       │ sanu.sharma@cyethack.com       │ SanuDemo@123      │");
-    console.log("│ HR       │ priya.patel@cyethack.com       │ PriyaDemo@123     │");
-    console.log("│ Manager  │ rajesh.kumar@cyethack.com      │ RajeshDemo@123    │");
-    console.log("│ Manager  │ anita.singh@cyethack.com       │ AnitaDemo@123     │");
-    console.log("│ Employee │ aarav.sharma@cyethack.com      │ AaravDemo@123     │");
-    console.log("│ Employee │ priya.sharma@cyethack.com      │ PriyaDemo@123     │");
-    console.log("│ Employee │ rahul.verma@cyethack.com       │ RahulDemo@123     │");
-    console.log("│ Employee │ sneha.gupta@cyethack.com       │ SnehaDemo@123     │");
-    console.log("│ Employee │ vikram.singh@cyethack.com      │ VikramDemo@123    │");
-    console.log("│ Employee │ anjali.reddy@cyethack.com      │ AnjaliDemo@123    │");
-    console.log("│ Employee │ karan.mehta@cyethack.com       │ KaranDemo@123     │");
-    console.log("│ Employee │ divya.nair@cyethack.com        │ DivyaDemo@123     │");
-    console.log("│ Employee │ rohit.kumar@cyethack.com       │ RohitDemo@123     │");
-    console.log("│ Employee │ pooja.joshi@cyethack.com       │ PoojaDemo@123     │");
+    console.log("│ HR       │ demo.hr.one@cyethack.demo      │ DemoHR123!        │");
+    console.log("│ HR       │ demo.hr.two@cyethack.demo      │ DemoHR123!        │");
+    console.log("│ Manager  │ demo.manager.one@cyethack.demo │ DemoMGR123!       │");
+    console.log("│ Manager  │ demo.manager.two@cyethack.demo │ DemoMGR123!       │");
+    console.log("│ Employee │ demo.employee.one@cyethack.demo│ DemoEMP123!       │");
+    console.log("│ Employee │ demo.employee.two@cyethack.demo│ DemoEMP123!       │");
+    console.log("│ Employee │ demo.employee.three@cyethack.d.│ DemoEMP123!       │");
+    console.log("│ Employee │ demo.employee.four@cyethack.dem│ DemoEMP123!       │");
+    console.log("│ Employee │ demo.employee.five@cyethack.de.│ DemoEMP123!       │");
+    console.log("│ Employee │ demo.employee.six@cyethack.dem.│ DemoEMP123!       │");
+    console.log("│ Employee │ demo.employee.seven@cyethack.d.│ DemoEMP123!       │");
+    console.log("│ Employee │ demo.employee.eight@cyethack.d.│ DemoEMP123!       │");
+    console.log("│ Employee │ demo.employee.nine@cyethack.de.│ DemoEMP123!       │");
+    console.log("│ Employee │ demo.employee.ten@cyethack.dem.│ DemoEMP123!       │");
     console.log("└─────────────────────────────────────────────────────────────────┘");
     
+    console.log("\nOriginal Demo Accounts (also available):");
+    console.log("  HR: sanu.sharma@cyethack.com / SanuDemo@123");
+    console.log("  HR: priya.patel@cyethack.com / PriyaDemo@123");
+    console.log("  MGR: rajesh.kumar@cyethack.com / RajeshDemo@123");
+    console.log("  MGR: anita.singh@cyethack.com / AnitaDemo@123");
+    console.log("  EMP: aarav.sharma@cyethack.com / AaravDemo@123");
+    console.log("  ... (see ORIGINAL_DEMO_USERS)");
+
     console.log("\nIMPORTANT: These are DEMO credentials for development only!");
     console.log("   Do not use in production. All passwords are hashed with bcrypt.");
     
@@ -533,4 +698,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { seedDemoData, DEMO_USERS, LEAVE_TYPES, DEMO_LEAVE_REQUESTS };
+module.exports = { seedDemoData, DEMO_USERS, ORIGINAL_DEMO_USERS, LEAVE_TYPES, DEMO_LEAVE_REQUESTS };

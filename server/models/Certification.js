@@ -10,11 +10,20 @@ const certificationSchema = new mongoose.Schema({
   certificateFileKey: { type: String },
   credentialId: { type: String, trim: true, maxlength: 100 },
   credentialUrl: { type: String, trim: true, maxlength: 500 },
+
+  // ---- certificate file bookkeeping (bytes live in the configured provider) ----
+  certificateOriginalName: { type: String, trim: true, maxlength: 255 },
+  certificateMimeType: { type: String, maxlength: 100 },
+  certificateSize: { type: Number, min: 0 },
+  storageProvider: { type: String, enum: ['local', 'google-drive'], default: 'local' },
+  driveFileId: { type: String },                  // Google Drive file ID (internal only)
+  checksum: { type: String },                     // sha256 of the bytes
 }, {
   timestamps: true,
 });
 
 certificationSchema.index({ employee: 1 });
 certificationSchema.index({ employee: 1, expiryDate: 1 });
+certificationSchema.index({ driveFileId: 1 }, { sparse: true });
 
 module.exports = mongoose.model('Certification', certificationSchema);

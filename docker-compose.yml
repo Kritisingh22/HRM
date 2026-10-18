@@ -26,6 +26,19 @@ services:
       NODE_ENV: ${NODE_ENV:-development}
       PORT: 5000
       MONGODB_URI: mongodb://mongo:27017/cyethack_hr
+      # Document storage (optional — see server/.env.example). Left unset, files
+      # stay on the local uploads volume. For a file-based service-account key,
+      # mount it into the container and point GOOGLE_SERVICE_ACCOUNT_FILE at it.
+      DOCUMENT_STORAGE: ${DOCUMENT_STORAGE:-}
+      GOOGLE_DRIVE_FOLDER_ID: ${GOOGLE_DRIVE_FOLDER_ID:-}
+      GOOGLE_DRIVE_AUTH_MODE: ${GOOGLE_DRIVE_AUTH_MODE:-service_account}
+      GOOGLE_SERVICE_ACCOUNT_FILE: ${GOOGLE_SERVICE_ACCOUNT_FILE:-}
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${GOOGLE_SERVICE_ACCOUNT_JSON:-}
+      GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
+      GOOGLE_OAUTH_REFRESH_TOKEN: ${GOOGLE_OAUTH_REFRESH_TOKEN:-}
+      GOOGLE_DRIVE_TEST_FOLDER_ID: ${GOOGLE_DRIVE_TEST_FOLDER_ID:-}
+      PAYSLIP_ARCHIVE_TO_DRIVE: ${PAYSLIP_ARCHIVE_TO_DRIVE:-false}
       JWT_SECRET: ${JWT_SECRET:-dev-access-secret-change-me}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-dev-refresh-secret-change-me}
       ACCESS_TOKEN_EXPIRES_IN: ${ACCESS_TOKEN_EXPIRES_IN:-15m}

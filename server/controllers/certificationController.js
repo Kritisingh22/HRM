@@ -1,7 +1,8 @@
 'use strict';
 const Certification = require('../models/Certification');
 const Employee = require('../models/Employee');
-const { uploadToStorage, getSignedUrl, deleteFromStorage } = require('../services/storage');
+const { putObject, getObjectStream, removeObject } = require('../services/storage');
+const { contentDisposition } = require('../utils/contentDisposition');
 const ApiError = require('../utils/ApiError');
 const catchAsync = require('../utils/catchAsync');
 const { logAudit } = require('../utils/audit');
@@ -175,8 +176,14 @@ exports.delete = catchAsync(async (req, res) => {
     throw ApiError.forbidden('You do not have permission to delete this certification.');
   }
 
+  let storageRemoved = false;
   if (cert.certificateFileKey) {
-    await deleteFromStorage(cert.certificateFileKey);
+    try {
+      const r = await removeObject({ provider: cert.storageProvider || 'local', key: cert.certificateFileKey });
+      storageRemoved = r.removed || r.mode === 'absent';
+    } catch (e) {
+      console.error('[certifications] storage removal failed:', e.message);
+    }
   }
 
   await cert.deleteOne();
@@ -188,7 +195,7 @@ exports.delete = catchAsync(async (req, res) => {
     description: `Deleted certification ${cert.name} for employee ${cert.employee.employeeId}`,
   });
 
-  res.json({ ok: true, message: 'Certification deleted.' });
+  res.json({ ok: true, storageRemoved, message: 'Certification deleted.' });
 });
 
 exports.uploadCertificateFile = catchAsync(async (req, res) => {
@@ -202,16 +209,38 @@ exports.uploadCertificateFile = catchAsync(async (req, res) => {
   const file = req.file;
   if (!file) throw ApiError.badRequest('No file uploaded.');
 
-  const fileKey = `certifications/${cert.employee}/${Date.now()}-${file.originalname}`;
-  await uploadToStorage(fileKey, file.buffer, file.mimetype);
+  const slug = String(file.originalname || 'certificate').toLowerCase().replace(/[^a-z0-9.]+/g, '-').slice(-60) || 'certificate';
+  const put = await putObject({
+    key: `certifications/${cert.employee}/${Date.now()}-${slug}`,
+    buffer: file.buffer,
+    contentType: file.mimetype,
+    originalName: file.originalname,
+    appProperties: { certificationId: String(cert._id), employeeId: String(cert.employee) },
+  });
 
-  // Delete old file if exists
+  // Replace the previous file (best effort — leftovers are recoverable).
   if (cert.certificateFileKey) {
-    await deleteFromStorage(cert.certificateFileKey);
+    try {
+      await removeObject({ provider: cert.storageProvider || 'local', key: cert.certificateFileKey });
+    } catch (e) {
+      console.error('[certifications] old certificate removal failed:', e.message);
+    }
   }
 
-  cert.certificateFileKey = fileKey;
-  await cert.save();
+  cert.certificateFileKey = put.key;
+  cert.storageProvider = put.provider;
+  cert.driveFileId = put.driveFileId || undefined;
+  cert.checksum = put.checksum;
+  cert.certificateOriginalName = file.originalname;
+  cert.certificateMimeType = file.mimetype;
+  cert.certificateSize = put.size;
+  try {
+    await cert.save();
+  } catch (e) {
+    // Metadata failed to save — do not leave a stray upload behind.
+    await removeObject({ provider: put.provider, key: put.key }).catch(() => {});
+    throw e;
+  }
 
   res.json({ certification: cert });
 });
@@ -228,6 +257,14 @@ exports.download = catchAsync(async (req, res) => {
     throw ApiError.notFound('No certificate file available.');
   }
 
-  const signedUrl = await getSignedUrl(cert.certificateFileKey, 3600);
-  res.redirect(signedUrl);
+  const provider = cert.storageProvider || 'local';
+  const { stream } = await getObjectStream({ provider, key: cert.certificateFileKey });
+  res.setHeader('Content-Type', cert.certificateMimeType || 'application/octet-stream');
+  if (cert.certificateSize) res.setHeader('Content-Length', String(cert.certificateSize));
+  res.setHeader('Content-Disposition', contentDisposition(cert.certificateOriginalName || `certificate-${String(cert._id)}`, req.query.inline !== '1'));
+  stream.on('error', (err) => {
+    console.error('[certifications] stream failed:', err.message);
+    res.destroy();
+  });
+  stream.pipe(res);
 });
