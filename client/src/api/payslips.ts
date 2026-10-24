@@ -82,18 +82,36 @@ export interface PayslipPdf {
   filename: string;
 }
 
-/** Read the server's filename suggestion, if any. */
+/** Read the server's filename suggestion, if any (RFC 5987 aware). */
 function filenameFromHeader(header: string | null): string | null {
   if (!header) return null;
+  const encoded = /filename\*=UTF-8''([^;]+)/i.exec(header);
+  if (encoded) {
+    try {
+      return decodeURIComponent(encoded[1]);
+    } catch {
+      // Use the quoted filename when the encoded value is malformed.
+    }
+  }
   const m = /filename="?([^";]+)"?/i.exec(header);
   return m ? m[1] : null;
 }
 
-/** Fetch the server-generated PDF for one payslip (inline disposition). */
+/** Fetch and validate the server-generated PDF for one payslip. */
 export async function fetchPayslipPdf(id: string): Promise<PayslipPdf> {
-  const res = await apiRequest(`/api/payroll/${encodeURIComponent(id)}/payslip/pdf`);
+  const res = await apiRequest(`/api/payroll/${encodeURIComponent(id)}/payslip/pdf?download=1`);
+  const contentType = (res.headers.get('Content-Type') ?? '').split(';', 1)[0].trim().toLowerCase();
+  if (contentType !== 'application/pdf') {
+    throw new Error('The server did not return a PDF for this payslip.');
+  }
   const blob = await res.blob();
-  const filename = filenameFromHeader(res.headers.get('Content-Disposition')) ?? `payslip-${id}.pdf`;
+  if (blob.size < 500 || (await blob.slice(0, 5).text()) !== '%PDF-') {
+    throw new Error('The payslip PDF is empty or invalid. Please try again or contact HR.');
+  }
+  const suggestedName = filenameFromHeader(res.headers.get('Content-Disposition'));
+  const filename = suggestedName && /^[A-Za-z0-9_-]+\.pdf$/i.test(suggestedName)
+    ? suggestedName
+    : `Payslip_${id}.pdf`;
   return { blob, filename };
 }
 
@@ -105,6 +123,7 @@ export function payslipErrorMessage(err: unknown): string {
     if (err.status === 404) return 'No official payslip is on file for this record yet.';
     return err.message;
   }
+  if (err instanceof Error) return err.message;
   return 'The payslip could not be prepared — please try again.';
 }
 
@@ -116,4 +135,34 @@ export function downloadBlobUrl(url: string, filename: string): void {
   document.body.appendChild(a);
   a.click();
   a.remove();
+}
+
+export interface ArchiveStatus {
+  archived: boolean;
+  documentId?: string;
+  uploadStatus?: string;
+  driveFileId?: string;
+  driveFolderId?: string;
+  storageProvider?: string;
+  fileSize?: number;
+  checksum?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  driveUploadStatus?: string;
+  uploadError?: string;
+  uploadAttempts?: number;
+}
+
+/** Fetch the archive status for a payslip (including Google Drive sync status). */
+export async function fetchArchiveStatus(id: string): Promise<ArchiveStatus> {
+  const res = await apiRequest(`/api/payroll/${encodeURIComponent(id)}/archive/status`);
+  return res.json();
+}
+
+/** Retry failed Google Drive upload for a payslip. */
+export async function retryDriveUpload(id: string): Promise<{ success: boolean; driveUrl?: string; driveFileId?: string }> {
+  const res = await apiRequest(`/api/payroll/${encodeURIComponent(id)}/archive/retry-drive`, {
+    method: 'POST',
+  });
+  return res.json();
 }

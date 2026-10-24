@@ -11,6 +11,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
 import { niceDate, todayISO } from '@/lib/date';
 import { clampPct } from '@/lib/format';
+import { calculateLastWorkingDay, getNoticePeriodOptions, type NoticePeriodOption } from '@/lib/noticePeriod';
 import type { ExitRecord } from '@/types';
 
 function statusFor(x: ExitRecord): ExitRecord['status'] {
@@ -39,7 +40,20 @@ export function OffboardingPage() {
   const [resignDate, setResignDate] = useState(todayISO());
   const [lastDay, setLastDay] = useState(todayISO());
   const [reason, setReason] = useState('');
-  const [notice, setNotice] = useState('30 days');
+  const [notice, setNotice] = useState<NoticePeriodOption>('30 days');
+
+  // Auto-calculate last working day when resignation date or notice period changes
+  const recalculateLastDay = () => {
+    const calculated = calculateLastWorkingDay(resignDate, notice);
+    setLastDay(calculated);
+  };
+
+  // Initialize lastDay on mount
+  const [initialized, setInitialized] = useState(false);
+  if (!initialized) {
+    recalculateLastDay();
+    setInitialized(true);
+  }
 
   const exits = useMemo(
     () => [...data.exits].sort((a, b) => (a.lastDay < b.lastDay ? 1 : -1)),
@@ -302,17 +316,17 @@ export function OffboardingPage() {
           <div className="form-2col">
             <div className="field">
               <label htmlFor="ex-resign">Resignation date</label>
-              <input id="ex-resign" type="date" value={resignDate} onChange={(e) => setResignDate(e.target.value)} />
+              <input id="ex-resign" type="date" value={resignDate} onChange={(e) => { setResignDate(e.target.value); recalculateLastDay(); }} />
             </div>
             <div className="field">
-              <label htmlFor="ex-last">Last working day</label>
-              <input id="ex-last" type="date" value={lastDay} onChange={(e) => setLastDay(e.target.value)} />
+              <label htmlFor="ex-last">Last working day <span className="required" style={{color: 'var(--primary)'}}> (auto-calculated)</span></label>
+              <input id="ex-last" type="date" value={lastDay} readOnly style={{ background: 'var(--muted-bg)', cursor: 'not-allowed' }} />
             </div>
           </div>
           <div className="field">
             <label htmlFor="ex-notice">Notice period</label>
-            <select id="ex-notice" value={notice} onChange={(e) => setNotice(e.target.value)}>
-              {['Immediate', '30 days', '60 days', '90 days'].map((n) => (
+            <select id="ex-notice" value={notice} onChange={(e) => { setNotice(e.target.value as NoticePeriodOption); recalculateLastDay(); }}>
+              {getNoticePeriodOptions().map((n) => (
                 <option key={n} value={n}>
                   {n}
                 </option>

@@ -10,7 +10,7 @@ import { Pill } from '@/components/ui/primitives';
 import { useApp } from '@/store/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
-import { deptName, empName } from '@/lib/lookups';
+import { deptName, empName, filterDemoEmployees } from '@/lib/lookups';
 import { downloadCsv, rowsToCsv } from '@/lib/csv';
 import { niceDate, todayISO } from '@/lib/date';
 import { accuracyText, capturedText, coordText } from '@/lib/geo';
@@ -49,7 +49,8 @@ function buildReport(key: string, data: AppData, ctx: { holidays: AppData['holid
     case 'directory': {
       const head = ['Employee', 'ID', 'Department', 'Designation', 'Manager', 'Location', 'Type', 'Joined', 'Status'];
       if (canSeeSalary) head.push('Monthly in-hand');
-      const rows = data.employees
+      const filteredEmployees = filterDemoEmployees(data.employees);
+      const rows = filteredEmployees
         .slice()
         .sort((a, b) => (a.name < b.name ? -1 : 1))
         .map((e) => {
@@ -58,7 +59,7 @@ function buildReport(key: string, data: AppData, ctx: { holidays: AppData['holid
             e.id,
             deptName(data.departments, e.dept),
             e.designation,
-            empName(data.employees, e.manager),
+            empName(filteredEmployees, e.manager),
             e.location,
             e.employmentType,
             niceDate(e.joining),
@@ -70,10 +71,11 @@ function buildReport(key: string, data: AppData, ctx: { holidays: AppData['holid
       return { head, rows, note: `${rows.length} employees on the roster.` };
     }
     case 'headcount': {
+      const filteredEmployees = filterDemoEmployees(data.employees);
       const rows = data.departments.map((d) => [
         d.name,
-        empName(data.employees, d.head),
-        data.employees.filter((e) => e.dept === d.id && e.status !== 'Resigned' && e.status !== 'Terminated').length,
+        empName(filteredEmployees, d.head),
+        filteredEmployees.filter((e) => e.dept === d.id && e.status !== 'Resigned' && e.status !== 'Terminated').length,
         d.budget,
         d.active ? 'Active' : 'Inactive',
       ]);
@@ -84,7 +86,8 @@ function buildReport(key: string, data: AppData, ctx: { holidays: AppData['holid
       };
     }
     case 'attendance': {
-      const rows = data.employees.map((e) => {
+      const filteredEmployees = filterDemoEmployees(data.employees);
+      const rows = filteredEmployees.map((e) => {
         const s = monthSummary(e.id, now.getFullYear(), now.getMonth(), ctx);
         return [
           e.name,
@@ -105,12 +108,13 @@ function buildReport(key: string, data: AppData, ctx: { holidays: AppData['holid
       };
     }
     case 'leave': {
+      const filteredEmployees = filterDemoEmployees(data.employees);
       const rows = data.leaveRequests
         .slice()
         .sort((a, b) => (a.appliedOn < b.appliedOn ? 1 : -1))
         .map((r) => [
           r.id,
-          empName(data.employees, r.employeeId),
+          empName(filteredEmployees, r.employeeId),
           r.type,
           `${niceDate(r.from)}${r.to !== r.from ? ` – ${niceDate(r.to)}` : ''}`,
           r.days,
@@ -126,10 +130,11 @@ function buildReport(key: string, data: AppData, ctx: { holidays: AppData['holid
       };
     }
     case 'payroll': {
+      const filteredEmployees = filterDemoEmployees(data.employees);
       const run = data.payrollRuns.slice().sort((a, b) => (a.period < b.period ? 1 : -1))[0];
       if (!run) return { head: ['Period', 'Status'], rows: [], note: 'No payroll run has been created yet.' };
       const rows = run.rows.map((r) => {
-        const e = data.employees.find((x) => x.id === r.empId);
+        const e = filteredEmployees.find((x) => x.id === r.empId);
         return [
           e?.name ?? r.empId,
           deptName(data.departments, e?.dept),
@@ -153,6 +158,7 @@ function buildReport(key: string, data: AppData, ctx: { holidays: AppData['holid
       };
     }
     case 'recruitment': {
+      const filteredEmployees = filterDemoEmployees(data.employees);
       const rows = data.candidates.map((c) => [
         c.name,
         data.jobs.find((j) => j.id === c.jobId)?.title ?? c.jobId,
@@ -160,7 +166,7 @@ function buildReport(key: string, data: AppData, ctx: { holidays: AppData['holid
         c.source,
         c.experience,
         niceDate(c.applied),
-        empName(data.employees, c.recruiter),
+        empName(filteredEmployees, c.recruiter),
       ]);
       const openJobs = data.jobs.filter((j) => j.status === 'Open' || j.status === 'Published').length;
       return {
@@ -170,11 +176,12 @@ function buildReport(key: string, data: AppData, ctx: { holidays: AppData['holid
       };
     }
     case 'projects': {
+      const filteredEmployees = filterDemoEmployees(data.employees);
       const rows = data.projects.map((p) => [
         p.name,
         p.client,
         deptName(data.departments, p.dept),
-        empName(data.employees, p.manager),
+        empName(filteredEmployees, p.manager),
         p.status,
         p.priority,
         `${p.progress}%`,
@@ -187,16 +194,17 @@ function buildReport(key: string, data: AppData, ctx: { holidays: AppData['holid
       };
     }
     case 'performance': {
+      const filteredEmployees = filterDemoEmployees(data.employees);
       const rows = data.reviews.map((r) => [
-        empName(data.employees, r.employeeId),
+        empName(filteredEmployees, r.employeeId),
         r.cycle,
         r.period,
         r.score,
         r.rating,
-        empName(data.employees, r.manager),
+        empName(filteredEmployees, r.manager),
       ]);
       const targets = data.targets.map((t) => [
-        empName(data.employees, t.employeeId),
+        empName(filteredEmployees, t.employeeId),
         t.name,
         `${t.achieved}/${t.target} ${t.unit}`,
         `${t.weightage}%`,
@@ -209,12 +217,13 @@ function buildReport(key: string, data: AppData, ctx: { holidays: AppData['holid
       };
     }
     case 'locations': {
+      const filteredEmployees = filterDemoEmployees(data.employees);
       const kindLabel = (k: string) => (k === 'login' ? 'Sign-in' : k === 'check-in' ? 'Check-in' : 'Check-out');
       const rows = data.locationLog
         .slice()
         .sort((a, b) => (a.capturedAt < b.capturedAt ? 1 : -1))
         .map((l) => [
-          l.employeeId ? empName(data.employees, l.employeeId) : l.email,
+          l.employeeId ? empName(filteredEmployees, l.employeeId) : l.email,
           kindLabel(l.kind),
           coordText(l),
           accuracyText(l),

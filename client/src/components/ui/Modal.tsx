@@ -13,9 +13,10 @@ export interface ModalProps {
   /** wide dialog (forms with 2 columns, payslips…) */
   large?: boolean;
   labelledById?: string;
+  className?: string;
 }
 
-export function Modal({ title, onClose, children, footer, large }: ModalProps) {
+export function Modal({ title, onClose, children, footer, large, className }: ModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
   const lastFocus = useRef<Element | null>(null);
 
@@ -60,7 +61,7 @@ export function Modal({ title, onClose, children, footer, large }: ModalProps) {
 
   return (
     <div
-      className="scrim"
+      className={className ? `scrim ${className}` : 'scrim'}
       onMouseDown={(ev) => {
         if (ev.target === ev.currentTarget) onClose();
       }}

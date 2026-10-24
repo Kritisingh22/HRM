@@ -53,8 +53,14 @@ function loadLogoBytes() {
   if (logoBytesCache !== undefined) return logoBytesCache;
   try {
     logoBytesCache = fs.readFileSync(LOGO_PNG);
-  } catch {
-    logoBytesCache = null; // header still renders (name + period), just without the mark
+    // Validate it's a valid PNG by checking magic bytes
+    if (logoBytesCache.length < 8 || logoBytesCache[0] !== 0x89 || logoBytesCache[1] !== 0x50 || logoBytesCache[2] !== 0x4E || logoBytesCache[3] !== 0x47) {
+      console.warn('[payslipPdf] Logo file does not appear to be a valid PNG, proceeding without logo');
+      logoBytesCache = null;
+    }
+  } catch (err) {
+    console.error('[payslipPdf] Failed to load logo:', err.message);
+    logoBytesCache = null; // Continue without logo rather than failing
   }
   return logoBytesCache;
 }
@@ -233,13 +239,7 @@ class PayslipRenderer {
 
   async create() {
     const bytes = loadLogoBytes();
-    if (bytes) {
-      try {
-        this.logo = await this.pdfDoc.embedPng(bytes);
-      } catch {
-        this.logo = null;
-      }
-    }
+    this.logo = await this.pdfDoc.embedPng(bytes);
     this.addPage(true);
     return this;
   }
@@ -516,6 +516,13 @@ class PayslipRenderer {
  * @returns {Promise<Uint8Array>} PDF bytes
  */
 async function buildPayslipPdf({ payroll, employee, salaryStructure, company, currency, generatedAt }) {
+  if (!payroll || !employee) {
+    throw new TypeError('Payslip PDF generation requires a payroll record and employee.');
+  }
+  if (!payroll.period || !Number.isFinite(Number(payroll.gross)) || !Number.isFinite(Number(payroll.net))) {
+    throw new TypeError('Payslip PDF generation received incomplete payroll amounts or period.');
+  }
+
   const pdfDoc = await PDFDocument.create();
   pdfDoc.setTitle(`Salary Payslip - ${employee.employeeId} - ${payroll.period}`);
   pdfDoc.setAuthor(company?.name || 'CYETHACK Solution');
@@ -568,14 +575,27 @@ async function buildPayslipPdf({ payroll, employee, salaryStructure, company, cu
   renderer.drawSummary(breakdown, paymentRows);
 
   renderer.drawFooters();
-  return pdfDoc.save();
+  const bytes = await pdfDoc.save();
+  if (bytes.length < 500 || Buffer.from(bytes.subarray(0, 5)).toString('ascii') !== '%PDF-') {
+    throw new Error('Payslip PDF generation produced an invalid or empty document.');
+  }
+
+  const verifiedPdf = await PDFDocument.load(bytes);
+  if (verifiedPdf.getPageCount() < 1) {
+    throw new Error('Payslip PDF generation produced a document with no pages.');
+  }
+  return bytes;
 }
 
 /** Safe, deterministic download name — values sanitized, no secrets. */
 function payslipFilename(employeeId, period) {
   const safeId = String(employeeId || '').replace(/[^A-Za-z0-9_-]+/g, '');
-  const safePeriod = String(period || '').replace(/[^0-9-]+/g, '') || 'period';
-  return `CYETHACK_Payslip_${safeId || 'employee'}_${safePeriod}.pdf`;
+  const match = /^(\d{4})-(\d{2})$/.exec(String(period || ''));
+  const month = match ? MONTHS[Number(match[2]) - 1] : '';
+  const periodLabelForFile = month && Number(match[2]) <= 12
+    ? `${month}_${match[1]}`
+    : String(period || '').replace(/[^A-Za-z0-9_-]+/g, '') || 'period';
+  return `Payslip_${safeId || 'employee'}_${periodLabelForFile}.pdf`;
 }
 
 module.exports = { buildPayslipPdf, payslipFilename, periodLabel, money, maskAccount };

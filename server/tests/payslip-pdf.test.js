@@ -18,6 +18,7 @@ process.env.ACCESS_TOKEN_EXPIRES_IN = "15m";
 process.env.MAX_FAILED_LOGINS = "50";
 
 const { MongoMemoryServer } = require("mongodb-memory-server");
+const { PDFDocument } = require("pdf-lib");
 const zlib = require("zlib");
 
 let pass = 0;
@@ -144,9 +145,16 @@ function pdfText(buffer) {
         own.headers.get("content-type") === "application/pdf" &&
         own.buffer.slice(0, 5).toString() === "%PDF-",
     );
+    const parsedOwn = await PDFDocument.load(own.buffer);
     ok(
-      "4. Content-Disposition is inline with the safe filename",
-      /^inline; filename="CYETHACK_Payslip_CY0525RS109_2026-08\.pdf"$/.test(
+      "3a. response has a complete non-empty PDF page and finalized trailer",
+      own.buffer.length > 500 &&
+        own.buffer.toString("latin1").includes("%%EOF") &&
+        parsedOwn.getPageCount() > 0,
+    );
+    ok(
+      "4. default Download PDF response is an attachment with the safe filename",
+      /^attachment; filename="Payslip_CY0525RS109_August_2026\.pdf"$/.test(
         own.headers.get("content-disposition") || "",
       ),
     );
@@ -221,11 +229,14 @@ function pdfText(buffer) {
       { access: empA.access },
     );
     ok(
-      "15. ?download=1 forces an attachment with the same safe filename",
+      "15. ?download=1 forces an attachment with the month-name filename",
       dl.status === 200 &&
-        /^attachment; filename="CYETHACK_Payslip_CY0525RS109_2026-08\.pdf"$/.test(
+        /^attachment; filename="Payslip_CY0525RS109_August_2026\.pdf"$/.test(
           dl.headers.get("content-disposition") || "",
-        ),
+        ) &&
+        dl.buffer.length > 500 &&
+        pdfText(dl.buffer).includes("NET SALARY PAYABLE") &&
+        pdfText(dl.buffer).includes("INR 15,500.00"),
     );
     const dl2 = await apiRaw("GET", "/api/payroll/" + payrollA._id + "/download", {
       access: empA.access,

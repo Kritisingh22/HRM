@@ -31,6 +31,7 @@ import {
 import { dateRange, lastWorkingDays, niceDate, shortDate, todayISO, toISO, sameMonth } from '@/lib/date';
 import { canSeeSalary } from '@/data/nav';
 import { clampPct, moneyCompact, pct } from '@/lib/format';
+import { filterDemoEmployees } from '@/lib/lookups';
 import type { Employee, LeaveRequest } from '@/types';
 
 const DEPT_COLORS = ['var(--teal)', 'var(--violet)', 'var(--orange)', 'var(--blue)', 'var(--green)', 'var(--amber)'];
@@ -49,14 +50,14 @@ export function DashboardPage() {
 
   /* -------- scoping -------- */
   const onRoll = useMemo(
-    () => data.employees.filter((e) => e.status === 'Active' || e.status === 'Probation' || e.status === 'On Leave'),
+    () => filterDemoEmployees(data.employees).filter((e) => e.status === 'Active' || e.status === 'Probation' || e.status === 'On Leave'),
     [data.employees],
   );
   const team = useMemo(() => {
     if (user?.portal !== 'manager' || !myId) return onRoll;
     const direct = new Set<string>();
     const collect = (managerId: string) => {
-      data.employees.forEach((e) => {
+      filterDemoEmployees(data.employees).forEach((e) => {
         if (e.manager === managerId && !direct.has(e.id)) {
           direct.add(e.id);
           collect(e.id);

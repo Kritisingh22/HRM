@@ -1,0 +1,2 @@
+@echo off
+curl.exe -v -X GET http://127.0.0.1:5000/api/payroll/6ab6536fdef1ed3349d70a8e/payslip/pdf?download=1 -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2YWI2NTM2ZmRlZjFlZDMzNDlkNzBhN2YiLCJyb2xlIjoiRU1QTE9ZRUUiLCJpYXQiOjE3OTI4MjE2NzMsImV4cCI6MTc5MjgyMjU3M30.2YHdZ3qwvHux9EFlyIJ6bI7_aTf2_Wh6cd1wUV1RJ24" -o test_payslip.pdf 2>&1

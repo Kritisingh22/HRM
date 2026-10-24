@@ -41,7 +41,8 @@ const PERMISSIONS = {
     'dailyReports:read', 'dailyReports:write', 'dailyReports:approve',
     'notifications:read',
     'requirements:*', 'transfers:*',
-    'payslipRequests:read', 'payslipRequests:create', 'payslipRequests:review'
+    'payslipRequests:read', 'payslipRequests:create', 'payslipRequests:review',
+    'tasks:read', 'tasks:write'
   ],
 
   MANAGER: [
@@ -58,6 +59,7 @@ const PERMISSIONS = {
     'notifications:read',
     'requirements:read', 'requirements:write', 'requirements:read_own', 'requirements:write_own',
     'payslipRequests:read', 'payslipRequests:create', 'payslipRequests:review',
+    'tasks:read', 'tasks:write',
     // own self-service
     'leaves:read_own', 'leaves:write_own', 'attendance:read_own', 'payroll:read_own',
     'employees:read_own', 'performance:read_own', 'projects:read_own', 'documents:read_own',
@@ -77,7 +79,8 @@ const PERMISSIONS = {
     'helpdesk:read_own', 'helpdesk:write_own',
     'dailyReports:read_own', 'dailyReports:write_own',
     'notifications:read_own',
-    'payslipRequests:read_own', 'payslipRequests:create_own'
+    'payslipRequests:read_own', 'payslipRequests:create_own',
+    'tasks:read_own', 'tasks:write_own'
   ]
 };
 

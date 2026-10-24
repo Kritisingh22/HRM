@@ -34,6 +34,24 @@ export function LeaveApprovalsPage() {
 
   const inScope = (r: LeaveRequest) => scopeIds === null || scopeIds.has(r.employeeId);
 
+  // Check if the current user is the correct approver based on approvalAuthority
+  const canDecideRequest = (r: LeaveRequest) => {
+    if (r.status !== 'Pending') return false;
+    if (!inScope(r)) return false;
+
+    const isHR = user?.portal === 'hr';
+    const isManager = user?.portal === 'manager';
+
+    if (r.approvalAuthority === 'HR') {
+      // Only HR can approve/reject HR-assigned requests
+      return isHR;
+    } else if (r.approvalAuthority === 'Manager') {
+      // Only the assigned manager can approve/reject manager-assigned requests
+      return isManager && r.employee?.manager === myId;
+    }
+    return false;
+  };
+
   /* Per-employee leave allowances are not stored yet, so the decision
      modal shows what the records prove: approved (non-WFH) days in the
      current calendar year. */
@@ -53,10 +71,10 @@ export function LeaveApprovalsPage() {
   const pending = useMemo(
     () =>
       data.leaveRequests
-        .filter((r) => r.status === 'Pending' && inScope(r))
+        .filter((r) => r.status === 'Pending' && inScope(r) && canDecideRequest(r))
         .filter((r) => typeFilter === 'all' || r.type === typeFilter)
         .sort((a, b) => (a.appliedOn < b.appliedOn ? 1 : -1)),
-    [data.leaveRequests, scopeIds, typeFilter],
+    [data.leaveRequests, scopeIds, typeFilter, user?.portal, myId],
   );
 
   const decided = useMemo(
@@ -173,6 +191,7 @@ export function LeaveApprovalsPage() {
                   <th>Days</th>
                   <th>Reason</th>
                   <th>Applied</th>
+                  <th>Authority</th>
                   <th>Status</th>
                   <th aria-label="Actions" />
                 </tr>
@@ -180,6 +199,7 @@ export function LeaveApprovalsPage() {
               <tbody>
                 {rowsShown.map((r) => {
                   const emp = data.employees.find((e) => e.id === r.employeeId);
+                  const canDecide = r.status === 'Pending' && canDecideRequest(r);
                   return (
                     <tr key={r.id}>
                       <td>
@@ -194,10 +214,18 @@ export function LeaveApprovalsPage() {
                       <td style={{ whiteSpace: 'normal', maxWidth: 240 }}>{r.reason || '—'}</td>
                       <td className="num">{niceDate(r.appliedOn)}</td>
                       <td>
+                        <span className="chip" style={{ 
+                          background: r.approvalAuthority === 'HR' ? 'var(--blue-tint)' : 'var(--teal-tint)',
+                          color: r.approvalAuthority === 'HR' ? 'var(--blue)' : 'var(--teal)'
+                        }}>
+                          {r.approvalAuthority}
+                        </span>
+                      </td>
+                      <td>
                         <Pill status={r.status} />
                       </td>
                       <td>
-                        {r.status === 'Pending' ? (
+                        {canDecide ? (
                           <div className="act-btns">
                             <button className="btn btn-outline btn-sm" onClick={() => openDecision(r, true)} type="button">
                               Approve
@@ -260,6 +288,15 @@ export function LeaveApprovalsPage() {
             <dd>{deciding.reason || '—'}</dd>
             <dt>Applied on</dt>
             <dd>{niceDate(deciding.appliedOn)}</dd>
+            <dt>Authority</dt>
+            <dd>
+              <span className="chip" style={{ 
+                background: deciding.approvalAuthority === 'HR' ? 'var(--blue-tint)' : 'var(--teal-tint)',
+                color: deciding.approvalAuthority === 'HR' ? 'var(--blue)' : 'var(--teal)'
+              }}>
+                {deciding.approvalAuthority}
+              </span>
+            </dd>
             <dt>On approved leave</dt>
             <dd>{approvedDaysThisYear(deciding.employeeId)} day(s) this year, from records</dd>
           </div>

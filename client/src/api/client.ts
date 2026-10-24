@@ -230,33 +230,47 @@ async function tryRealLogin(email: string, password: string): Promise<StoredSess
   }
 }
 
+let realSessionRenewal: Promise<StoredSession | null> | null = null;
+
 /** Mint a fresh access token from the httpOnly refresh cookie. Persists
-    the renewed session; returns null when the cookie is gone/expired. */
-async function renewRealSession(): Promise<StoredSession | null> {
-  let res: Response;
-  try {
-    res = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'same-origin' });
-  } catch {
-    return null;
-  }
-  if (!res.ok) return null;
-  try {
-    const body = (await res.json()) as { accessToken?: string; expiresIn?: string; user?: SessionUser };
-    if (!body.accessToken || !body.user) return null;
-    const issuedAt = Date.now();
-    const renewed: StoredSession = {
-      accessToken: body.accessToken,
-      sessionId: readSession()?.sessionId ?? '',
-      user: body.user,
-      issuedAt,
-      expiresAt: issuedAt + parseTtl(body.expiresIn, 15 * 60 * 1000),
-      source: 'api',
-    };
-    persistStored(renewed);
-    return renewed;
-  } catch {
-    return null;
-  }
+    the renewed session; returns null when the cookie is gone/expired.
+    Concurrent 401 responses share one refresh because refresh tokens rotate
+    on every use and replaying the old token revokes the whole token family. */
+function renewRealSession(): Promise<StoredSession | null> {
+  if (realSessionRenewal) return realSessionRenewal;
+
+  realSessionRenewal = (async () => {
+    let res: Response;
+    try {
+      // Use 'include' to ensure the httpOnly refresh cookie is sent even in
+      // cross-origin scenarios (e.g., Vite dev proxy on different port).
+      res = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'include' });
+    } catch {
+      return null;
+    }
+    if (!res.ok) return null;
+    try {
+      const body = (await res.json()) as { accessToken?: string; expiresIn?: string; user?: SessionUser };
+      if (!body.accessToken || !body.user) return null;
+      const issuedAt = Date.now();
+      const renewed: StoredSession = {
+        accessToken: body.accessToken,
+        sessionId: readSession()?.sessionId ?? '',
+        user: body.user,
+        issuedAt,
+        expiresAt: issuedAt + parseTtl(body.expiresIn, 15 * 60 * 1000),
+        source: 'api',
+      };
+      persistStored(renewed);
+      return renewed;
+    } catch {
+      return null;
+    }
+  })().finally(() => {
+    realSessionRenewal = null;
+  });
+
+  return realSessionRenewal;
 }
 
 /**
@@ -288,6 +302,13 @@ export async function apiRequest(path: string, init: RequestInit = {}): Promise<
     return await attempt(session.accessToken);
   } catch (err) {
     if (!(err instanceof ApiError) || err.status !== 401) throw err;
+    const latestSession = readSession();
+    if (
+      latestSession?.source === 'api' &&
+      latestSession.accessToken !== session.accessToken
+    ) {
+      return attempt(latestSession.accessToken);
+    }
     const renewed = await renewRealSession();
     if (!renewed) {
       clearSession();

@@ -783,6 +783,7 @@ export function LeavePage() {
                 <th>Dates</th>
                 <th>Days</th>
                 <th>Applied on</th>
+                <th>Authority</th>
                 <th>Status</th>
                 <th>Reason / note</th>
                 <th aria-label="Actions" />
@@ -791,7 +792,7 @@ export function LeavePage() {
             <tbody>
               {myRequests.length === 0 ? (
                 <tr>
-                  <td colSpan={8}>
+                  <td colSpan={9}>
                     <div className="empty">No leave requests yet — use “Apply for leave”.</div>
                   </td>
                 </tr>
@@ -806,6 +807,14 @@ export function LeavePage() {
                     <td className="num">{dateRange(r.from, r.to)}</td>
                     <td className="num">{r.days}</td>
                     <td className="num">{niceDate(r.appliedOn)}</td>
+                    <td>
+                      <span className="chip" style={{ 
+                        background: r.approvalAuthority === 'HR' ? 'var(--blue-tint)' : 'var(--teal-tint)',
+                        color: r.approvalAuthority === 'HR' ? 'var(--blue)' : 'var(--teal)'
+                      }}>
+                        {r.approvalAuthority}
+                      </span>
+                    </td>
                     <td>
                       <Pill status={r.status} />
                     </td>

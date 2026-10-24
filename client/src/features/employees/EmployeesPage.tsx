@@ -16,9 +16,12 @@ import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
 import { PAGE_PATH } from '@/data/nav';
 import { useDrill } from '@/lib/useDrill';
-import { deptName, empName, teamIds } from '@/lib/lookups';
+import { deptName, empName, teamIds, filterDemoEmployees } from '@/lib/lookups';
 import { buildRosterId, money } from '@/lib/format';
 import { dateRange, niceDate } from '@/lib/date';
+import { canSeeSalary } from '@/data/nav';
+import { isApiSession } from '@/api/client';
+import { createEmployee, type CreateEmployeeParams } from '@/api/employees';
 import type {
   Department,
   Designation,
@@ -52,7 +55,7 @@ export function EmployeesPage() {
 
   /* -------- scope: managers see their own reporting line -------- */
   const rows = useMemo(() => {
-    let list = data.employees;
+    let list = filterDemoEmployees(data.employees);
     if (user?.portal === 'manager' && myId) {
       const ids = teamIds(data.employees, myId);
       list = list.filter((e) => ids.has(e.id));
@@ -149,7 +152,27 @@ export function EmployeesPage() {
     return fields;
   }, [data.departments, data.designations, data.employees, canSeeSalary]);
 
-  const createEmployee = (values: Record<string, string>) => {
+  const createEmployee = async (values: Record<string, string>) => {
+    if (isApiSession()) {
+      const params: CreateEmployeeParams = {
+        fullName: values.name.trim(),
+        email: values.email.trim(),
+        phone: values.phone || undefined,
+        department: values.dept,
+        designation: values.designation || '—',
+        manager: values.manager || undefined,
+        location: values.location || 'Noida',
+        employmentType: (values.employmentType as Employee['employmentType']) || 'Full-time',
+        joiningDate: values.joining,
+        status: (values.status as EmployeeStatus) || 'Probation',
+        salary: Number(values.salary || 0) || 0,
+        grade: values.grade || 'E1',
+      };
+      const res = await createEmployee(params);
+      toast(`${res.employee.fullName} joined with ID ${res.employee.employeeId}.`, 'success');
+      return;
+    }
+    // Demo mode: local generation
     const id = buildRosterId(values.name, data.employees.length);
     const record: Employee = {
       id,
@@ -201,10 +224,11 @@ export function EmployeesPage() {
   };
 
   /* -------- departments -------- */
-  const departmentCount = (id: string) => data.employees.filter((e) => e.dept === id).length;
+  const filteredEmployees = filterDemoEmployees(data.employees);
+  const departmentCount = (id: string) => filteredEmployees.filter((e) => e.dept === id).length;
   const departmentColumns = [
     { header: 'Department', render: (d: Department) => <b>{d.name}</b> },
-    { header: 'Head', render: (d: Department) => empName(data.employees, d.head) },
+    { header: 'Head', render: (d: Department) => empName(filteredEmployees, d.head) },
     { header: 'Headcount', render: (d: Department) => <span className="num">{departmentCount(d.id)}</span>, num: true },
     { header: 'Annual budget', render: (d: Department) => <span className="num">{d.budget}</span>, num: true },
     { header: 'Active', render: (d: Department) => <Pill status={d.active ? 'Active' : 'Closed'} /> },
@@ -215,7 +239,7 @@ export function EmployeesPage() {
       key: 'head',
       label: 'Department head',
       type: 'select',
-      options: [{ value: '', label: '— None —' }, ...data.employees.map((e) => ({ value: e.id, label: `${e.name} (${e.designation})` }))],
+      options: [{ value: '', label: '— None —' }, ...filteredEmployees.map((e) => ({ value: e.id, label: `${e.name} (${e.designation})` }))],
     },
     { key: 'budget', label: 'Annual budget', placeholder: '₹1.0 Cr' },
     {
@@ -259,7 +283,7 @@ export function EmployeesPage() {
     { header: 'Max band', render: (d: Designation) => <span className="num">{canSeeSalary ? d.max : '—'}</span>, num: true },
     {
       header: 'Employees',
-      render: (d: Designation) => <span className="num">{data.employees.filter((e) => e.designation === d.title).length}</span>,
+      render: (d: Designation) => <span className="num">{filteredEmployees.filter((e) => e.designation === d.title).length}</span>,
       num: true,
     },
   ];
@@ -299,7 +323,7 @@ export function EmployeesPage() {
 
   /* -------- promotions & transfers -------- */
   const promotionColumns = [
-    { header: 'Employee', render: (p: Promotion) => <EmpCell name={empName(data.employees, p.employeeId)} sub={p.employeeId} seed={p.employeeId} /> },
+    { header: 'Employee', render: (p: Promotion) => <EmpCell name={empName(filteredEmployees, p.employeeId)} sub={p.employeeId} seed={p.employeeId} /> },
     { header: 'From', render: (p: Promotion) => p.from },
     { header: 'To', render: (p: Promotion) => <b>{p.to}</b> },
     { header: 'Effective', render: (p: Promotion) => <span className="num">{niceDate(p.effective)}</span> },
@@ -324,7 +348,7 @@ export function EmployeesPage() {
       label: 'Employee',
       type: 'select',
       required: true,
-      options: data.employees.map((e) => ({ value: e.id, label: `${e.name} (${e.designation})` })),
+      options: filteredEmployees.map((e) => ({ value: e.id, label: `${e.name} (${e.designation})` })),
     },
     { key: 'from', label: 'Current title', required: true },
     { key: 'to', label: 'New title', required: true },
@@ -370,7 +394,7 @@ export function EmployeesPage() {
   };
 
   const transferColumns = [
-    { header: 'Employee', render: (t: Transfer) => <EmpCell name={empName(data.employees, t.employeeId)} sub={t.employeeId} seed={t.employeeId} /> },
+    { header: 'Employee', render: (t: Transfer) => <EmpCell name={empName(filteredEmployees, t.employeeId)} sub={t.employeeId} seed={t.employeeId} /> },
     { header: 'From', render: (t: Transfer) => deptName(data.departments, t.fromDept) },
     { header: 'To', render: (t: Transfer) => <b>{deptName(data.departments, t.toDept)}</b> },
     { header: 'Location', render: (t: Transfer) => `${t.fromLoc} → ${t.toLoc}` },
@@ -384,7 +408,7 @@ export function EmployeesPage() {
       label: 'Employee',
       type: 'select',
       required: true,
-      options: data.employees.map((e) => ({ value: e.id, label: `${e.name} (${deptName(data.departments, e.dept)})` })),
+      options: filteredEmployees.map((e) => ({ value: e.id, label: `${e.name} (${deptName(data.departments, e.dept)})` })),
     },
     { key: 'toDept', label: 'New department', type: 'select', required: true, options: data.departments.map((d) => ({ value: d.id, label: d.name })) },
     { key: 'toLoc', label: 'New location', type: 'select', options: ['Noida', 'Gurugram', 'Remote', 'Work from Home', 'Client site'].map((l) => ({ value: l, label: l })) },
@@ -426,8 +450,8 @@ export function EmployeesPage() {
   /* -------- training -------- */
   const trainingColumns = [
     { header: 'Programme', render: (t: Training) => <b>{t.name}</b> },
-    { header: 'Employee', render: (t: Training) => empName(data.employees, t.employeeId) },
-    { header: 'Trainer', render: (t: Training) => (t.trainer.startsWith('CY') ? empName(data.employees, t.trainer) : t.trainer) },
+    { header: 'Employee', render: (t: Training) => empName(filteredEmployees, t.employeeId) },
+    { header: 'Trainer', render: (t: Training) => (t.trainer.startsWith('CY') ? empName(filteredEmployees, t.trainer) : t.trainer) },
     { header: 'Dates', render: (t: Training) => <span className="num">{dateRange(t.start, t.end)}</span> },
     { header: 'Completion', render: (t: Training) => <InlineBar value={t.completion} /> },
     { header: 'Status', render: (t: Training) => <Pill status={t.status} /> },
@@ -441,7 +465,7 @@ export function EmployeesPage() {
       label: 'Employee',
       type: 'select',
       required: true,
-      options: data.employees.map((e) => ({ value: e.id, label: e.name })),
+      options: filteredEmployees.map((e) => ({ value: e.id, label: e.name })),
     },
     { key: 'trainer', label: 'Trainer', placeholder: 'External — SANS / employee id' },
     { key: 'dept', label: 'Department', type: 'select', options: data.departments.map((d) => ({ value: d.id, label: d.name })) },
@@ -502,7 +526,7 @@ export function EmployeesPage() {
 
   /* -------- exit records (read-only here; processing lives in Offboarding) -------- */
   const exitColumns = [
-    { header: 'Employee', render: (x: (typeof data.exits)[number]) => <EmpCell name={empName(data.employees, x.employeeId)} sub={x.employeeId} seed={x.employeeId} /> },
+    { header: 'Employee', render: (x: (typeof data.exits)[number]) => <EmpCell name={empName(filteredEmployees, x.employeeId)} sub={x.employeeId} seed={x.employeeId} /> },
     { header: 'Resignation', render: (x: (typeof data.exits)[number]) => <span className="num">{niceDate(x.resignationDate)}</span> },
     { header: 'Last day', render: (x: (typeof data.exits)[number]) => <span className="num">{niceDate(x.lastDay)}</span> },
     { header: 'Notice', render: (x: (typeof data.exits)[number]) => x.noticePeriod },

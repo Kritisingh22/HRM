@@ -4,6 +4,16 @@
    ============================================================ */
 import type { Department, Employee } from '@/types';
 
+/** Check if an employee ID is a demo/test account (starts with DEMO-). */
+export function isDemoEmployee(id: string): boolean {
+  return id.startsWith('DEMO-');
+}
+
+/** Filter out demo/test employees from a list. */
+export function filterDemoEmployees<T extends { id: string }>(list: T[]): T[] {
+  return list.filter((e) => !isDemoEmployee(e.id));
+}
+
 export function deptName(departments: Department[], id?: string | null): string {
   if (!id) return '—';
   return departments.find((d) => d.id === id)?.name ?? id;

@@ -31,6 +31,7 @@ import {
   todayISO,
 } from '@/lib/date';
 import { pad } from '@/lib/date';
+import { filterDemoEmployees } from '@/lib/lookups';
 import type { AttendanceStatus } from '@/types';
 
 const STATUSES: AttendanceStatus[] = ['present', 'wfh', 'halfday', 'leave', 'absent'];
@@ -52,15 +53,19 @@ export function AttendancePage() {
 
   const myId = user?.employeeId ?? '';
   const isSelf = user?.portal === 'employee';
+  /* Show self check-in/out card for anyone with an employee record,
+   * except SUPER_ADMIN (who has no employee record by design). */
+  const showSelfCard = !!myId && user?.role !== 'SUPER_ADMIN';
 
   /* -------- scope -------- */
   const scope = useMemo(() => {
-    if (isSelf) return data.employees.filter((e) => e.id === myId);
+    const filtered = filterDemoEmployees(data.employees);
+    if (isSelf) return filtered.filter((e) => e.id === myId);
     if (user?.portal === 'manager' && myId) {
-      const ids = teamIds(data.employees, myId);
-      return data.employees.filter((e) => ids.has(e.id));
+      const ids = teamIds(filtered, myId);
+      return filtered.filter((e) => ids.has(e.id));
     }
-    return data.employees;
+    return filtered;
   }, [data.employees, isSelf, user?.portal, myId]);
 
   const months = useMemo(() => lastMonths(14).reverse(), []);
@@ -174,14 +179,14 @@ export function AttendancePage() {
   return (
     <div className="grid">
       {/* Self view: today's check-in / check-out lives here. */}
-      {isSelf ? <CheckInCard /> : null}
+      {showSelfCard ? <CheckInCard /> : null}
 
       <section className="card span12">
         <div className="card-head">
           <div>
-            <h2>{isSelf ? 'My Attendance' : 'Attendance Register'}</h2>
+            <h2>{showSelfCard ? 'My Attendance' : 'Attendance Register'}</h2>
             <div className="sub">
-              {isSelf
+              {showSelfCard
                 ? 'Earlier days are recorded by the system; today is yours to check in and out from the card above'
                 : 'Derived from the roster, leave approvals and company holidays — read-only by design'}
             </div>
@@ -205,7 +210,8 @@ export function AttendancePage() {
         {tab === 'month' ? (
           <>
             <div className="toolbar" style={{ marginTop: 14 }}>
-              {!isSelf ? (
+              {/* Show employee selector for HR/Manager (canManage) but not for employees */}
+              {canManage ? (
                 <select value={empId} onChange={(e) => setEmpId(e.target.value)} aria-label="Employee">
                   {scope.map((e) => (
                     <option key={e.id} value={e.id}>

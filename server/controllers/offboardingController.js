@@ -6,6 +6,7 @@ const User = require('../models/User');
 const ApiError = require('../utils/ApiError');
 const catchAsync = require('../utils/catchAsync');
 const { logAudit } = require('../utils/audit');
+const { calculateLastWorkingDay, validateLastWorkingDay } = require('../utils/noticePeriod');
 
 const SEES_ALL = ['HR', 'ADMIN', 'SUPER_ADMIN'];
 async function myEmployee(user) { return Employee.findOne({ $or: [{ user: user._id }, { employeeId: user.employeeId }] }); }
@@ -22,9 +23,20 @@ exports.initiate = catchAsync(async (req, res) => {
   if (!req.body.employee) throw ApiError.badRequest('employee is required.');
   const existing = await Offboarding.findOne({ employee: req.body.employee });
   if (existing) throw ApiError.conflict('Offboarding already exists for this employee.');
+
+  // Calculate last working date if resignation date and notice period provided
+  let lastWorkingDate = req.body.lastWorkingDate;
+  if (req.body.resignationDate && req.body.noticePeriod) {
+    lastWorkingDate = calculateLastWorkingDay(req.body.resignationDate, req.body.noticePeriod);
+  }
+
   const rec = await Offboarding.create({
-    employee: req.body.employee, initiatedBy: req.user._id,
-    reason: req.body.reason || 'Resignation', lastWorkingDate: req.body.lastWorkingDate
+    employee: req.body.employee,
+    initiatedBy: req.user._id,
+    reason: req.body.reason || 'Resignation',
+    resignationDate: req.body.resignationDate,
+    noticePeriod: req.body.noticePeriod,
+    lastWorkingDate,
   });
   logAudit(req, { action: 'offboarding.initiate', targetType: 'Offboarding', targetId: rec._id, description: `Initiated offboarding for employee ${req.body.employee} (${rec.reason})` });
   res.status(201).json({ offboarding: rec });
@@ -34,7 +46,29 @@ exports.initiate = catchAsync(async (req, res) => {
 exports.update = catchAsync(async (req, res) => {
   const rec = await Offboarding.findById(req.params.id);
   if (!rec) throw ApiError.notFound('Offboarding record not found.');
-  ['reason', 'lastWorkingDate', 'status', 'clearance', 'finalSettlementRef', 'notes'].forEach((k) => { if (req.body[k] !== undefined) rec[k] = req.body[k]; });
+
+  // Track if resignationDate or noticePeriod changed
+  const resignationDateChanged = req.body.resignationDate !== undefined && req.body.resignationDate !== rec.resignationDate;
+  const noticePeriodChanged = req.body.noticePeriod !== undefined && req.body.noticePeriod !== rec.noticePeriod;
+
+  ['reason', 'resignationDate', 'noticePeriod', 'lastWorkingDate', 'status', 'clearance', 'finalSettlementRef', 'notes'].forEach((k) => {
+    if (req.body[k] !== undefined) rec[k] = req.body[k];
+  });
+
+  // If resignation date or notice period changed, recalculate and validate last working date
+  if (resignationDateChanged || noticePeriodChanged) {
+    const validation = validateLastWorkingDay(rec.resignationDate, rec.noticePeriod, rec.lastWorkingDate);
+    if (!validation.valid) {
+      // Auto-correct to expected value
+      rec.lastWorkingDate = validation.expected;
+      logAudit(req, {
+        action: 'offboarding.lastWorkingDate_corrected',
+        targetType: 'Offboarding',
+        targetId: rec._id,
+        description: `Last working date auto-corrected from ${rec.lastWorkingDate} to ${validation.expected} based on resignation date ${rec.resignationDate} and notice period ${rec.noticePeriod}`
+      });
+    }
+  }
 
   if (rec.status === 'Completed') {
     // deactivate the employee + their login, but KEEP all historical records

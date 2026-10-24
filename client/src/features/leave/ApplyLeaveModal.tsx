@@ -38,6 +38,7 @@ export function ApplyLeaveModal({ presetDate, onClose }: ApplyLeaveModalProps) {
   const [halfDay, setHalfDay] = useState(false);
   const [reason, setReason] = useState('');
   const [contact, setContact] = useState('');
+  const [approvalAuthority, setApprovalAuthority] = useState('Manager');
   const [errors, setErrors] = useState<string[]>([]);
   const [invalid, setInvalid] = useState<Record<string, boolean>>({});
 
@@ -117,6 +118,7 @@ export function ApplyLeaveModal({ presetDate, onClose }: ApplyLeaveModalProps) {
         appliedOn: today,
         status: 'Pending' as const,
         managerNote: '',
+        approvalAuthority,
       },
     });
     audit('Leave requested', id, me?.name ?? 'Employee');
@@ -219,6 +221,19 @@ export function ApplyLeaveModal({ presetDate, onClose }: ApplyLeaveModalProps) {
         {from && to && from <= to
           ? `${workDays} working day${workDays === 1 ? '' : 's'} selected (weekends and holidays excluded).`
           : 'Pick a date range to see the working-day count.'}
+      </div>
+
+      <div className={`field${invalid.approvalAuthority ? ' invalid' : ''}`}>
+        <label htmlFor="alApprovalAuthority">Approval authority</label>
+        <select
+          id="alApprovalAuthority"
+          value={approvalAuthority}
+          onChange={(e) => setApprovalAuthority(e.target.value)}
+        >
+          <option value="Manager">Manager</option>
+          <option value="HR">HR</option>
+        </select>
+        <div className="err">Select approval authority.</div>
       </div>
 
       <div className="attach-note">Attachment (medical certificate, etc.) — upload is enabled once the backend is connected.</div>

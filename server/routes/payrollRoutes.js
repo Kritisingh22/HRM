@@ -47,6 +47,9 @@ router.get("/:id/payslip", ctrl.getPayslip); // safe print/download projection
 router.get("/:id/payslip/pdf", ctrl.payslipPdf); // official payslip PDF (inline; ?download=1)
 router.post("/:id/payslip/archive", requirePayrollPermission("payroll:write"), ctrl.archivePayslipPdf); // file the PDF into object storage
 router.get("/:id/download", ctrl.downloadPDF); // same PDF as an attachment
+router.get("/:id/archive/status", ctrl.getArchiveStatus); // check archive status (including Google Drive sync)
+router.post("/:id/archive/retry-drive", requirePayrollPermission("payroll:write"), ctrl.retryDriveUpload); // retry failed Google Drive upload
+router.get("/:id/download", ctrl.downloadPDF); // same PDF as an attachment
 router.get("/:id", ctrl.getOne); // object-level ownership
 router.post("/", requirePayrollPermission("payroll:write"), ctrl.create);
 router.put("/:id", requirePayrollPermission("payroll:write"), ctrl.update);

@@ -29,6 +29,7 @@ import type {
   Review,
   Target,
   Task,
+  TeamTask,
   Ticket,
   Training,
   Transfer,
@@ -173,6 +174,7 @@ export function mapLeave(l: Raw): LeaveRequest {
     appliedOn: dateOnly(l.appliedOn || l.createdAt),
     status: l.status || 'Pending',
     managerNote: l.managerNote || '',
+    approvalAuthority: l.approvalAuthority || 'Manager',
     decidedAt: l.status && l.status !== 'Pending' ? l.updatedAt || l.decidedAt || null : null,
   };
 }
@@ -689,4 +691,45 @@ export function deriveFunnel(candidates: Candidate[]): FunnelStage[] {
 /** Holidays are company configuration the server does not model yet. */
 export function apiHolidays() {
   return HOLIDAYS.map((h) => ({ ...h }));
+}
+
+/* ---------------- Team Tasks ---------------- */
+
+export function mapTeamTask(t: Raw): TeamTask {
+  return {
+    id: String(t._id),
+    title: t.title || '',
+    description: t.description || '',
+    status: t.status || 'To Do',
+    priority: t.priority || 'Medium',
+    startDate: dateOnly(t.startDate),
+    dueDate: dateOnly(t.dueDate),
+    completedAt: t.completedAt ? dateOnly(t.completedAt) : null,
+    assignedTo: (t.assignedTo || []).map((e: Raw) => e?.employeeId || String(e)).filter(Boolean),
+    createdBy: t.createdBy?.employeeId || String(t.createdBy || ''),
+    project: t.project ? String(t.project) : null,
+    team: t.team || '',
+    tags: t.tags || [],
+    estimatedHours: Number(t.estimatedHours || 0),
+    actualHours: Number(t.actualHours || 0),
+    reminders: (t.reminders || []).map((r: Raw) => ({
+      sentAt: r.sentAt ? new Date(r.sentAt).toISOString() : '',
+      type: r.type || 'deadline_approaching',
+      sentTo: (r.sentTo || []).map((u: Raw) => String(u)),
+    })),
+    history: (t.history || []).map((h: Raw) => ({
+      id: String(h._id || ''),
+      action: h.action || '',
+      performedBy: h.performedBy?.fullName || String(h.performedBy || ''),
+      performedAt: h.performedAt ? new Date(h.performedAt).toISOString() : '',
+      details: h.details || '',
+      field: h.field || '',
+      oldValue: h.oldValue || '',
+      newValue: h.newValue || '',
+    })),
+    deletedAt: t.deletedAt ? dateOnly(t.deletedAt) : null,
+    deletedBy: t.deletedBy ? String(t.deletedBy) : null,
+    createdAt: t.createdAt ? new Date(t.createdAt).toISOString() : '',
+    updatedAt: t.updatedAt ? new Date(t.updatedAt).toISOString() : '',
+  };
 }

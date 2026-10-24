@@ -254,6 +254,12 @@ async function fetchAuditPatch(): Promise<Partial<AppData>> {
   return { audit: (body.logs || []).map(M.mapAudit) };
 }
 
+async function fetchTeamTasksPatch(): Promise<Partial<AppData>> {
+  const body = await apiGetOptional<{ tasks: Raw[] }>('/api/team-tasks');
+  if (!body) return {};
+  return { teamTasks: (body.tasks || []).map(M.mapTeamTask) };
+}
+
 type RefreshKey =
   | 'employees'
   | 'leaves'
@@ -270,7 +276,8 @@ type RefreshKey =
   | 'training'
   | 'notifications'
   | 'sessions'
-  | 'audit';
+  | 'audit'
+  | 'teamTasks';
 
 const FETCHERS: Record<RefreshKey, () => Promise<Partial<AppData>>> = {
   employees: fetchEmployeesPatch,
@@ -289,6 +296,7 @@ const FETCHERS: Record<RefreshKey, () => Promise<Partial<AppData>>> = {
   notifications: fetchNotificationsPatch,
   sessions: fetchSessionsPatch,
   audit: fetchAuditPatch,
+  teamTasks: fetchTeamTasksPatch,
 };
 
 /* ---------------- hydration ---------------- */
@@ -307,6 +315,7 @@ export function emptyApiPatch(employeeId: string | null): Partial<AppData> {
     onboarding: [],
     projects: [],
     tasks: [],
+    teamTasks: [],
     targets: [],
     reviews: [],
     training: [],
@@ -347,6 +356,7 @@ function keysForRole(): RefreshKey[] {
     'training',
     'notifications',
     'sessions',
+    'teamTasks',
   ];
   if (role === 'HR' || role === 'ADMIN' || role === 'SUPER_ADMIN') {
     keys.push('hiring', 'audit');
@@ -481,6 +491,7 @@ const HANDLED: Record<string, RefreshKey[]> = {
   candidates: ['hiring'],
   projects: ['projects'],
   tasks: ['projects'],
+  teamTasks: ['teamTasks'],
   targets: ['performance'],
   reviews: ['performance'],
   promotions: ['transfers'],
@@ -747,6 +758,7 @@ async function runAdd(collection: CollectionKey, item: Raw): Promise<void> {
         days: Number(item.days || 1),
         halfDay: !!item.halfDay,
         reason: item.reason || undefined,
+        approvalAuthority: item.approvalAuthority || 'Manager',
       });
       return;
     }
@@ -835,6 +847,22 @@ async function runAdd(collection: CollectionKey, item: Raw): Promise<void> {
           : 'Resignation',
         lastWorkingDate: item.lastDay || undefined,
         notes: item.noticePeriod ? `Notice period: ${item.noticePeriod}` : undefined,
+      });
+      return;
+    }
+    case 'teamTasks': {
+      await apiSend('POST', '/api/team-tasks', {
+        title: item.title,
+        description: item.description,
+        status: item.status,
+        priority: item.priority,
+        startDate: item.startDate,
+        dueDate: item.dueDate,
+        assignedTo: item.assignedTo.map((id: string) => requireEmployeeObjId(id)),
+        team: item.team,
+        project: item.project,
+        tags: item.tags,
+        estimatedHours: item.estimatedHours,
       });
       return;
     }
@@ -956,6 +984,23 @@ async function runUpdate(collection: CollectionKey, id: string, patch: Raw): Pro
       await apiSend('PUT', `/api/offboarding/${id}`, body);
       return;
     }
+    case 'teamTasks': {
+      const updateBody: Raw = {};
+      if (patch.title !== undefined) updateBody.title = patch.title;
+      if (patch.description !== undefined) updateBody.description = patch.description;
+      if (patch.status !== undefined) updateBody.status = patch.status;
+      if (patch.priority !== undefined) updateBody.priority = patch.priority;
+      if (patch.startDate !== undefined) updateBody.startDate = patch.startDate;
+      if (patch.dueDate !== undefined) updateBody.dueDate = patch.dueDate;
+      if (patch.assignedTo !== undefined) updateBody.assignedTo = patch.assignedTo.map((id: string) => requireEmployeeObjId(id));
+      if (patch.team !== undefined) updateBody.team = patch.team;
+      if (patch.project !== undefined) updateBody.project = patch.project;
+      if (patch.tags !== undefined) updateBody.tags = patch.tags;
+      if (patch.estimatedHours !== undefined) updateBody.estimatedHours = patch.estimatedHours;
+      if (patch.actualHours !== undefined) updateBody.actualHours = patch.actualHours;
+      await apiSend('PUT', `/api/team-tasks/${id}`, updateBody);
+      return;
+    }
     default:
       if (NO_API_COLLECTIONS.has(collection as string)) return; // server has no store for this module
       throw new Error('This edit is not available for server sessions yet.');
@@ -989,6 +1034,10 @@ async function runRemove(collection: CollectionKey, id: string): Promise<void> {
         .filter((t: Raw, i: number) => String(t._id || `${project._id}:${i}`) !== id)
         .map((t: Raw) => taskToApi(t));
       await apiSend('PUT', `/api/projects/${project._id}`, { tasks });
+      return;
+    }
+    case 'teamTasks': {
+      await apiSend('DELETE', `/api/team-tasks/${id}`);
       return;
     }
     default:

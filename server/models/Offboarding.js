@@ -12,6 +12,8 @@ const offboardingSchema = new mongoose.Schema(
     employee: { type: mongoose.Schema.Types.ObjectId, ref: 'Employee', required: true, unique: true, index: true },
     initiatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     reason: { type: String, enum: ['Resignation', 'Termination', 'End of Contract', 'Retirement', 'Other'], default: 'Resignation' },
+    resignationDate: { type: Date },
+    noticePeriod: { type: String, enum: ['Immediate', '30 days', '60 days', '90 days'], default: '30 days' },
     lastWorkingDate: { type: Date },
     status: { type: String, enum: ['Initiated', 'In Progress', 'Cleared', 'Completed'], default: 'Initiated', index: true },
     clearance: {

@@ -25,12 +25,16 @@ server/secrets/
 npm-debug.log*
 logs/
 
+# Test artifacts
+coverage/
+INTEGRATION_REPORT.md
+PAYSLIP_PDF_FIX_REPORT.md
+test_*.pdf
+*.test.pdf
+test_payslip.pdf
+
 # OS/editor cruft
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
-
-# Test artifacts
-coverage/
-INTEGRATION_REPORT.md

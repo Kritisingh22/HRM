@@ -40,14 +40,17 @@ export function LeaveRequestModal({
   const isOwner = Boolean(myId) && request.employeeId === myId;
   const employee = data.employees.find((e) => e.id === request.employeeId);
 
-  /* Decision rights mirror the backend policy: HR decides everything,
-     a manager only their own reporting line, and nobody their own
-     request. The queue itself re-checks the transition on save. */
+  /* Decision rights mirror the backend policy: HR decides HR-authorized requests,
+     a manager only their own reporting line for manager-authorized requests,
+     and nobody their own request. The queue itself re-checks the transition on save. */
   const inManagerScope = Boolean(
     user?.portal === 'manager' && myId && teamIds(data.employees, myId).has(request.employeeId),
   );
   const canDecide =
-    !isOwner && request.status === 'Pending' && (user?.portal === 'hr' || inManagerScope);
+    !isOwner &&
+    request.status === 'Pending' &&
+    ((request.approvalAuthority === 'HR' && user?.portal === 'hr') ||
+      (request.approvalAuthority === 'Manager' && inManagerScope));
 
   return (
     <Modal
@@ -111,6 +114,15 @@ export function LeaveRequestModal({
             <dd>{request.emergencyContact}</dd>
           </>
         ) : null}
+        <dt>Approval authority</dt>
+        <dd>
+          <span className="chip" style={{ 
+            background: request.approvalAuthority === 'HR' ? 'var(--blue-tint)' : 'var(--teal-tint)',
+            color: request.approvalAuthority === 'HR' ? 'var(--blue)' : 'var(--teal)'
+          }}>
+            {request.approvalAuthority}
+          </span>
+        </dd>
         <dt>Status</dt>
         <dd>
           <Pill status={request.status} />

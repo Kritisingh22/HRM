@@ -15,6 +15,9 @@ let reminderJob = null;
 let overdueJob = null;
 let accessExpiryJob = null;
 let weeklyAttendanceJob = null;
+let taskReminderJob = null;
+let taskDueTomorrowJob = null;
+let taskOverdueJob = null;
 
 function startOfDay(d) {
   const dt = new Date(d);
@@ -90,6 +93,39 @@ function startScheduler() {
   });
   console.log('[Scheduler] Weekly attendance summary job scheduled: 30 0 * * 1 (Asia/Kolkata)');
 
+  // Task reminder jobs
+  const TeamTask = require('./models/TeamTask');
+  
+  // Due today reminders - runs daily at 9:00 AM
+  taskReminderJob = cron.schedule('0 9 * * *', async () => {
+    console.log('[Scheduler] Running task due today reminders...');
+    await sendTaskDueTodayReminders();
+  }, {
+    scheduled: true,
+    timezone: 'Asia/Kolkata',
+  });
+  console.log('[Scheduler] Task due today reminders job scheduled: 0 9 * * * (Asia/Kolkata)');
+
+  // Due tomorrow reminders - runs daily at 9:00 AM
+  taskDueTomorrowJob = cron.schedule('0 9 * * *', async () => {
+    console.log('[Scheduler] Running task due tomorrow reminders...');
+    await sendTaskDueTomorrowReminders();
+  }, {
+    scheduled: true,
+    timezone: 'Asia/Kolkata',
+  });
+  console.log('[Scheduler] Task due tomorrow reminders job scheduled: 0 9 * * * (Asia/Kolkata)');
+
+  // Overdue reminders - runs daily at 10:00 AM
+  taskOverdueJob = cron.schedule('0 10 * * *', async () => {
+    console.log('[Scheduler] Running task overdue reminders...');
+    await sendTaskOverdueReminders();
+  }, {
+    scheduled: true,
+    timezone: 'Asia/Kolkata',
+  });
+  console.log('[Scheduler] Task overdue reminders job scheduled: 0 10 * * * (Asia/Kolkata)');
+
   console.log('[Scheduler] All jobs started');
 }
 
@@ -113,6 +149,18 @@ function stopScheduler() {
   if (weeklyAttendanceJob) {
     weeklyAttendanceJob.stop();
     weeklyAttendanceJob = null;
+  }
+  if (taskReminderJob) {
+    taskReminderJob.stop();
+    taskReminderJob = null;
+  }
+  if (taskDueTomorrowJob) {
+    taskDueTomorrowJob.stop();
+    taskDueTomorrowJob = null;
+  }
+  if (taskOverdueJob) {
+    taskOverdueJob.stop();
+    taskOverdueJob = null;
   }
   console.log('[Scheduler] All jobs stopped');
 }
@@ -461,6 +509,138 @@ async function triggerReminderCheck(targetDate) {
   return { remindersSent: sent, date: date.toISOString().split('T')[0] };
 }
 
+/**
+ * Send reminders for tasks due today.
+ */
+async function sendTaskDueTodayReminders() {
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const tasks = await TeamTask.find({
+      deletedAt: { $exists: false },
+      status: { $nin: ['Completed', 'Cancelled'] },
+      dueDate: { $gte: today, $lt: tomorrow },
+    }).populate('assignedTo', 'employeeId fullName email user');
+
+    console.log(`[Scheduler] Found ${tasks.length} task(s) due today`);
+
+    for (const task of tasks) {
+      for (const assignee of task.assignedTo) {
+        if (!assignee.user) continue;
+
+        // Check if reminder already sent today
+        if (!task.hasReminderSent('due_today', assignee.user._id)) {
+          await Notification.create({
+            user: assignee.user._id,
+            type: 'Task Reminder',
+            title: `Task Due Today: ${task.title}`,
+            message: `Reminder: "${task.title}" is due today.`,
+            relatedEntity: { type: 'TeamTask', id: task._id },
+            channels: { inApp: true, email: !!cfg.SMTP_HOST },
+            priority: 'High',
+            metadata: { taskId: task._id, reminderType: 'due_today' },
+          });
+          task.addReminder('due_today', assignee.user._id);
+        }
+      }
+      await task.save();
+    }
+  } catch (err) {
+    console.error('[Scheduler] Error in sendTaskDueTodayReminders:', err);
+  }
+}
+
+/**
+ * Send reminders for tasks due tomorrow.
+ */
+async function sendTaskDueTomorrowReminders() {
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const dayAfterTomorrow = new Date(tomorrow);
+    dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 1);
+
+    const tasks = await TeamTask.find({
+      deletedAt: { $exists: false },
+      status: { $nin: ['Completed', 'Cancelled'] },
+      dueDate: { $gte: tomorrow, $lt: dayAfterTomorrow },
+    }).populate('assignedTo', 'employeeId fullName email user');
+
+    console.log(`[Scheduler] Found ${tasks.length} task(s) due tomorrow`);
+
+    for (const task of tasks) {
+      for (const assignee of task.assignedTo) {
+        if (!assignee.user) continue;
+
+        // Check if reminder already sent
+        if (!task.hasReminderSent('due_tomorrow', assignee.user._id)) {
+          await Notification.create({
+            user: assignee.user._id,
+            type: 'Task Reminder',
+            title: `Task Due Tomorrow: ${task.title}`,
+            message: `Reminder: "${task.title}" is due tomorrow (${tomorrow.toISOString().split('T')[0]}).`,
+            relatedEntity: { type: 'TeamTask', id: task._id },
+            channels: { inApp: true, email: !!cfg.SMTP_HOST },
+            priority: 'Normal',
+            metadata: { taskId: task._id, reminderType: 'due_tomorrow' },
+          });
+          task.addReminder('due_tomorrow', assignee.user._id);
+        }
+      }
+      await task.save();
+    }
+  } catch (err) {
+    console.error('[Scheduler] Error in sendTaskDueTomorrowReminders:', err);
+  }
+}
+
+/**
+ * Send reminders for overdue tasks.
+ */
+async function sendTaskOverdueReminders() {
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const tasks = await TeamTask.find({
+      deletedAt: { $exists: false },
+      status: { $nin: ['Completed', 'Cancelled'] },
+      dueDate: { $lt: today },
+    }).populate('assignedTo', 'employeeId fullName email user');
+
+    console.log(`[Scheduler] Found ${tasks.length} overdue task(s)`);
+
+    for (const task of tasks) {
+      for (const assignee of task.assignedTo) {
+        if (!assignee.user) continue;
+
+        // Check if overdue reminder already sent
+        if (!task.hasReminderSent('overdue', assignee.user._id)) {
+          await Notification.create({
+            user: assignee.user._id,
+            type: 'Task Reminder',
+            title: `Overdue Task: ${task.title}`,
+            message: `Alert: "${task.title}" was due on ${task.dueDate.toISOString().split('T')[0]} and is now overdue.`,
+            relatedEntity: { type: 'TeamTask', id: task._id },
+            channels: { inApp: true, email: !!cfg.SMTP_HOST },
+            priority: 'High',
+            metadata: { taskId: task._id, reminderType: 'overdue' },
+          });
+          task.addReminder('overdue', assignee.user._id);
+        }
+      }
+      await task.save();
+    }
+  } catch (err) {
+    console.error('[Scheduler] Error in sendTaskOverdueReminders:', err);
+  }
+}
+
 module.exports = {
   startScheduler,
   stopScheduler,
@@ -469,4 +649,7 @@ module.exports = {
   triggerReminderCheck,
   expireAccessGrants,
   computeWeeklySummariesForAllEmployees,
+  sendTaskDueTodayReminders,
+  sendTaskDueTomorrowReminders,
+  sendTaskOverdueReminders,
 };

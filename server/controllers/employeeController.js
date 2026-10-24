@@ -6,11 +6,19 @@
 const mongoose = require("mongoose");
 const Employee = require("../models/Employee");
 const User = require("../models/User");
+const Counter = require("../models/Counter");
 const ApiError = require("../utils/ApiError");
 const catchAsync = require("../utils/catchAsync");
 const { SEES_ALL, scopeFilter } = require("../utils/teamScope");
 const { hasPermission } = require("../utils/permissions");
 const { logAudit } = require("../utils/audit");
+const { 
+  generateUniqueEmployeeId, 
+  getInitials, 
+  getDatePrefix, 
+  getNextSerial,
+  DEPARTMENT_SERIAL_MAP 
+} = require("../utils/employeeIdGenerator");
 const HR_ACCESS = ["HR", "ADMIN", "SUPER_ADMIN"];
 // Salary is compensation data: it is returned ONLY to roles the existing permission
 // model authorises to read payroll (HR / ADMIN / SUPER_ADMIN via payroll:read | payroll:* | *).
@@ -93,8 +101,27 @@ exports.getOne = catchAsync(async (req, res) => {
 /* POST /api/employees   (employees:write) */
 exports.create = catchAsync(async (req, res) => {
   const body = pick(req.body);
-  if (!body.employeeId || !body.fullName)
-    throw ApiError.badRequest("employeeId and fullName are required.");
+  if (!body.fullName) {
+    throw ApiError.badRequest("fullName is required.");
+  }
+  
+  // Auto-generate employeeId if not provided
+  if (!body.employeeId) {
+    if (!body.joiningDate || !body.department) {
+      throw ApiError.badRequest("joiningDate and department are required for auto-generating employeeId.");
+    }
+    body.employeeId = await generateUniqueEmployeeId({
+      fullName: body.fullName,
+      joiningDate: body.joiningDate,
+      department: body.department,
+    });
+  } else {
+    // Validate provided employeeId format
+    if (!/^CY\d{4}[A-Z]{2}\d{3}$/.test(body.employeeId)) {
+      throw ApiError.badRequest("employeeId must follow format: CY<YYMM><INITIALS><SERIAL> (e.g., CY0125JS201)");
+    }
+  }
+  
   // The assigned HR is ALWAYS the authenticated HR who is creating the record —
   // never trust a frontend-supplied assignedHrId here, even if one was sent.
   // (Admin/Super Admin may still set it explicitly, e.g. onboarding on another

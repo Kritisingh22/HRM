@@ -24,8 +24,11 @@ import {
   downloadBlobUrl,
   fetchPayslipPdf,
   listMyOfficialPayslips,
+  fetchArchiveStatus,
+  retryDriveUpload,
   payslipErrorMessage,
   type OfficialPayslip,
+  type ArchiveStatus,
 } from '@/api/payslips';
 import { deptName, empName } from '@/lib/lookups';
 import { dateRange, niceDate, todayISO } from '@/lib/date';
@@ -42,6 +45,7 @@ import {
 } from '@/lib/payroll';
 import type { AppData, Employee, PayrollRow, PayrollRun } from '@/types';
 import logoMark from '../../../img/cyethack-logo.svg';
+import { filterDemoEmployees } from '@/lib/lookups';
 
 function withAdjustments(row: PayrollRow, bonus: number, otherDed: number): PayrollRow {
   const gross = row.basic + row.hra + row.conv + row.special + bonus;
@@ -65,7 +69,7 @@ export function PayrollPage() {
 
   const onRoll = useMemo(
     () =>
-      data.employees.filter(
+      filterDemoEmployees(data.employees).filter(
         (e) => e.status === 'Active' || e.status === 'Probation' || e.status === 'On Leave',
       ),
     [data.employees],
@@ -100,6 +104,7 @@ export function PayrollPage() {
   const [adjBonus, setAdjBonus] = useState('0');
   const [adjDed, setAdjDed] = useState('0');
   const [runBusy, setRunBusy] = useState(false);
+  const [archiveStatus, setArchiveStatus] = useState<Map<string, ArchiveStatus>>(new Map());
 
   /* Real (HRM-API) sessions show the official server payslips: the same
      table layout, but every document is generated from the stored record.
@@ -107,11 +112,19 @@ export function PayrollPage() {
   const official = isApiSession();
   const [officialSlips, setOfficialSlips] = useState<OfficialPayslip[] | null>(official ? null : []);
   const [slipBusy, setSlipBusy] = useState<{ id: string; mode: 'view' | 'download' } | null>(null);
-  const officialLoaded = useRef(false);
+
+  // Fetch archive status for a payslip
+  const fetchArchiveStatusForSlip = async (slipId: string) => {
+    try {
+      const status = await fetchArchiveStatus(slipId);
+      setArchiveStatus(prev => new Map(prev).set(slipId, status));
+    } catch (err) {
+      console.warn('Failed to fetch archive status:', err);
+    }
+  };
 
   useEffect(() => {
-    if (!isSelf || !official || officialLoaded.current) return;
-    officialLoaded.current = true;
+    if (!isSelf || !official || !myId) return;
     let cancelled = false;
     listMyOfficialPayslips(myId)
       .then((rows) => {
@@ -125,9 +138,7 @@ export function PayrollPage() {
     return () => {
       cancelled = true;
     };
-    // Loaded once per page visit; ids are stable for the session.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [isSelf, official, myId]);
 
   const periodOptions = useMemo(() => {
     const opts = recentPeriods(12);
@@ -330,6 +341,31 @@ export function PayrollPage() {
     }
   };
 
+  const handlePayslipDownload = (run: PayrollRun, row: PayrollRow) => {
+    if (official && row.officialId) {
+      void downloadPayslipPdf(row.officialId);
+      return;
+    }
+
+    setPayslip({ run, row });
+    printPayslipDocument(run, row);
+    toast('Choose “Save as PDF” in the print dialog to download this payslip.', 'info');
+  };
+
+  const printPayslipDocument = (run: PayrollRun, row: PayrollRow) => {
+    const previousTitle = document.title;
+    const period = periodLabel(run.period).replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '');
+    const employeeId = row.empId.replace(/[^A-Za-z0-9_-]+/g, '') || 'employee';
+    document.title = `Payslip_${employeeId}_${period}`;
+
+    const restoreTitle = () => {
+      document.title = previousTitle;
+      window.removeEventListener('afterprint', restoreTitle);
+    };
+    window.addEventListener('afterprint', restoreTitle, { once: true });
+    window.setTimeout(() => window.print(), 250);
+  };
+
   const structureRows = onRoll.filter((e) => !isSelf || e.id === myId);
   /* Official payrolls only expose salaries to roles with payroll read
      access; others get an explicit note instead of zeroed numbers. */
@@ -382,6 +418,39 @@ export function PayrollPage() {
               >
                 {slipBusy?.id === slip.id && slipBusy.mode === 'download' ? 'Preparing…' : 'Download PDF'}
               </button>
+              {slip.id && archiveStatus.has(slip.id) && (
+                <>
+                  <span className="archive-status" style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 8 }}>
+                    {(() => {
+                      const status = archiveStatus.get(slip.id);
+                      if (!status || !status.archived) return null;
+                      const icons = {
+                        'drive_uploaded': { icon: 'checkCircle', color: 'var(--success)', label: 'Drive OK' },
+                        'drive_uploading': { icon: 'loader', color: 'var(--primary)', label: 'Syncing…' },
+                        'drive_failed': { icon: 'alertTriangle', color: 'var(--danger)', label: 'Drive Failed' },
+                        'server_saved': { icon: 'hardDrive', color: 'var(--muted)', label: 'Server Only' },
+                      };
+                      const iconInfo = icons[status.uploadStatus as keyof typeof icons] || { icon: 'helpCircle', color: 'var(--muted)', label: status.uploadStatus };
+                      return (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: iconInfo.color }} title={iconInfo.label}>
+                          <Icon name={iconInfo.icon} size={12} />
+                        </span>
+                      );
+                    })()}
+                  </span>
+                  {archiveStatus.get(slip.id)?.uploadStatus === 'drive_failed' && (
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      disabled={slipBusy?.id === slip.id}
+                      onClick={() => slip.id && void retryDriveUpload(slip.id).then(() => fetchArchiveStatusForSlip(slip.id))}
+                      type="button"
+                      title="Retry Google Drive upload"
+                    >
+                      <Icon name="rotateCw" size={12} /> Retry
+                    </button>
+                  )}
+                </>
+              )}
             </div>
           </td>
         </tr>
@@ -507,7 +576,7 @@ export function PayrollPage() {
           </div>
         </section>
 
-        {payslip ? <PayslipModal data={data} run={payslip.run} row={payslip.row} onClose={() => setPayslip(null)} /> : null}
+        {payslip ? <PayslipModal data={data} run={payslip.run} row={payslip.row} onClose={() => setPayslip(null)} onPrint={() => printPayslipDocument(payslip.run, payslip.row)} onDownload={() => handlePayslipDownload(payslip.run, payslip.row)} /> : null}
       </div>
     );
   }
@@ -704,19 +773,42 @@ export function PayrollPage() {
                                       ? 'Preparing…'
                                       : 'Download PDF'}
                                   </button>
-                                  {canRunOfficial && row.officialStatus !== 'Processed' && row.officialStatus !== 'Paid' ? (
-                                    <button
-                                      className="btn btn-outline btn-sm"
-                                      onClick={() => {
-                                        setAdjust({ run, row });
-                                        setAdjBonus(String(row.bonus));
-                                        setAdjDed(String(row.otherDed));
-                                      }}
-                                      type="button"
-                                    >
-                                      Adjust
-                                    </button>
-                                  ) : null}
+                                  {row.officialId && archiveStatus.has(row.officialId) && (
+                                    <>
+                                      <span className="archive-status" style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 8 }}>
+                                        {(() => {
+                                          const status = archiveStatus.get(row.officialId);
+                                          if (!status || !status.archived) return null;
+                                          const icons = {
+                                            'drive_uploaded': { icon: 'checkCircle', color: 'var(--success)', label: 'Drive OK' },
+                                            'drive_uploading': { icon: 'loader', color: 'var(--primary)', label: 'Syncing…' },
+                                            'drive_failed': { icon: 'alertTriangle', color: 'var(--danger)', label: 'Drive Failed' },
+                                            'server_saved': { icon: 'hardDrive', color: 'var(--muted)', label: 'Server Only' },
+                                          };
+                                          const iconInfo = icons[status.uploadStatus as keyof typeof icons] || { icon: 'helpCircle', color: 'var(--muted)', label: status.uploadStatus };
+                                          return (
+                                            <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: iconInfo.color }} title={iconInfo.label}>
+                                              <Icon name={iconInfo.icon} size={12} />
+                                            </span>
+                                          );
+                                        })()}
+                                      </span>
+                                      {archiveStatus.get(row.officialId)?.uploadStatus === 'drive_failed' && (
+                                        <button
+                                          className="btn btn-ghost btn-sm"
+                                          disabled={slipBusy?.id === row.officialId}
+                                          onClick={() => {
+                                            const slipId = row.officialId;
+                                            if (slipId) void retryDriveUpload(slipId).then(() => fetchArchiveStatusForSlip(slipId));
+                                          }}
+                                          type="button"
+                                          title="Retry Google Drive upload"
+                                        >
+                                          <Icon name="rotateCw" size={12} /> Retry
+                                        </button>
+                                      )}
+                                    </>
+                                  )}
                                 </div>
                               </td>
                             </tr>
@@ -897,9 +989,14 @@ export function PayrollPage() {
                                 <b>{money(row.net)}</b>
                               </td>
                               <td>
-                                <button className="btn btn-outline btn-sm" onClick={() => setPayslip({ run: r, row })} type="button">
-                                  View
-                                </button>
+                                <div className="act-btns">
+                                  <button className="btn btn-outline btn-sm" onClick={() => setPayslip({ run: r, row })} type="button">
+                                    View
+                                  </button>
+                                  <button className="btn btn-outline btn-sm" onClick={() => handlePayslipDownload(r, row)} type="button">
+                                    Download PDF
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           );
@@ -1040,7 +1137,7 @@ export function PayrollPage() {
         </div>
       </section>
 
-      {payslip ? <PayslipModal data={data} run={payslip.run} row={payslip.row} onClose={() => setPayslip(null)} /> : null}
+      {payslip ? <PayslipModal data={data} run={payslip.run} row={payslip.row} onClose={() => setPayslip(null)} onDownload={() => handlePayslipDownload(payslip.run, payslip.row)} /> : null}
 
       {adjust ? (
         <Modal
@@ -1089,11 +1186,15 @@ function PayslipModal({
   run,
   row,
   onClose,
+  onPrint,
+  onDownload,
 }: {
   data: AppData;
   run: PayrollRun;
   row: PayrollRow;
   onClose: () => void;
+  onPrint: () => void;
+  onDownload: () => void;
 }) {
   const emp: Employee | undefined = data.employees.find((e) => e.id === row.empId);
   const earnings: Array<[string, number]> = [
@@ -1111,10 +1212,14 @@ function PayslipModal({
       title={`Payslip — ${periodLabel(run.period)}`}
       onClose={onClose}
       large
+      className="payslip-modal"
       footer={
         <>
-          <button className="btn btn-ghost" onClick={() => window.print()} type="button">
+          <button className="btn btn-ghost" onClick={onPrint} type="button">
             <Icon name="printer" size={15} /> Print
+          </button>
+          <button className="btn btn-outline" onClick={onDownload} type="button">
+            <Icon name="download" size={15} /> Download PDF
           </button>
           <button className="btn btn-primary" onClick={onClose} type="button">
             Close

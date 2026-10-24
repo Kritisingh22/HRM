@@ -39,6 +39,7 @@ import { TransferTicketsPage } from '@/features/transfers/TransferTicketsPage';
 import { HrTransferTicketsPage } from '@/features/transfers/HrTransferTicketsPage';
 import { EmployeeTransferStatusPage } from '@/features/transfers/EmployeeTransferStatusPage';
 import { TransferTicketDetailPage } from '@/features/transfers/TransferTicketDetailPage';
+import { TeamTaskCalendarPage } from '@/features/team-tasks/TeamTaskCalendarPage';
 import { NotFound } from '@/routes/NotFound';
 import logoMark from '../../img/cyethack-logo.svg';
 
@@ -65,6 +66,7 @@ const PAGES: Record<string, ReactNode> = {
   'Transfer Tickets': <TransferTicketsPage />,
   'My Transfer Status': <EmployeeTransferStatusPage />,
   'Transfer Ticket Detail': <TransferTicketDetailPage />,
+  'Team Task Calendar': <TeamTaskCalendarPage />,
 };
 
 /* ---------- session bootstrap splash ---------- */

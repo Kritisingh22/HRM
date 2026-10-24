@@ -238,6 +238,50 @@ export interface Task {
   actual: number;
 }
 
+/* ---------------- Team Tasks (standalone calendar tasks) ---------------- */
+export type TeamTaskStatus = 'To Do' | 'In Progress' | 'In Review' | 'Blocked' | 'Completed' | 'Cancelled';
+export const TEAM_TASK_STATUSES: TeamTaskStatus[] = ['To Do', 'In Progress', 'In Review', 'Blocked', 'Completed', 'Cancelled'];
+
+export type TeamTaskPriority = 'Low' | 'Medium' | 'High' | 'Urgent' | 'Critical';
+export const TEAM_TASK_PRIORITIES: TeamTaskPriority[] = ['Low', 'Medium', 'High', 'Urgent', 'Critical'];
+
+export interface TeamTask {
+  id: string;
+  title: string;
+  description: string;
+  status: TeamTaskStatus;
+  priority: TeamTaskPriority;
+  startDate: string;
+  dueDate: string;
+  completedAt: string | null;
+  assignedTo: string[]; // Employee IDs
+  createdBy: string; // Employee ID
+  project: string | null; // Project ID (optional)
+  team: string; // Team/category for filtering
+  tags: string[];
+  estimatedHours: number;
+  actualHours: number;
+  reminders: Array<{
+    sentAt: string;
+    type: 'deadline_approaching' | 'overdue' | 'assigned' | 'due_today' | 'due_tomorrow';
+    sentTo: string[];
+  }>;
+  history: Array<{
+    id: string;
+    action: string;
+    performedBy: string;
+    performedAt: string;
+    details: string;
+    field: string;
+    oldValue: string;
+    newValue: string;
+  }>;
+  deletedAt: string | null;
+  deletedBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 /* ---------------- Performance ---------------- */
 export interface Target {
   id: string;
@@ -468,6 +512,8 @@ export interface LeaveRequest {
   appliedOn: string;
   status: LeaveStatus;
   managerNote: string;
+  /** Who has authority to approve this request: 'Manager' or 'HR' */
+  approvalAuthority: 'Manager' | 'HR';
   /** ISO date-time of the final decision (approve / reject / cancel), when decided */
   decidedAt?: string | null;
 }
@@ -608,6 +654,7 @@ export interface AppData {
   onboardingItems: string[];
   projects: Project[];
   tasks: Task[];
+  teamTasks: TeamTask[];
   targets: Target[];
   reviews: Review[];
   training: Training[];

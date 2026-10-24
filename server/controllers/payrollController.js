@@ -560,6 +560,9 @@ async function loadAuthorizedPayslip(req) {
 /** Stream the generated PDF with safe headers (inline or attachment). */
 function sendPayslipPdf(res, bytes, filename, { download = false } = {}) {
   const buffer = Buffer.from(bytes);
+  if (buffer.length < 500 || buffer.subarray(0, 5).toString('ascii') !== '%PDF-') {
+    throw new Error('Payslip PDF generation returned an invalid or empty document.');
+  }
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader(
     'Content-Disposition',
@@ -574,28 +577,52 @@ function sendPayslipPdf(res, bytes, filename, { download = false } = {}) {
  * Add ?download=1 to force the attachment / save dialog. */
 exports.payslipPdf = catchAsync(async (req, res) => {
   const slip = await loadAuthorizedPayslip(req);
-  const bytes = await buildPayslipPdf({
-    payroll: slip,
-    employee: slip.employee,
-    salaryStructure: slip.salaryStructure,
-    company: companyProfile(),
-    currency: cfg.PAYROLL_CURRENCY,
-  });
-  sendPayslipPdf(res, bytes, payslipFilename(slip.employee.employeeId, slip.period), {
-    download: req.query.download === '1'
-  });
+  try {
+    const bytes = await buildPayslipPdf({
+      payroll: slip,
+      employee: slip.employee,
+      salaryStructure: slip.salaryStructure,
+      company: companyProfile(),
+      currency: cfg.PAYROLL_CURRENCY,
+    });
+    sendPayslipPdf(res, bytes, payslipFilename(slip.employee.employeeId, slip.period), {
+      download: req.query.download !== '0'
+    });
+  } catch (err) {
+    console.error('[payroll] Payslip PDF generation failed:', err.message);
+    throw ApiError.internal('Failed to generate payslip PDF. Please try again or contact HR.');
+  }
 });
 
 /* GET /api/payroll/:id/download — the same official PDF as an attachment. */
 exports.downloadPDF = catchAsync(async (req, res) => {
   const slip = await loadAuthorizedPayslip(req);
-  const bytes = await buildPayslipPdf({
-    payroll: slip,
-    employee: slip.employee,
-    salaryStructure: slip.salaryStructure,
-    company: companyProfile(),
-    currency: cfg.PAYROLL_CURRENCY,
-  });
+  let bytes;
+  try {
+    bytes = await buildPayslipPdf({
+      payroll: slip,
+      employee: slip.employee,
+      salaryStructure: slip.salaryStructure,
+      company: companyProfile(),
+      currency: cfg.PAYROLL_CURRENCY,
+    });
+  } catch (err) {
+    console.error('[payroll] Payslip PDF generation failed:', err.message);
+    throw ApiError.internal('Failed to generate payslip PDF. Please try again or contact HR.');
+  }
+  
+  // Archive the payslip automatically on download (includes Google Drive upload if configured)
+  try {
+    const { archivePayslip } = require('../services/payslipArchive');
+    await archivePayslip(slip._id, req.user._id, req.user.role, {
+      uploadToDrive: true,
+      skipDriveOnFailure: true // Don't fail the download if Drive upload fails
+    });
+  } catch (archiveError) {
+    console.error('[payroll] Archive failed during download:', archiveError.message);
+    // Continue with download even if archiving fails
+  }
+  
   sendPayslipPdf(res, bytes, payslipFilename(slip.employee.employeeId, slip.period), {
     download: true
   });
@@ -692,6 +719,23 @@ exports.archivePayslipPdf = catchAsync(async (req, res) => {
   });
 
   return res.status(201).json({ document: result.document });
+});
+
+// Alias for route compatibility
+exports.generate = exports.generatePayslip;
+
+// Get archive status for a payslip (including Google Drive sync status)
+exports.getArchiveStatus = catchAsync(async (req, res) => {
+  const { getArchiveStatus } = require('../services/payslipArchive');
+  const status = await getArchiveStatus(req.params.id);
+  res.json(status);
+});
+
+// Retry failed Google Drive upload for a payslip
+exports.retryDriveUpload = catchAsync(async (req, res) => {
+  const { retryDriveUpload } = require('../services/payslipArchive');
+  const result = await retryDriveUpload(req.params.id, req.user._id, req.user.role);
+  res.json(result);
 });
 
 // Alias for route compatibility
