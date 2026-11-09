@@ -45,6 +45,7 @@ export const NAV: NavGroup[] = [
       { page: 'Reports', icon: 'barChart' },
       { page: 'Analytics', icon: 'chartPie' },
       { page: 'Settings', icon: 'settings' },
+      { page: 'My Tasks', icon: 'clipboardCheck' },
     ],
   },
   {
@@ -83,6 +84,7 @@ export const PAGE_PATH: Record<string, string> = {
   Reports: '/reports',
   Analytics: '/analytics',
   Settings: '/settings',
+  'My Tasks': '/my-tasks',
   'My Profile': '/profile',
   'Notice Board': '/notice-board',
   Helpdesk: '/helpdesk',
@@ -117,6 +119,7 @@ const PAGES_MANAGER = [
   'Org Chart',
   'My Profile',
   'Transfer Tickets',
+  'My Tasks',
 ];
 
 const PAGES_EMPLOYEE = [
@@ -132,6 +135,7 @@ const PAGES_EMPLOYEE = [
   'Helpdesk',
   'Org Chart',
   'My Transfer Status',
+  'My Tasks',
 ];
 
 export function portalForRole(role: Role): Portal {

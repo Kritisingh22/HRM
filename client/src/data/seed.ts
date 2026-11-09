@@ -1681,6 +1681,7 @@ export function createSeedData(): AppData {
     documents: DOCUMENTS.map((d) => ({ ...d })),
     announcements: ANNOUNCEMENTS.map((a) => ({ ...a })),
     tickets: TICKETS.map((t) => ({ ...t })),
+    todos: [],
     leaveRequests: LEAVE_REQUESTS.map((l) => ({ ...l })),
     leaveBalance: { total: 24, used: 8, casual: 6, sick: 5, paidEarned: 5 },
     attendanceOverrides: {},

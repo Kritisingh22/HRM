@@ -360,6 +360,19 @@ export interface ExitRecord {
   status: string;
 }
 
+/* ---------------- Personal to-dos ---------------- */
+export type TodoStatus = 'Pending' | 'Completed';
+
+export interface Todo {
+  id: string;
+  employeeId: string;
+  title: string;      // single word, max 50 chars
+  notes: string;      // description, max 500 chars
+  date: string;       // YYYY-MM-DD
+  status: TodoStatus;
+  createdAt: string;
+}
+
 /* ---------------- Documents, notice board, helpdesk ---------------- */
 export interface DocumentRecord {
   id: string;
@@ -666,6 +679,7 @@ export interface AppData {
   documents: DocumentRecord[];
   announcements: Announcement[];
   tickets: Ticket[];
+  todos: Todo[];
   leaveRequests: LeaveRequest[];
   leaveBalance: LeaveBalance;
   attendanceOverrides: Record<string, AttendanceRecord>;

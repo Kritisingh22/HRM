@@ -1,0 +1,35 @@
+services:
+  - type: web
+    name: cyethack-hrm-portal
+    env: node
+    region: oregon
+    branch: main
+    buildCommand: npm --prefix client ci && npm --prefix client run build && npm --prefix server ci && cp -r client/dist/* server/public/
+    startCommand: node server/server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: MONGODB_URI
+        fromDatabase:
+          name: cyethack-hrm-mongodb
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: FRONTEND_URL
+        value: https://cyethack-hrm-portal.onrender.com
+      - key: FRONTEND_DIST
+        value: server/public
+      - key: MAX_FAILED_LOGINS
+        value: 5
+      - key: ACCOUNT_LOCK_MINUTES
+        value: 15
+      - key: SETUP_TOKEN
+        generateValue: true
+      - key: PAYROLL_CURRENCY
+        value: INR
+    healthCheckPath: /health
+    autoDeploy: true

@@ -1,5 +1,6 @@
-# Cyethack HR Portal - Internal Application
-# This is a private HR tool and should not be indexed by search engines.
+# Cyethack HR Portal - Private internal application
+# Intentionally blocked from indexing: this is an internal HR login portal.
+# Consistent with <meta name="robots" content="noindex, nofollow"> in index.html.
 
 User-agent: *
 Disallow: /

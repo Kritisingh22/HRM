@@ -19,6 +19,11 @@ export function LoginPage() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
+  /* Demo accounts are gated behind an env flag so they are hidden in
+     production by default (no plaintext credentials exposed). Only enable
+     by setting VITE_SHOW_DEMO_ACCOUNTS=true. */
+  const showDemoAccounts = import.meta.env.VITE_SHOW_DEMO_ACCOUNTS === 'true';
+
   if (status === 'authenticated' && user) return <Navigate to="/" replace />;
 
   const submit = async (ev: FormEvent) => {
@@ -109,22 +114,24 @@ export function LoginPage() {
           <Icon name="mapPin" size={13} /> Sign-ins record your location only if the browser allows — never in the background
         </div>
 
-        <div className="auth-demo">
-          <div className="h">Demo accounts — click to fill</div>
-          {DEMO_CREDENTIALS.map((cred) => (
-            <button
-              key={cred.email}
-              type="button"
-              onClick={() => {
-                setEmail(cred.email);
-                setPassword(cred.password);
-                setError('');
-              }}
-            >
-              <code>{cred.label}</code> · {cred.email} · {cred.password}
-            </button>
-          ))}
-        </div>
+        {showDemoAccounts && (
+          <div className="auth-demo">
+            <div className="h">Demo accounts — click to fill</div>
+            {DEMO_CREDENTIALS.map((cred) => (
+              <button
+                key={cred.email}
+                type="button"
+                onClick={() => {
+                  setEmail(cred.email);
+                  setPassword(cred.password);
+                  setError('');
+                }}
+              >
+                <code>{cred.label}</code> · {cred.email} · {cred.password}
+              </button>
+            ))}
+          </div>
+        )}
       </form>
     </div>
   );

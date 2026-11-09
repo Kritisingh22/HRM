@@ -3,7 +3,7 @@
    
    Month, week, and agenda views with task management.
    ============================================================ */
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Icon } from '@/components/ui/Icon';
 import { Modal } from '@/components/ui/Modal';
@@ -65,6 +65,13 @@ export function TeamTaskCalendarPage() {
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<TeamTask | null>(null);
   const [formValues, setFormValues] = useState<Record<string, string>>({});
+
+  /* Stable close handlers so Modal's useEffect ([onClose]) does not re-run
+     and steal focus on every keystroke. */
+  const handleCloseCreate = useCallback(() => setCreating(false), []);
+  const handleCloseEdit = useCallback(() => setEditing(null), []);
+  const handleCloseTask = useCallback(() => setOpenTask(null), []);
+  const handleCloseDay = useCallback(() => setDayIso(null), []);
 
   const filteredEmployees = filterDemoEmployees(data.employees);
 
@@ -433,7 +440,7 @@ export function TeamTaskCalendarPage() {
 
       {/* Create Task Modal */}
       {creating && (
-        <Modal open onClose={() => setCreating(false)} title="Create New Task" size="lg">
+        <Modal open onClose={handleCloseCreate} title="Create New Task" size="lg">
           <form onSubmit={e => { e.preventDefault(); createTask(formValues); }} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div className="field">
               <label>Title *</label>
@@ -511,7 +518,7 @@ export function TeamTaskCalendarPage() {
 
       {/* Edit Task Modal */}
       {editing && (
-        <Modal open onClose={() => setEditing(null)} title={`Edit Task: ${editing.title}`} size="lg">
+        <Modal open onClose={handleCloseEdit} title={`Edit Task: ${editing.title}`} size="lg">
           <form onSubmit={e => { e.preventDefault(); saveEdit(); }} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div className="field">
               <label>Title *</label>
@@ -589,7 +596,7 @@ export function TeamTaskCalendarPage() {
 
       {/* Task Detail Modal */}
       {openTask && (
-        <Modal open onClose={() => setOpenTask(null)} title={openTask.title} size="lg">
+        <Modal open onClose={handleCloseTask} title={openTask.title} size="lg">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
               <span className={`pill`} style={{ background: TASK_STATUS_COLORS[openTask.status] }}>{openTask.status}</span>
@@ -700,7 +707,7 @@ export function TeamTaskCalendarPage() {
 
       {/* Day Details Modal */}
       {dayIso && (
-        <Modal open onClose={() => setDayIso(null)} title={`Tasks for ${niceDate(dayIso)}`} size="md">
+        <Modal open onClose={handleCloseDay} title={`Tasks for ${niceDate(dayIso)}`} size="md">
           <div>
             {eventsOn(dayIso).length === 0 ? (
               <p style={{ color: 'var(--muted)', textAlign: 'center', padding: 24 }}>No tasks on this day.</p>
