@@ -6,7 +6,7 @@
    a toolbar, a table, row actions, a detail dialog and a
    validated create/edit form. This component encodes that once.
    ============================================================ */
-import { useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import { Icon } from '@/components/ui/Icon';
 import { Modal } from '@/components/ui/Modal';
 import { DetailList, EmptyState, StatChip, type DetailRow, type StatChipSpec } from '@/components/ui/primitives';
@@ -101,6 +101,15 @@ export function ResourceView<T>({
   const [creating, setCreating] = useState(false);
   const [values, setValues] = useState<Record<string, string>>({});
   const [invalid, setInvalid] = useState<Record<string, boolean>>({});
+
+  /* Memoized so the Modal's focus-restore effect does not re-run on every
+     keystroke (ResourceView re-renders as the user types). An inline arrow
+     function here would get a new identity on each render, causing Modal
+     to call first.focus() and steal focus from the input being typed in. */
+  const handleClose = useCallback(() => {
+    setCreating(false);
+    setEditRow(null);
+  }, []);
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -262,10 +271,7 @@ export function ResourceView<T>({
       {creating || editRow ? (
         <Modal
           title={creating ? (createLabel ?? 'Add record') : 'Edit record'}
-          onClose={() => {
-            setCreating(false);
-            setEditRow(null);
-          }}
+          onClose={handleClose}
           large
           footer={
             <>
