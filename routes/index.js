@@ -1,0 +1,46 @@
+/* Mounts every API router under /api. */
+const express = require('express');
+const router = express.Router();
+
+router.get('/health', (req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
+
+router.use('/auth', require('./authRoutes'));
+router.use('/users', require('./userRoutes'));
+router.use('/employees', require('./employeeRoutes'));
+router.use('/leaves', require('./leaveRoutes'));
+router.use('/attendance', require('./attendanceRoutes'));
+router.use('/payroll', require('./payrollRoutes'));
+router.use('/hiring', require('./hiringRoutes'));
+router.use('/performance', require('./performanceRoutes'));
+router.use('/projects', require('./projectRoutes'));
+router.use('/documents', require('./documentRoutes'));
+router.use('/notices', require('./noticeRoutes'));
+router.use('/helpdesk', require('./helpdeskRoutes'));
+router.use('/offboarding', require('./offboardingRoutes'));
+router.use('/org-chart', require('./orgChartRoutes'));
+router.use('/reports', require('./reportRoutes'));
+router.use('/analytics', require('./analyticsRoutes'));
+router.use('/audit', require('./auditRoutes'));
+router.use('/daily-reports', require('./dailyReportRoutes'));
+router.use('/permissions', require('./permissionRoutes'));
+router.use('/payslip-requests', require('./payslipRequestRoutes'));
+router.use('/requirements', require('./requirementRoutes'));
+router.use('/transfers', require('./transferRoutes'));
+router.use('/sessions', require('./sessionRoutes'));
+router.use('/dashboard', require('./dashboardRoutes'));
+router.use('/bootstrap', require('./bootstrapRoutes'));
+router.use('/todos', require('./todoRoutes'));
+
+// New routes for enhanced HRM features
+router.use('/leave-types', require('./leaveTypeRoutes'));
+router.use('/calendar', require('./calendarRoutes'));
+router.use('/salary-structures', require('./salaryStructureRoutes'));
+router.use('/employee-documents', require('./employeeDocumentRoutes'));
+router.use('/training', require('./trainingRoutes'));
+router.use('/certifications', require('./certificationRoutes'));
+router.use('/notifications', require('./notificationRoutes'));
+router.use('/calendar-policy', require('./calendarRoutes'));
+router.use('/transfer-tickets', require('./transferTicketRoutes'));
+router.use('/team-tasks', require('./teamTaskRoutes'));
+
+module.exports = router;

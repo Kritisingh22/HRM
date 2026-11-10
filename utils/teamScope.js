@@ -1,0 +1,110 @@
+/* Shared team-scoping helpers — the single source of truth for "which employees
+ * may this user act on / see". Extracting this prevents the scope logic from
+ * drifting between the employees, analytics and reports controllers (the root
+ * cause of the M1 analytics leak). Team membership uses the EXISTING relationship
+ * Employee.manager = the manager's employeeId (a STRING), never an ObjectId. */
+const Employee = require("../models/Employee");
+const AccessRequest = require("../models/AccessRequest");
+const User = require("../models/User");
+
+const SEES_ALL = ["ADMIN", "SUPER_ADMIN"];
+
+/*
+ * MANAGER_SCOPE — named per-feature scope for Managers.
+ * 'own'    = the manager's own records only (payroll, salary).
+ * 'team'   = the manager's direct/indirect team (default for operational pages).
+ * 'company' = everything (never for Manager; HR/Admin/Super only).
+ * Adding a page to the Manager nav must be paired with the matching server-side
+ * row-level scope here, and the corresponding API controller must enforce it.
+ */
+const MANAGER_SCOPE = {
+  // team-scoped operational pages (default 'team'):
+  'team-tasks': 'team',
+  'todos': 'team',
+  'projects': 'team',
+  'transfers': 'team',
+  'transfer-tickets': 'team',
+  'offboarding': 'team',
+  'leave': 'team',
+  'attendance': 'team',
+  'performance': 'team',
+  'helpdesk': 'team',
+  'documents': 'team',
+  'notices': 'team',
+  'notifications': 'own',
+  'reports': 'team',
+  'analytics': 'team',
+  'employees': 'team',
+  // own-scoped sensitive data:
+  'payroll': 'own',
+  'payslips': 'own',
+  'salary-structures': 'own',
+};
+
+function managerScope(feature) {
+  return MANAGER_SCOPE[feature] ?? 'team';
+}
+
+module.exports = { SEES_ALL, scopeFilter, teamEmployees, teamEmployeeIds, MANAGER_SCOPE, managerScope };
+
+// employeeIds this HR currently holds a LIVE approved (and not expired) access
+// grant for, on top of their own assigned employees. Checked fresh on every
+// call rather than cached, so an expiry or revocation takes effect immediately.
+async function grantedEmployeeIds(hrEmployeeId) {
+  if (!hrEmployeeId) return [];
+  const grants = await AccessRequest.find({
+    requestingHrId: hrEmployeeId,
+    status: "Approved",
+    isTransfer: false,
+    $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }],
+  }).select("employeeId");
+  return grants.map((g) => g.employeeId);
+}
+
+// Employees are scoped by relationship, not by a blanket HR-overview. HR users
+// only see employees assigned to them (plus any explicitly approved, live
+// access-request grants), never another HR's roster by default.
+async function scopeFilter(user) {
+  if (!user) return { _id: null };
+  if (SEES_ALL.includes(user.role)) return {};
+  if (user.role === "MANAGER") {
+    // A manager manages HR + employees: their direct reports, the HR users among
+    // those reports, AND the employees assigned to those HR users.
+    const direct = await Employee.find({ manager: user.employeeId }).select("user");
+    const hrUsers = direct.length
+      ? await User.find({ _id: { $in: direct.map((e) => e.user).filter(Boolean) }, role: "HR" }).select("employeeId")
+      : [];
+    const hrIds = hrUsers.map((u) => u.employeeId).filter(Boolean);
+    return {
+      $or: [
+        { manager: user.employeeId },
+        { employeeId: user.employeeId },
+        ...(hrIds.length ? [{ assignedHrId: { $in: hrIds } }] : []),
+      ],
+    };
+  }
+  if (user.role === "HR") {
+    const granted = await grantedEmployeeIds(user.employeeId);
+    return {
+      $or: [
+        { assignedHrId: user.employeeId },
+        { employeeId: user.employeeId },
+        ...(granted.length ? [{ employeeId: { $in: granted } }] : []),
+      ],
+    };
+  }
+  return { $or: [{ user: user._id }, { employeeId: user.employeeId }] }; // EMPLOYEE → self only
+}
+
+// The Employee documents this user may act on (own/team/all), with the fields
+// needed to scope related collections (_id for Payroll/Leave/etc., department for Hiring).
+async function teamEmployees(user) {
+  return Employee.find(await scopeFilter(user)).select("_id department employeeId");
+}
+
+// Just the Employee _ids — for { employee: { $in: ids } } filters on Payroll/Leave/Attendance/Performance.
+async function teamEmployeeIds(user) {
+  return (await teamEmployees(user)).map((e) => e._id);
+}
+
+module.exports = { SEES_ALL, scopeFilter, teamEmployees, teamEmployeeIds };

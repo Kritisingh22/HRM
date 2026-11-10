@@ -1,0 +1,1 @@
+import('pdf-parse').then(p => console.log('exports:', Object.keys(p)))

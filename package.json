@@ -1,0 +1,50 @@
+{
+  "name": "cyethack-hr-portal-server",
+  "version": "1.0.0",
+  "description": "MERN backend for the Cyethack HR Portal — Express + MongoDB/Mongoose + JWT (access & refresh) + RBAC.",
+  "type": "commonjs",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "dev:mem": "node tests/dev-server-mem.js",
+    "seed": "node seeds/seed.js",
+    "seed:demo": "node seeds/demo-seeder.js",
+    "seed:transfer-demo": "DEMO_MODE=true node scripts/seedDemoAccounts.js",
+    "test:transfer": "node scripts/testTransferWorkflow.js",
+    "test": "node tests/payslip-pdf.test.js && node tests/attendance-self.test.js && node tests/payroll-generate.test.js && node tests/documents-api.test.js && node tests/documents-drive-unit.test.js && node tests/e2e.test.js && node tests/role-workspace.test.js",
+    "test:payslip": "node tests/payslip-pdf.test.js",
+    "test:attendance": "node tests/attendance-self.test.js",
+    "test:payroll-generate": "node tests/payroll-generate.test.js",
+    "test:docs": "node tests/documents-api.test.js && node tests/documents-drive-unit.test.js",
+    "test:docs-live": "node tests/documents-live.test.js",
+    "check:storage": "node scripts/check-storage.js",
+    "reconcile:storage": "node scripts/reconcile-storage.js"
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "compression": "^1.8.2",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.4.1",
+    "express-validator": "^7.2.1",
+    "googleapis": "^186.0.0",
+    "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.9.5",
+    "multer": "^2.3.0",
+    "node-cron": "^4.6.0",
+    "nodemailer": "^10.1.0",
+    "pdf-lib": "^1.17.1",
+    "pdf-parse": "^2.4.5",
+    "supertest": "^7.3.1"
+  },
+  "devDependencies": {
+    "mongodb-memory-server": "^10.1.3"
+  }
+}
