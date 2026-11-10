@@ -6,6 +6,8 @@
 const mongoose = require("mongoose");
 const Employee = require("../models/Employee");
 const User = require("../models/User");
+const Department = require("../models/Department");
+const Designation = require("../models/Designation");
 const Counter = require("../models/Counter");
 const ApiError = require("../utils/ApiError");
 const catchAsync = require("../utils/catchAsync");
@@ -121,7 +123,36 @@ exports.create = catchAsync(async (req, res) => {
       throw ApiError.badRequest("employeeId must follow format: CY<YYMM><INITIALS><SERIAL> (e.g., CY0125JS201)");
     }
   }
-  
+
+  // Validate departmentId if provided
+  if (body.departmentId) {
+    const dept = await Department.findById(body.departmentId);
+    if (!dept || !dept.isActive) {
+      throw ApiError.badRequest("Invalid or inactive department.");
+    }
+    if (!body.department) {
+      body.department = dept.name;
+    } else if (body.department !== dept.name) {
+      throw ApiError.badRequest("departmentId does not match department name.");
+    }
+  }
+
+  // Validate designationId if provided
+  if (body.designationId) {
+    const desig = await Designation.findById(body.designationId);
+    if (!desig || !desig.isActive) {
+      throw ApiError.badRequest("Invalid or inactive designation.");
+    }
+    if (body.departmentId && String(desig.departmentId) !== String(body.departmentId)) {
+      throw ApiError.badRequest("Designation does not belong to the specified department.");
+    }
+    if (!body.designation) {
+      body.designation = desig.name;
+    } else if (body.designation !== desig.name) {
+      throw ApiError.badRequest("designationId does not match designation name.");
+    }
+  }
+
   // The assigned HR is ALWAYS the authenticated HR who is creating the record —
   // never trust a frontend-supplied assignedHrId here, even if one was sent.
   // (Admin/Super Admin may still set it explicitly, e.g. onboarding on another
@@ -193,6 +224,37 @@ exports.update = catchAsync(async (req, res) => {
   allowed.forEach((k) => {
     if (req.body[k] !== undefined) changes[k] = req.body[k];
   });
+
+  // Validate departmentId change if provided
+  if (changes.departmentId !== undefined) {
+    const dept = await Department.findById(changes.departmentId);
+    if (!dept || !dept.isActive) {
+      throw ApiError.badRequest("Invalid or inactive department.");
+    }
+    if (changes.department && changes.department !== dept.name) {
+      throw ApiError.badRequest("departmentId does not match department name.");
+    }
+    if (!changes.department) {
+      changes.department = dept.name;
+    }
+  }
+
+  // Validate designationId change if provided
+  if (changes.designationId !== undefined) {
+    const desig = await Designation.findById(changes.designationId);
+    if (!desig || !desig.isActive) {
+      throw ApiError.badRequest("Invalid or inactive designation.");
+    }
+    const deptId = changes.departmentId !== undefined ? changes.departmentId : emp.departmentId;
+    if (deptId && String(desig.departmentId) !== String(deptId)) {
+      throw ApiError.badRequest("Designation does not belong to the specified department.");
+    }
+    if (!changes.designation) {
+      changes.designation = desig.name;
+    } else if (changes.designation !== desig.name) {
+      throw ApiError.badRequest("designationId does not match designation name.");
+    }
+  }
 
   // Prevent changing employeeId if not HR (and even for HR, only on create typically)
   if (!isHR && changes.employeeId !== undefined) {
@@ -320,7 +382,9 @@ function pick(b) {
     "phone",
     "gender",
     "department",
+    "departmentId",
     "designation",
+    "designationId",
     "manager",
     "employmentType",
     "workMode",
