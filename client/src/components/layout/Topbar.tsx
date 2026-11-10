@@ -37,6 +37,8 @@ export function Topbar({ page, onOpenDrawer }: TopbarProps) {
       if (!barRef.current?.contains(ev.target as Node)) setMenu(null);
     };
     const onKey = (ev: KeyboardEvent) => {
+      const target = ev.target as Element | null;
+      if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
       if (ev.key === 'Escape') setMenu(null);
     };
     document.addEventListener('mousedown', onDown);

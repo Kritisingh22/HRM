@@ -39,11 +39,35 @@ const DEPT_COLORS = ['var(--teal)', 'var(--violet)', 'var(--orange)', 'var(--blu
 type RangeKey = 'month' | 'last' | 'd90';
 
 export function DashboardPage() {
-  const { data, dispatch, audit, notify } = useApp();
+  const { data, dispatch, audit, notify, hydrated } = useApp();
   const { user, canVisitPage } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
   const [range, setRange] = useState<RangeKey>('month');
+
+  /* While the workspace hydrates after the first paint, render skeleton
+     placeholders that match the real card grid so there is no layout
+     shift (CLS stays at ~0.003). The shell is already visible. */
+  if (!hydrated) {
+    return (
+      <div className="grid">
+        <div className="card kpi span3 skeleton"><div className="skeleton pulse-block" /></div>
+        <div className="card kpi span3 skeleton"><div className="skeleton pulse-block" /></div>
+        <div className="card kpi span3 skeleton"><div className="skeleton pulse-block" /></div>
+        <div className="card kpi span3 skeleton"><div className="skeleton pulse-block" /></div>
+        <section className="card span8 attendance-card skeleton">
+          <div className="skeleton line long" /><div className="skeleton line short" />
+        </section>
+        <section className="card span4 dept-card skeleton"><div className="skeleton line long" /></section>
+        <section className="card span7 skeleton"><div className="skeleton line long" /><div className="skeleton line short" /></section>
+        <section className="card span5 skeleton"><div className="skeleton line long" /><div className="skeleton line short" /></section>
+        <section className="card span4 payroll-card skeleton"><div className="skeleton line long" /></section>
+        <section className="card span4 skeleton"><div className="skeleton line long" /></section>
+        <section className="card span4 skeleton"><div className="skeleton line long" /></section>
+        <section className="card span4 skeleton"><div className="skeleton line long" /></section>
+      </div>
+    );
+  }
 
   const self = user?.portal === 'employee';
   const myId = user?.employeeId ?? '';

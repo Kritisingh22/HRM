@@ -2982,3 +2982,42 @@ body.rail .floating-actions {
     padding: 22px 18px;
   }
 }
+
+/* ============================================================
+   Dashboard skeletons — painted immediately while the workspace
+   hydrates after the first paint. Each skeleton matches its real
+   card's grid span so there is no layout shift (CLS stays ~0).
+   ============================================================ */
+.skeleton {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.skeleton.kpi { height: 116px; }
+.skeleton.pulse-block {
+  height: 14px;
+  border-radius: 6px;
+  background: var(--border);
+  animation: skeleton-pulse 1.4s ease-in-out infinite;
+}
+.skeleton.line {
+  height: 10px;
+  border-radius: 4px;
+  background: var(--border);
+  margin: 6px 0;
+}
+.skeleton.line.short { width: 60%; }
+.skeleton.line.long { width: 100%; }
+.skeleton.avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--border);
+}
+.skeleton.row { display: flex; gap: 10px; align-items: flex-start; }
+.skeleton.col { flex: 1; }
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 0.9; }
+}

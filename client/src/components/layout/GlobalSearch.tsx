@@ -36,6 +36,8 @@ export function GlobalSearch() {
 
   useEffect(() => {
     const onKey = (ev: KeyboardEvent) => {
+      const target = ev.target as Element | null;
+      if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
       if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'k') {
         ev.preventDefault();
         inputRef.current?.focus();

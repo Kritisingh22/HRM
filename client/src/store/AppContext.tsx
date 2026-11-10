@@ -47,6 +47,16 @@ import {
 } from '@/store/apiBridge';
 import { pushToast } from '@/store/mutationGate';
 
+/** Run work after the first paint, with a setTimeout fallback for
+    browsers that do not support requestIdleCallback (P3). */
+function afterPaint(fn: () => void): void {
+  if (typeof requestIdleCallback === 'function') {
+    requestIdleCallback(fn, { timeout: 500 });
+  } else {
+    window.setTimeout(fn, 0);
+  }
+}
+
 interface AppContextValue {
   data: AppData;
   dispatch: React.Dispatch<AppAction>;
@@ -65,6 +75,8 @@ interface AppContextValue {
   currentEmployee: Employee | null;
   /** true while the store is fed by the real HRM API */
   apiMode: boolean;
+  /** true once the initial per-collection hydrate has completed */
+  hydrated: boolean;
   /** start API mode: clear demo data and hydrate from the server */
   enableApiSession: (user: BridgeUser) => void;
   /** leave API mode: wipe server data from the store and re-seed */
@@ -121,6 +133,7 @@ const AppContext = createContext<AppContextValue | null>(null);
 export function AppProvider({ children }: { children: ReactNode }) {
   const [data, rawDispatch] = useReducer(reducer, undefined, () => loadData() ?? emptyAppData());
   const [apiMode, setApiMode] = useState(false);
+  const [hydrated, setHydrated] = useState(true);
   const dataRef = useRef(data);
   dataRef.current = data;
   const seqRef = useRef(data.seq);
@@ -210,17 +223,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setBridgeUser(user);
     setAttendanceSource(true);
     setApiMode(true);
+    setHydrated(false);
     /* Clear demo content immediately — a real workspace must never
        show seeded records, not even for the moment the fetch takes. */
     rawDispatch({ type: 'set', patch: emptyApiPatch(user.employeeId) });
-    hydrateAll()
-      .then((patch) => rawDispatch({ type: 'set', patch }))
-      .catch((err) => {
-        pushToast(
-          err instanceof Error ? err.message : 'Could not load your workspace from the server.',
-          'error',
-        );
-      });
+    /* The full per-collection hydrate runs after the first paint so it
+       never blocks the shell. GET requests are de-duplicated and cached
+       (see api/client.ts), so the re-fetch is cheap. */
+    afterPaint(() => {
+      hydrateAll()
+        .then((patch) => {
+          rawDispatch({ type: 'set', patch });
+          setHydrated(true);
+        })
+        .catch((err) => {
+          setHydrated(true);
+          pushToast(
+            err instanceof Error ? err.message : 'Could not load your workspace from the server.',
+            'error',
+          );
+        });
+    });
   }, []);
 
   const disableApiSession = useCallback(() => {
@@ -250,10 +273,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       logLocation,
       currentEmployee,
       apiMode,
+      hydrated,
       enableApiSession,
       disableApiSession,
     }),
-    [data, dispatch, nextId, audit, notify, reset, logLocation, currentEmployee, apiMode, enableApiSession, disableApiSession],
+    [data, dispatch, nextId, audit, notify, reset, logLocation, currentEmployee, apiMode, hydrated, enableApiSession, disableApiSession],
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

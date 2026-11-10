@@ -66,7 +66,7 @@ const PERMISSIONS = {
     'documents:write_own', 'helpdesk:write_own', 'dailyReports:read_own', 'dailyReports:write_own',
     'notifications:read_own', 'payslipRequests:read_own', 'payslipRequests:create_own',
     // transfer ticket approval for team members
-    'transfers:approve', 'transfers:reject',
+    'transfers:approve', 'transfers:reject', 'transfers:read',
   ],
 
   EMPLOYEE: [

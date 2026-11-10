@@ -20,6 +20,7 @@ import type { AppAction, CollectionKey } from '@/store/reducer';
 import { apiGet, apiGetOptional, apiSend, apiUpload, apiErrorMessage, ApiError } from '@/api/services/http';
 import * as M from '@/api/realMap';
 import { EXIT_ITEMS } from '@/data/seed';
+import { can } from '@/lib/permissions';
 import {
   beginMutation,
   endMutation,
@@ -353,11 +354,16 @@ function keysForRole(): RefreshKey[] {
     'documents',
     'offboarding',
     'transfers',
-    'training',
     'notifications',
     'sessions',
     'teamTasks',
   ];
+  /* Training assignments are permission-gated on the server
+     (trainingAssignments:read). Never request them for roles that
+     cannot read them — that avoids a 403 without loosening auth. */
+  if (role && can(role, 'trainingAssignments:read')) {
+    keys.push('training');
+  }
   if (role === 'HR' || role === 'ADMIN' || role === 'SUPER_ADMIN') {
     keys.push('hiring', 'audit');
   }

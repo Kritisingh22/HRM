@@ -21,6 +21,9 @@ const { SEES_ALL, teamEmployeeIds } = require('../utils/teamScope');
 const day = (d = new Date()) => d.toISOString().slice(0, 10);
 const monthStart = () => day().slice(0, 8) + '01';
 
+module.exports.employeeSummary = employeeSummary;
+module.exports.staffSummary = staffSummary;
+
 async function employeeSummary(user) {
   const emp = await Employee.findOne({ $or: [{ user: user._id }, { employeeId: user.employeeId }] }).select('_id');
   if (!emp) return { linked: false };
