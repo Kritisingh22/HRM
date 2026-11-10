@@ -3,7 +3,7 @@
    Owns the persisted rail state, the mobile drawer, the
    one-per-session welcome note and the floating actions.
    ============================================================ */
-import { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { Topbar } from '@/components/layout/Topbar';
@@ -13,6 +13,49 @@ import { useAuth } from '@/context/AuthContext';
 import { PATH_PAGE, pageLabel } from '@/data/nav';
 
 const RAIL_KEY = 'cyethackHRM.rail';
+
+/** Error boundary — if any route component throws (e.g. bad data shape),
+    the shell, sidebar and topbar stay visible and the user sees a
+    recoverable error instead of a blank page. Never silences auth errors. */
+class ErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean; error: Error | null }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    // eslint-disable-next-line no-console
+    console.error('[ErrorBoundary] route component threw:', error, errorInfo.componentStack);
+  }
+
+  render() {
+    if (this.state.hasError && this.state.error) {
+      return (
+        <div className="app" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', padding: 24 }}>
+          <div className="card" style={{ maxWidth: 560, textAlign: 'center' }}>
+            <div className="card-head">
+              <h2>Something went wrong</h2>
+              <div className="sub">A page component failed to render. Your session and navigation are unaffected.</div>
+            </div>
+            <div style={{ padding: 20, color: 'var(--text-2)', fontSize: 13, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{this.state.error.message}</div>
+            <div className="card-foot" style={{ marginTop: 16 }}>
+              <button className="btn btn-primary" onClick={() => window.location.reload()} type="button">Reload page</button>
+              <button className="btn btn-outline" onClick={() => window.location.href = '/'} type="button">Go to dashboard</button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 function initialRail(): boolean {
   try {
@@ -130,7 +173,7 @@ export function AppShell() {
         <Topbar page={page} onOpenDrawer={() => setDrawer(true)} />
         <main className="content" id="content" ref={contentRef} tabIndex={-1}>
           <WelcomeBar />
-          <Outlet />
+          <ErrorBoundary><Outlet /></ErrorBoundary>
         </main>
       </div>
       {drawer ? <div className="mobile-scrim" onClick={() => setDrawer(false)} aria-hidden="true" /> : null}
