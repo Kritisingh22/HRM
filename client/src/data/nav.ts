@@ -120,6 +120,11 @@ const PAGES_MANAGER = [
   'My Profile',
   'Transfer Tickets',
   'My Tasks',
+  // Team-scoped operational pages (server `navFor(MANAGER)` is the source of truth):
+  'Documents',
+  'Reports',
+  'Analytics',
+  'Offboarding',
 ];
 
 const PAGES_EMPLOYEE = [
@@ -195,14 +200,24 @@ export function pageLabel(portal: Portal, page: string): string {
   return PAGE_LABELS[portal][page] ?? page;
 }
 
-/** Sidebar sections for the given role, with labels applied. */
-export function navForRole(role: Role): NavGroup[] {
+/** Sidebar sections for the given role.
+    * `nav` (supplied from the server-signed session, `user.nav`) is the
+    * single source of truth for which pages this role may open. The
+    * frontend `allowedPages(role)` array is only the fallback when the
+    * session nav is not yet available, so guard and sidebar can never
+    * disagree about what is shown.
+    */
+export function navForRole(role: Role, nav?: string[]): NavGroup[] {
   const portal = portalForRole(role);
-  const allowed = allowedPages(role);
+  /* Server-signed nav takes precedence; fall back to the static allow-list
+     (kept in sync with server `navFor`) until the session arrives. `null`
+     means "everything" (HR/Admin/Super see the full suite). */
+  const allowed: string[] | null = (nav && nav.length ? nav : allowedPages(role));
+  const mayOpen = (page: string) => allowed === null || allowed.includes(page);
   return NAV.map((group) => ({
     label: group.label,
     items: group.items
-      .filter((item) => allowed === null || allowed.includes(item.page))
+      .filter((item) => mayOpen(item.page))
       .map((item) => ({ ...item, page: item.page, label: pageLabel(portal, item.page) })),
   })).filter((group) => group.items.length > 0);
 }

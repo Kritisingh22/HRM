@@ -9,6 +9,44 @@ const User = require("../models/User");
 
 const SEES_ALL = ["ADMIN", "SUPER_ADMIN"];
 
+/*
+ * MANAGER_SCOPE — named per-feature scope for Managers.
+ * 'own'    = the manager's own records only (payroll, salary).
+ * 'team'   = the manager's direct/indirect team (default for operational pages).
+ * 'company' = everything (never for Manager; HR/Admin/Super only).
+ * Adding a page to the Manager nav must be paired with the matching server-side
+ * row-level scope here, and the corresponding API controller must enforce it.
+ */
+const MANAGER_SCOPE = {
+  // team-scoped operational pages (default 'team'):
+  'team-tasks': 'team',
+  'todos': 'team',
+  'projects': 'team',
+  'transfers': 'team',
+  'transfer-tickets': 'team',
+  'offboarding': 'team',
+  'leave': 'team',
+  'attendance': 'team',
+  'performance': 'team',
+  'helpdesk': 'team',
+  'documents': 'team',
+  'notices': 'team',
+  'notifications': 'own',
+  'reports': 'team',
+  'analytics': 'team',
+  'employees': 'team',
+  // own-scoped sensitive data:
+  'payroll': 'own',
+  'payslips': 'own',
+  'salary-structures': 'own',
+};
+
+function managerScope(feature) {
+  return MANAGER_SCOPE[feature] ?? 'team';
+}
+
+module.exports = { SEES_ALL, scopeFilter, teamEmployees, teamEmployeeIds, MANAGER_SCOPE, managerScope };
+
 // employeeIds this HR currently holds a LIVE approved (and not expired) access
 // grant for, on top of their own assigned employees. Checked fresh on every
 // call rather than cached, so an expiry or revocation takes effect immediately.

@@ -67,6 +67,9 @@ const PERMISSIONS = {
     'notifications:read_own', 'payslipRequests:read_own', 'payslipRequests:create_own',
     // transfer ticket approval for team members
     'transfers:approve', 'transfers:reject', 'transfers:read',
+    // team-scoped operational reads
+    'offboarding:read',
+    'trainingAssignments:read',
   ],
 
   EMPLOYEE: [
