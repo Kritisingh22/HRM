@@ -29,7 +29,6 @@ import {
 } from 'react';
 import type { AppData, Employee, LocationRecord } from '@/types';
 import { api } from '@/api/client';
-import { createSeedData } from '@/data/seed';
 import { clearStoredData, loadData, saveData } from '@/store/persist';
 import { reducer, type AppAction } from '@/store/reducer';
 import { nextSeq } from '@/lib/format';
@@ -72,10 +71,55 @@ interface AppContextValue {
   disableApiSession: () => void;
 }
 
+/** Empty app data — used as the initial state before an API session
+ *  is established. All data is fetched from the server; nothing is
+ *  seeded locally. */
+export function emptyAppData(): AppData {
+  return {
+    version: 1,
+    employees: [],
+    departments: [],
+    designations: [],
+    jobs: [],
+    candidates: [],
+    interviews: [],
+    offers: [],
+    onboarding: [],
+    onboardingItems: [],
+    projects: [],
+    tasks: [],
+    teamTasks: [],
+    targets: [],
+    reviews: [],
+    training: [],
+    promotions: [],
+    transfers: [],
+    exits: [],
+    exitItems: [],
+    exitChecklists: {},
+    documents: [],
+    announcements: [],
+    tickets: [],
+    todos: [],
+    leaveRequests: [],
+    leaveBalance: { total: 0, used: 0, casual: 0, sick: 0, paidEarned: 0 },
+    attendanceOverrides: {},
+    locationLog: [],
+    holidays: [],
+    payrollRuns: [],
+    notifications: [],
+    audit: [],
+    events: [],
+    funnel: [],
+    currentUserId: '',
+    seq: 0,
+  };
+}
+
 const AppContext = createContext<AppContextValue | null>(null);
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [data, rawDispatch] = useReducer(reducer, undefined, () => loadData() ?? createSeedData());
+  const [data, rawDispatch] = useReducer(reducer, undefined, () => loadData() ?? emptyAppData());
   const [apiMode, setApiMode] = useState(false);
   const dataRef = useRef(data);
   dataRef.current = data;
@@ -139,9 +183,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const reset = useCallback(() => {
     clearStoredData();
-    const fresh = createSeedData();
-    seqRef.current = fresh.seq;
-    rawDispatch({ type: 'reset', data: fresh });
+    seqRef.current = 0;
+    rawDispatch({ type: 'reset', data: emptyAppData() });
   }, []);
 
   const logLocation = useCallback(
@@ -185,11 +228,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setAttendanceSource(false);
     setApiMode(false);
     /* Server data must not linger in the browser after the session
-       ends — wipe the persisted snapshot and return to the seed. */
+       ends — wipe the persisted snapshot and return to empty state. */
     clearStoredData();
-    const fresh = createSeedData();
-    seqRef.current = fresh.seq;
-    rawDispatch({ type: 'reset', data: fresh });
+    seqRef.current = 0;
+    rawDispatch({ type: 'reset', data: emptyAppData() });
   }, []);
 
   const currentEmployee = useMemo(

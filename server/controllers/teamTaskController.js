@@ -60,6 +60,14 @@ async function canManageTask(user, task) {
   return false;
 }
 
+/* Helper: manager cannot change status of their own created task */
+async function canChangeTaskStatus(user, task) {
+  if (user.role === 'MANAGER' && String(task.createdBy) === String(user._id)) {
+    return false;
+  }
+  return true;
+}
+
 /* POST /api/team-tasks — create a new task */
 exports.create = catchAsync(async (req, res) => {
   if (!userHasPermission(req.user, 'tasks:write')) {
@@ -321,6 +329,11 @@ exports.update = catchAsync(async (req, res) => {
   
   for (const field of allowedFields) {
     if (req.body[field] !== undefined) {
+      if (field === 'status' && req.body.status !== task.status) {
+        if (!(await canChangeTaskStatus(req.user, task))) {
+          throw ApiError.forbidden('You cannot change the status of your own created task.');
+        }
+      }
       oldValues[field] = task[field];
       task[field] = req.body[field];
     }
@@ -393,6 +406,11 @@ exports.updateStatus = catchAsync(async (req, res) => {
   const { status } = req.body;
   if (!['To Do', 'In Progress', 'In Review', 'Blocked', 'Completed', 'Cancelled'].includes(status)) {
     throw ApiError.badRequest('Invalid status.');
+  }
+  if (status !== task.status) {
+    if (!(await canChangeTaskStatus(req.user, task))) {
+      throw ApiError.forbidden('You cannot change the status of your own created task.');
+    }
   }
 
   const oldStatus = task.status;

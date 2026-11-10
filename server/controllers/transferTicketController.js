@@ -465,6 +465,16 @@ exports.approve = catchAsync(async (req, res) => {
     throw ApiError.forbidden('You are not authorized to approve this ticket.');
   }
 
+  // Manager cannot approve a transfer of their own employee record
+  if (req.user.role === 'MANAGER' && !isAdmin) {
+    const myEmp = await Employee.findOne({
+      $or: [{ user: req.user._id }, { employeeId: req.user.employeeId }],
+    }).select('_id');
+    if (myEmp && String(ticket.employee) === String(myEmp._id)) {
+      throw ApiError.forbidden('You cannot approve a transfer of your own employee record.');
+    }
+  }
+
   // Check ticket status
   if (['Approved', 'Rejected', 'Cancelled', 'Completed'].includes(ticket.status)) {
     throw ApiError.badRequest(`Cannot approve a ticket with status: ${ticket.status}`);
@@ -567,6 +577,16 @@ exports.reject = catchAsync(async (req, res) => {
 
   if (!isAdmin && !userRoleInTicket) {
     throw ApiError.forbidden('You are not authorized to reject this ticket.');
+  }
+
+  // Manager cannot reject a transfer of their own employee record
+  if (req.user.role === 'MANAGER' && !isAdmin) {
+    const myEmp = await Employee.findOne({
+      $or: [{ user: req.user._id }, { employeeId: req.user.employeeId }],
+    }).select('_id');
+    if (myEmp && String(ticket.employee) === String(myEmp._id)) {
+      throw ApiError.forbidden('You cannot reject a transfer of your own employee record.');
+    }
   }
 
   // Check ticket status

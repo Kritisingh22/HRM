@@ -274,7 +274,17 @@ export function TeamTaskCalendarPage() {
   };
 
   const saveEdit = () => {
-    if (editing) updateTask(editing, formValues);
+    if (!editing) return;
+    // Managers cannot change status of their own created task
+    if (
+      user?.role === 'MANAGER' &&
+      String(editing.createdBy) === String(user.employeeId) &&
+      formValues.status !== editing.status
+    ) {
+      toast('You cannot change the status of your own created task.', 'error');
+      return;
+    }
+    updateTask(editing, formValues);
   };
 
   const deleteTask = (task: TeamTask) => {

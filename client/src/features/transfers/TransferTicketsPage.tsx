@@ -179,10 +179,15 @@ export function TransferTicketsPage() {
     const isPending = ['Pending Current Manager Approval', 'Pending Current HR Approval', 'Pending Target HR Approval', 'Pending Target Manager Approval'].includes(t.status);
 
     if (isPending) {
-      if ((t.status === 'Pending Current Manager Approval' && isCurrentManager) ||
-          (t.status === 'Pending Target Manager Approval' && isTargetManager)) {
-        actions.push({ key: 'approve', label: 'Approve' });
-        actions.push({ key: 'reject', label: 'Reject', variant: 'danger' });
+      // Managers cannot approve/reject their own request or a transfer of their own employee record
+      const isOwnRequest = t.requestedBy && typeof t.requestedBy === 'object' && t.requestedBy.id === user?.employeeId;
+      const isOwnRecord = t.employee && typeof t.employee === 'object' && t.employee.employeeId === user?.employeeId;
+      if (!isOwnRequest && !isOwnRecord) {
+        if ((t.status === 'Pending Current Manager Approval' && isCurrentManager) ||
+            (t.status === 'Pending Target Manager Approval' && isTargetManager)) {
+          actions.push({ key: 'approve', label: 'Approve' });
+          actions.push({ key: 'reject', label: 'Reject', variant: 'danger' });
+        }
       }
     }
 

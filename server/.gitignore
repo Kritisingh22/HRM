@@ -6,4 +6,5 @@ uploads/*
 .DS_Store
 coverage/
 .env.*
-!.env.example
+.env.example
+server/.env.example

@@ -15,13 +15,21 @@
    flagged `demo` so feature modules can pick the right source.
    ============================================================ */
 import type { LocationRecord, LoginSessionRecord, SessionActivity, SessionUser } from '@/types';
-import { ApiError, mockServer, type LoginPayload } from '@/api/mockServer';
+import { ApiError } from '@/api/mockServer';
 
 const REMEMBER_KEY = 'cyethackHRM.session.remembered';
 const SESSION_KEY = 'cyethackHRM.session';
 
 /** Which backend issued a stored session. */
 export type SessionSource = 'api' | 'demo';
+
+export interface LoginPayload {
+  accessToken: string;
+  sessionId: string;
+  user: SessionUser;
+  issuedAt: number;
+  expiresAt: number;
+}
 
 export interface StoredSession extends LoginPayload {
   /**
@@ -321,14 +329,9 @@ export async function apiRequest(path: string, init: RequestInit = {}): Promise<
 export const api = {
   async login(email: string, password: string, remember: boolean): Promise<StoredSession> {
     const real = await tryRealLogin(email, password);
-    if (real) {
-      writeSession(real, remember);
-      return real;
-    }
-    const payload = await mockServer.login(email, password);
-    const demo: StoredSession = { ...payload, source: 'demo' };
-    writeSession(demo, remember);
-    return demo;
+    if (!real) throw new ApiError(0, 'The HR server is unreachable. Please check your connection and try again.');
+    writeSession(real, remember);
+    return real;
   },
 
   async me(accessToken: string): Promise<SessionUser> {
@@ -349,7 +352,7 @@ export const api = {
         return ((await res.json()) as { user: SessionUser }).user;
       }
     }
-    return mockServer.me(accessToken);
+    throw new ApiError(401, 'No valid session — please sign in again.');
   },
 
   /**
@@ -358,26 +361,24 @@ export const api = {
    */
   async sessionActivity(accessToken: string): Promise<SessionActivity> {
     const stored = readSession();
-    if (stored?.source === 'api') {
-      const token = stored.accessToken || accessToken;
-      const [meRes, listRes, healthRes] = await Promise.all([
-        realApi('/api/sessions/me', { headers: bearer(token) }),
-        realApi('/api/sessions', { headers: bearer(token) }).catch(() => null),
-        realApi('/api/health').catch(() => null),
-      ]);
-      const meBody = (await meRes.json()) as { session: ApiSessionRow | null };
-      if (!meBody.session) throw new ApiError(404, 'Session record not found.');
-      const listBody = listRes ? ((await listRes.json()) as { sessions?: ApiSessionRow[] }) : {};
-      const health = healthRes ? ((await healthRes.json()) as { time?: string }) : null;
-      const current = mapApiSession(meBody.session, stored.user);
-      const recent = (listBody.sessions ?? []).slice(0, 5).map((r) => mapApiSession(r, stored.user));
-      return {
-        session: current,
-        recent: recent.some((r) => r.id === current.id) ? recent : [current, ...recent].slice(0, 5),
-        serverNow: health?.time ? Date.parse(health.time) : Date.now(),
-      };
-    }
-    return mockServer.sessionActivity(accessToken);
+    if (!(stored?.source === 'api')) throw new ApiError(401, 'No valid session — please sign in again.');
+    const token = stored.accessToken || accessToken;
+    const [meRes, listRes, healthRes] = await Promise.all([
+      realApi('/api/sessions/me', { headers: bearer(token) }),
+      realApi('/api/sessions', { headers: bearer(token) }).catch(() => null),
+      realApi('/api/health').catch(() => null),
+    ]);
+    const meBody = (await meRes.json()) as { session: ApiSessionRow | null };
+    if (!meBody.session) throw new ApiError(404, 'Session record not found.');
+    const listBody = listRes ? ((await listRes.json()) as { sessions?: ApiSessionRow[] }) : {};
+    const health = healthRes ? ((await healthRes.json()) as { time?: string }) : null;
+    const current = mapApiSession(meBody.session, stored.user);
+    const recent = (listBody.sessions ?? []).slice(0, 5).map((r) => mapApiSession(r, stored.user));
+    return {
+      session: current,
+      recent: recent.some((r) => r.id === current.id) ? recent : [current, ...recent].slice(0, 5),
+      serverNow: health?.time ? Date.parse(health.time) : Date.now(),
+    };
   },
 
   /**
@@ -387,19 +388,17 @@ export const api = {
    */
   async recordLocation(record: LocationRecord): Promise<LocationRecord> {
     const stored = readSession();
-    if (stored?.source === 'api') {
-      await apiRequest('/api/sessions/me/location', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          latitude: record.lat,
-          longitude: record.lng,
-          accuracy: record.accuracy,
-        }),
-      });
-      return record;
-    }
-    return mockServer.recordLocation(record);
+    if (!(stored?.source === 'api')) throw new ApiError(401, 'No valid session — please sign in again.');
+    await apiRequest('/api/sessions/me/location', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        latitude: record.lat,
+        longitude: record.lng,
+        accuracy: record.accuracy,
+      }),
+    });
+    return record;
   },
 
   /**
@@ -409,28 +408,23 @@ export const api = {
    */
   async logout(accessToken: string): Promise<LoginSessionRecord | null> {
     const stored = readSession();
-    if (stored?.source === 'api') {
-      const token = stored.accessToken || accessToken;
-      try {
-        await realApi('/api/auth/logout', { method: 'POST', headers: bearer(token) });
-        // The access token stays valid for its short lifetime, so the
-        // now-closed row can be read back with server-computed duration.
-        let closed: LoginSessionRecord | null = null;
-        try {
-          const res = await realApi('/api/sessions/me', { headers: bearer(token) });
-          const body = (await res.json()) as { session: ApiSessionRow | null };
-          if (body.session) closed = mapApiSession(body.session, stored.user);
-        } catch {
-          /* the confirmation row is optional */
-        }
-        clearSession();
-        return closed;
-      } catch {
-        clearSession();
-        return null;
-      }
+    if (!(stored?.source === 'api')) throw new ApiError(401, 'No valid session — please sign in again.');
+    const token = stored.accessToken || accessToken;
+    try {
+      await realApi('/api/auth/logout', { method: 'POST', headers: bearer(token) });
+    } catch {
+      /* logout endpoint may already be invalidated; proceed to clear local state */
     }
-    const closed = await mockServer.logout(accessToken);
+    // The access token stays valid for its short lifetime, so the
+    // now-closed row can be read back with server-computed duration.
+    let closed: LoginSessionRecord | null = null;
+    try {
+      const res = await realApi('/api/sessions/me', { headers: bearer(token) });
+      const body = (await res.json()) as { session: ApiSessionRow | null };
+      if (body.session) closed = mapApiSession(body.session, stored.user);
+    } catch {
+      /* the confirmation row is optional */
+    }
     clearSession();
     return closed;
   },

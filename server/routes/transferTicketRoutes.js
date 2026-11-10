@@ -24,11 +24,11 @@ router.get('/:id/history', ctrl.getHistory);
 // Create transfer ticket (Manager only)
 router.post('/', ctrl.create);
 
-// Approve current step
-router.post('/:id/approve', ctrl.approve);
+// Approve current step (Manager/HR/Admin only, in scope)
+router.post('/:id/approve', requirePermission('transfers:approve'), ctrl.approve);
 
-// Reject current step
-router.post('/:id/reject', ctrl.reject);
+// Reject current step (Manager/HR/Admin only, in scope)
+router.post('/:id/reject', requirePermission('transfers:reject'), ctrl.reject);
 
 // Cancel ticket
 router.post('/:id/cancel', ctrl.cancel);

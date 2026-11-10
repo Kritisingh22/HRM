@@ -5,6 +5,7 @@ const mongoose = require('mongoose');
 const todoSchema = new mongoose.Schema(
   {
     employee: { type: mongoose.Schema.Types.ObjectId, ref: 'Employee', required: true, index: true },
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true }, // who created the task
     title: { type: String, required: true, trim: true, maxlength: 200 },
     notes: { type: String, trim: true, maxlength: 1000 },
     date: { type: String, required: true, index: true }, // 'YYYY-MM-DD' the task is planned for
@@ -18,6 +19,8 @@ const todoSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+todoSchema.index({ employee: 1, date: 1 });
+todoSchema.index({ createdBy: 1 });
 todoSchema.index({ employee: 1, date: 1 });
 
 module.exports = mongoose.model('Todo', todoSchema);

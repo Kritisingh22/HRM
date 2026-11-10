@@ -59,12 +59,14 @@ const PERMISSIONS = {
     'notifications:read',
     'requirements:read', 'requirements:write', 'requirements:read_own', 'requirements:write_own',
     'payslipRequests:read', 'payslipRequests:create', 'payslipRequests:review',
-    'tasks:read', 'tasks:write',
+    'tasks:read', 'tasks:write', 'tasks:approve',
     // own self-service
     'leaves:read_own', 'leaves:write_own', 'attendance:read_own', 'payroll:read_own',
     'employees:read_own', 'performance:read_own', 'projects:read_own', 'documents:read_own',
     'documents:write_own', 'helpdesk:write_own', 'dailyReports:read_own', 'dailyReports:write_own',
-    'notifications:read_own', 'payslipRequests:read_own', 'payslipRequests:create_own'
+    'notifications:read_own', 'payslipRequests:read_own', 'payslipRequests:create_own',
+    // transfer ticket approval for team members
+    'transfers:approve', 'transfers:reject',
   ],
 
   EMPLOYEE: [

@@ -1,6 +1,7 @@
 /* ============================================================
    My Tasks — personal to-do list. Everyone can create, view,
-   complete and delete their own tasks.
+   complete and delete their own tasks. Managers can view and
+   mark complete their team's tasks.
    ============================================================ */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Icon } from '@/components/ui/Icon';
@@ -18,13 +19,28 @@ export function TodoPage() {
   const { toast } = useToast();
 
   const myId = user?.employeeId ?? '';
+  const isManager = user?.role === 'MANAGER';
+
+  /* ---------- team scope (manager only) ---------- */
+  const [viewingTeam, setViewingTeam] = useState(false);
+  const teamMemberIds = useMemo(() => {
+    if (!isManager) return new Set<string>();
+    const ids = new Set<string>(myId ? [myId] : []);
+    data.employees.forEach((e) => {
+      if (e.manager === myId) ids.add(e.id);
+    });
+    return ids;
+  }, [data.employees, myId, isManager]);
 
   const rows = useMemo(
     () =>
       [...data.todos]
-        .filter((t) => t.employeeId === myId)
+        .filter((t) => {
+          if (isManager && viewingTeam) return teamMemberIds.has(t.employeeId);
+          return t.employeeId === myId;
+        })
         .sort((a, b) => (a.date < b.date ? 1 : -1)),
-    [data.todos, myId],
+    [data.todos, myId, isManager, viewingTeam, teamMemberIds],
   );
 
   /* ---------- create form state ---------- */
@@ -40,7 +56,7 @@ export function TodoPage() {
     const trimmed = v.trim();
     if (!trimmed) return 'Task title is required.';
     if (/\s/.test(trimmed)) return 'Title must be a single word (no spaces).';
-    if (trimmed.length > 50) return 'Title must be 50 characters or fewer.';
+    if (trimmed.length > 50) return 'Task title must be 50 characters or fewer.';
     return null;
   }
 
@@ -98,6 +114,11 @@ export function TodoPage() {
 
   /* ---------- toggle status ---------- */
   const toggleStatus = (t: Todo) => {
+    // Managers cannot mark their own created task as complete via team view
+    if (isManager && viewingTeam && t.employeeId === myId) {
+      toast('You cannot mark your own task as complete from the team view.', 'error');
+      return;
+    }
     const next: TodoStatus = t.status === 'Pending' ? 'Completed' : 'Pending';
     dispatch({
       type: 'update',
@@ -128,17 +149,34 @@ export function TodoPage() {
     [rows],
   );
 
+  const isTeamView = isManager && viewingTeam;
+
   return (
     <div className="grid">
       <section className="card span12">
         <div className="card-head">
           <div>
-            <h2>My Tasks</h2>
-            <div className="sub">Your personal to-do list — add tasks, mark them done, delete when finished.</div>
+            <h2>{isTeamView ? 'Team Tasks' : 'My Tasks'}</h2>
+            <div className="sub">
+              {isTeamView
+                ? `Team tasks — mark team members' tasks as complete`
+                : 'Your personal to-do list — add tasks, mark them done, delete when finished.'}
+            </div>
           </div>
-          <button className="btn btn-primary btn-sm" onClick={handleOpen} type="button">
-            <Icon name="plus" size={14} /> New task
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <button className="btn btn-primary btn-sm" onClick={handleOpen} type="button">
+              <Icon name="plus" size={14} /> New task
+            </button>
+            {isManager && (
+              <button
+                className={`btn btn-ghost btn-sm ${viewingTeam ? 'done-text' : ''}`}
+                onClick={() => setViewingTeam(!viewingTeam)}
+                type="button"
+              >
+                {viewingTeam ? 'My tasks' : 'Team tasks'}
+              </button>
+            )}
+          </div>
         </div>
 
         <StatRow
@@ -149,13 +187,18 @@ export function TodoPage() {
         />
 
         {rows.length === 0 ? (
-          <div className="empty">No tasks yet. Click "New task" to add one.</div>
+          <div className="empty">
+            {isTeamView
+              ? 'No team tasks yet.'
+              : 'No tasks yet. Click "New task" to add one.'}
+          </div>
         ) : (
           <div className="table-scroll">
             <table className="data">
               <thead>
                 <tr>
                   <th>Task</th>
+                  <th>Owner</th>
                   <th>Description</th>
                   <th>Date</th>
                   <th>Status</th>
@@ -163,32 +206,56 @@ export function TodoPage() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((t) => (
-                  <tr key={t.id} className={t.status === 'Completed' ? 'done-row' : undefined}>
-                    <td>
-                      <b className={t.status === 'Completed' ? 'done-text' : undefined}>{t.title}</b>
-                    </td>
-                    <td className="num">{t.notes || '—'}</td>
-                    <td className="num">{niceDate(t.date)}</td>
-                    <td>
-                      <Pill status={t.status} />
-                    </td>
-                    <td>
-                      <div className="act-btns">
-                        <button
-                          className={`btn btn-ghost btn-sm ${t.status === 'Pending' ? '' : 'done-text'}`}
-                          onClick={() => toggleStatus(t)}
-                          type="button"
-                        >
-                          {t.status === 'Pending' ? 'Mark done' : 'Reopen'}
-                        </button>
-                        <button className="btn btn-danger-outline btn-sm" onClick={() => remove(t)} type="button">
-                          Delete
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                {rows.map((t) => {
+                  const emp = data.employees.find((e) => e.id === t.employeeId);
+                  return (
+                    <tr key={t.id} className={t.status === 'Completed' ? 'done-row' : undefined}>
+                      <td>
+                        <b className={t.status === 'Completed' ? 'done-text' : undefined}>
+                          {t.title}
+                        </b>
+                      </td>
+                      <td className="num">
+                        {emp ? emp.name : t.employeeId}
+                      </td>
+                      <td className="num">{t.notes || '—'}</td>
+                      <td className="num">{niceDate(t.date)}</td>
+                      <td>
+                        <Pill status={t.status} />
+                      </td>
+                      <td>
+                        <div className="act-btns">
+                          {t.status === 'Pending' ? (
+                            <button
+                              className="btn btn-ghost btn-sm"
+                              onClick={() => toggleStatus(t)}
+                              type="button"
+                            >
+                              Mark done
+                            </button>
+                          ) : (
+                            <button
+                              className="btn btn-ghost btn-sm done-text"
+                              onClick={() => toggleStatus(t)}
+                              type="button"
+                            >
+                              Reopen
+                            </button>
+                          )}
+                          {t.employeeId === myId ? (
+                            <button
+                              className="btn btn-danger-outline btn-sm"
+                              onClick={() => remove(t)}
+                              type="button"
+                            >
+                              Delete
+                            </button>
+                          ) : null}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -224,7 +291,7 @@ export function TodoPage() {
             <label htmlFor="td-title">Task title <span className="req">*</span></label>
             <input
               id="td-title"
-              maxLength="50"
+              maxLength={50}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="Single word, max 50 chars"
@@ -237,7 +304,7 @@ export function TodoPage() {
             <label htmlFor="td-notes">Description</label>
             <textarea
               id="td-notes"
-              maxLength="500"
+              maxLength={500}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Task description (max 500 characters)"
