@@ -59,7 +59,14 @@ export function Progress({ value, label }: { value: number; label?: string }) {
           <span className="pct">{pct}%</span>
         </div>
       ) : null}
-      <div className="progress" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
+      <div
+        className="progress"
+        role="progressbar"
+        aria-valuenow={pct}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-label={label ?? `Progress ${pct}%`}
+      >
         <i style={{ width: `${pct}%` }} />
       </div>
     </div>
@@ -67,11 +74,18 @@ export function Progress({ value, label }: { value: number; label?: string }) {
 }
 
 /** Compact inline bar for dense tables. */
-export function InlineBar({ value }: { value: number }) {
+export function InlineBar({ value, label }: { value: number; label?: string }) {
   const pct = Math.max(0, Math.min(100, Math.round(value || 0)));
   return (
     <span className="inline-bar-wrap">
-      <span className="inline-bar">
+      <span
+        className="inline-bar"
+        role="progressbar"
+        aria-valuenow={pct}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-label={label ?? `Progress ${pct}%`}
+      >
         <i style={{ width: `${pct}%` }} />
       </span>
       <span className="pct">{pct}%</span>

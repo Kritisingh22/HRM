@@ -28,6 +28,7 @@ router.use('/requirements', require('./requirementRoutes'));
 router.use('/transfers', require('./transferRoutes'));
 router.use('/sessions', require('./sessionRoutes'));
 router.use('/dashboard', require('./dashboardRoutes'));
+router.use('/bootstrap', require('./bootstrapRoutes'));
 router.use('/todos', require('./todoRoutes'));
 
 // New routes for enhanced HRM features

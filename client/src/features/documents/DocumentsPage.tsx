@@ -128,7 +128,7 @@ function UploadDocumentModal({ canManage, isAdmin, myId, employees, onClose }: U
             Cancel
           </button>
           <button className="btn btn-primary" onClick={() => void submit()} type="button" disabled={busy || !file}>
-            {busy ? 'Uploading…' : 'Upload'}
+            {busy ? 'Uploading...' : 'Upload'}
           </button>
         </>
       }
@@ -154,6 +154,7 @@ function UploadDocumentModal({ canManage, isAdmin, myId, employees, onClose }: U
             placeholder={file?.name ?? 'Document name'}
             onChange={(e) => setTitle(e.target.value)}
           />
+          <div className="field-hint">Optional. Defaults to file name.</div>
         </div>
         <div className="field">
           <label htmlFor="doc-cat">Category</label>
@@ -207,7 +208,7 @@ function UploadDocumentModal({ canManage, isAdmin, myId, employees, onClose }: U
               value={visibility}
               onChange={(e) => setVisibility(e.target.value as 'private' | 'hr' | 'all')}
             >
-              <option value="private">Private — the employee and HR</option>
+              <option value="private">Private � the employee and HR</option>
               <option value="hr">HR only</option>
               <option value="all">Visible to all employees</option>
             </select>

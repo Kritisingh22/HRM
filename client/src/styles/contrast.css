@@ -1,0 +1,47 @@
+/* ============================================================
+   Contrast fixes — imported LAST so these overrides win.
+
+   --teal-strong (#3a7a6b) is used ONLY as the background where
+   white text sits (.avatar, .pill.active, .seg-btn.on,
+   .btn-primary, .auth-btn, .org-node .av, .skip-link). --teal
+   (#509888) is kept for borders, bars and accents so the look
+   stays the same. White on #3a7a6b ≈ 5.3:1 (≥ 4.5:1).
+   ============================================================ */
+
+:root {
+  --teal-strong: #3a7a6b;
+}
+body.theme-light {
+  --teal-strong: #3a7a6b;
+}
+
+/* Sidebar group labels: --muted (#64748b) on the dark sidebar is
+   only ~4:1. Use --text-2 on dark (lighter → higher contrast).
+   On light theme --text-2 (#516074) on white is ~4.6:1. */
+.nav-label {
+  color: var(--text-2);
+}
+
+/* White text on teal → use --teal-strong as the background only. */
+.avatar {
+  background: var(--teal-strong);
+}
+.pill.active {
+  background: var(--teal-strong);
+  border-color: var(--teal-strong);
+}
+.seg-btn.on {
+  background: var(--teal-strong);
+}
+.btn-primary {
+  background: var(--teal-strong);
+}
+.auth-btn {
+  background: var(--teal-strong);
+}
+.org-node .av {
+  background: var(--teal-strong);
+}
+.skip-link {
+  background: var(--teal-strong);
+}

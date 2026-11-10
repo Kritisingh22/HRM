@@ -73,7 +73,34 @@ export function TeamTaskCalendarPage() {
   const handleCloseTask = useCallback(() => setOpenTask(null), []);
   const handleCloseDay = useCallback(() => setDayIso(null), []);
 
-  const filteredEmployees = filterDemoEmployees(data.employees);
+  /* Memoized so the employee list is not recalculated on every keystroke. */
+  const filteredEmployees = useMemo(() => filterDemoEmployees(data.employees), [data.employees]);
+
+  /* Wrapped in useCallback so the form's onSubmit prop stays stable across
+     re-renders triggered by keystrokes in the modal inputs. */
+  const createTask = useCallback(async (values: Record<string, string>) => {
+    const task = {
+      id: `TASK-${Date.now()}`,
+      title: values.title,
+      description: values.description || '',
+      status: values.status || 'To Do',
+      priority: values.priority || 'Medium',
+      startDate: values.startDate || '',
+      dueDate: values.dueDate,
+      assignedTo: values.assignedTo ? values.assignedTo.split(',').map(s => s.trim()) : [],
+      team: values.team || '',
+      project: values.projectId || '',
+      tags: values.tags ? values.tags.split(',').map(s => s.trim()) : [],
+      estimatedHours: Number(values.estimatedHours || 0),
+      createdBy: user?.employeeId ?? '',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    dispatch({ type: 'add', collection: 'teamTasks', item: task, prepend: true });
+    audit('Task created', task.id);
+    toast('Task created.', 'success');
+    setCreating(false);
+  }, [dispatch, audit, toast, setCreating]);
 
   /* -------- scope -------- */
   const scopeIds = useMemo(() => {
@@ -179,30 +206,6 @@ export function TeamTaskCalendarPage() {
   }, [cursor, data.holidays, data.teamTasks]);
 
   /* -------- actions -------- */
-  const createTask = async (values: Record<string, string>) => {
-    const task = {
-      id: `TASK-${Date.now()}`,
-      title: values.title,
-      description: values.description || '',
-      status: values.status || 'To Do',
-      priority: values.priority || 'Medium',
-      startDate: values.startDate || '',
-      dueDate: values.dueDate,
-      assignedTo: values.assignedTo ? values.assignedTo.split(',').map(s => s.trim()) : [],
-      team: values.team || '',
-      project: values.projectId || '',
-      tags: values.tags ? values.tags.split(',').map(s => s.trim()) : [],
-      estimatedHours: Number(values.estimatedHours || 0),
-      createdBy: user?.employeeId ?? '',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    dispatch({ type: 'add', collection: 'teamTasks', item: task, prepend: true });
-    audit('Task created', task.id);
-    toast('Task created.', 'success');
-    setCreating(false);
-  };
-
   const updateTask = (task: TeamTask, values: Record<string, string>) => {
     dispatch({
       type: 'update',

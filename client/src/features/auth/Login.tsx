@@ -53,7 +53,9 @@ export function LoginPage() {
           <span className="sl">HRM Portal — HR · Manager · Employee</span>
         </div>
         <div className="auth-title">Sign in to continue</div>
-        <div className="auth-sub">Use one of the demo accounts below to explore each role.</div>
+        {showDemoAccounts && (
+          <div className="auth-sub">Use one of the demo accounts below to explore each role.</div>
+        )}
 
         {error ? (
           <div className="auth-error" role="alert">

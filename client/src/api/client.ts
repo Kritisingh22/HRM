@@ -281,11 +281,78 @@ function renewRealSession(): Promise<StoredSession | null> {
   return realSessionRenewal;
 }
 
+/* ============================================================
+   Request de-duplication + short-lived cache (GET only).
+
+   Collapses concurrent identical GET requests into a single fetch
+   (fixes /api/sessions being requested twice) and caches successful
+   GET responses for GET_CACHE_TTL_MS. Any mutation (POST/PUT/PATCH/
+   DELETE) clears the cache so stale data is never served after a write.
+
+   Cached responses are rebuilt as fresh `Response` objects so callers
+   can call `.json()` safely without body-consumption issues.
+   ============================================================ */
+
+const GET_CACHE_TTL_MS = 45_000;
+
+interface CacheSlot {
+  json: unknown;
+  expires: number;
+  inflight?: Promise<unknown>;
+}
+
+const getCache = new Map<string, CacheSlot>();
+
+function cacheKey(method: string, url: string): string | null {
+  return method === 'GET' ? `${method} ${url}` : null;
+}
+
+/** Clear every cached GET — call after any mutation. */
+export function invalidateGetCache(): void {
+  getCache.clear();
+}
+
+function cachedResponse(json: unknown): Response {
+  return new Response(JSON.stringify(json), {
+    status: 200,
+    statusText: 'OK',
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
+async function getCached(path: string, init: RequestInit): Promise<Response> {
+  const key = cacheKey(init.method ?? 'GET', path);
+  if (!key) return realApi(path, init);
+
+  const now = Date.now();
+  const slot = getCache.get(key);
+
+  /* Cache hit — return a fresh Response from the stored JSON. */
+  if (slot && slot.expires > now) return cachedResponse(slot.json);
+
+  /* Dedupe: an identical request is already in flight — wait on it. */
+  if (slot?.inflight) return slot.inflight.then((json) => cachedResponse(json));
+
+  const promise = (async (): Promise<unknown> => {
+    const res = await realApi(path, init);
+    return res.json();
+  })();
+
+  getCache.set(key, { json: undefined as unknown, expires: 0, inflight: promise });
+
+  const json = await promise;
+  getCache.set(key, { json, expires: now + GET_CACHE_TTL_MS, inflight: undefined });
+  return cachedResponse(json);
+}
+
 /**
  * Authenticated request against the real HRM API for feature modules
  * (official payslips, documents …). Renews a lapsed access token once
  * via the httpOnly refresh cookie and throws `ApiError` carrying the
  * server's safe message on failure.
+ *
+ * GET requests are de-duplicated and short-lived cached; mutations
+ * invalidate the cache.
  */
 export async function apiRequest(path: string, init: RequestInit = {}): Promise<Response> {
   const session = readSession();
@@ -298,7 +365,9 @@ export async function apiRequest(path: string, init: RequestInit = {}): Promise<
     headers.set('Authorization', `Bearer ${token}`);
     let res: Response;
     try {
-      res = await fetch(path, { credentials: 'same-origin', ...init, headers });
+      res = init.method && init.method !== 'GET'
+        ? await fetch(path, { credentials: 'same-origin', ...init, headers })
+        : await getCached(path, { credentials: 'same-origin', ...init, headers });
     } catch {
       throw new ApiError(0, 'The HR server is unreachable. Check that it is running and try again.');
     }
@@ -324,6 +393,23 @@ export async function apiRequest(path: string, init: RequestInit = {}): Promise<
     }
     return attempt(renewed.accessToken);
   }
+}
+
+/**
+ * Lightweight bootstrap: current user, permissions, unread notification
+ * count and dashboard KPIs in one round trip. Used for the first paint
+ * so the shell is never blocked on the full per-collection hydrate.
+ */
+export async function bootstrap(accessToken: string): Promise<{
+  user: SessionUser;
+  unreadCount: number;
+  dashboard: unknown;
+}> {
+  const res = await realApi('/api/bootstrap', {
+    credentials: 'same-origin',
+    headers: bearer(accessToken),
+  });
+  return (await res.json()) as { user: SessionUser; unreadCount: number; dashboard: unknown };
 }
 
 export const api = {

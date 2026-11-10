@@ -22,7 +22,7 @@ router.get('/:id', ctrl.getOne);
 router.get('/:id/history', ctrl.getHistory);
 
 // Create transfer ticket (Manager only)
-router.post('/', ctrl.create);
+router.post('/', requirePermission('transfers:create'), ctrl.create);
 
 // Approve current step (Manager/HR/Admin only, in scope)
 router.post('/:id/approve', requirePermission('transfers:approve'), ctrl.approve);

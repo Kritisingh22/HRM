@@ -20,7 +20,5 @@ const todoSchema = new mongoose.Schema(
   { timestamps: true }
 );
 todoSchema.index({ employee: 1, date: 1 });
-todoSchema.index({ createdBy: 1 });
-todoSchema.index({ employee: 1, date: 1 });
 
 module.exports = mongoose.model('Todo', todoSchema);

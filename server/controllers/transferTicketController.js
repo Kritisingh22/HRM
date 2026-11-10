@@ -365,11 +365,14 @@ exports.list = catchAsync(async (req, res) => {
     // Admin sees all
     if (req.query.status) filter.status = req.query.status;
   } else if (req.user.role === 'MANAGER') {
-    // Manager sees: tickets they created, tickets where they are current/target manager
+    // Manager sees: tickets they created, tickets where they are current/target manager,
+    // and tickets for their team members (subject employee is on their team)
+    const myTeamIds = await teamEmployeeIds(req.user);
     filter.$or = [
       { requestedBy: req.user._id },
       { currentManager: req.user._id },
       { targetManager: req.user._id },
+      { employee: { $in: myTeamIds } },
     ];
     if (req.query.status) filter.status = req.query.status;
   } else if (req.user.role === 'HR') {

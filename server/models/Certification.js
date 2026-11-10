@@ -22,7 +22,6 @@ const certificationSchema = new mongoose.Schema({
   timestamps: true,
 });
 
-certificationSchema.index({ employee: 1 });
 certificationSchema.index({ employee: 1, expiryDate: 1 });
 certificationSchema.index({ driveFileId: 1 }, { sparse: true });
 

@@ -11,14 +11,31 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
 import type { LoginSessionRecord, SessionActivity, SessionUser } from '@/types';
-import { api, clearSession, readSession } from '@/api/client';
+import { api, bootstrap, clearSession, invalidateGetCache, readSession } from '@/api/client';
 import { canManagePeople, canSeeSalary, canVisit } from '@/data/nav';
 import { captureLocation } from '@/lib/geo';
 import { useApp } from '@/store/AppContext';
+
+/** Run work after the first paint, with a setTimeout fallback for
+    browsers that do not support requestIdleCallback. */
+function afterPaint(fn: () => void): void {
+  if (typeof requestIdleCallback === 'function') {
+    requestIdleCallback(fn, { timeout: 500 });
+  } else {
+    window.setTimeout(fn, 0);
+  }
+}
+
+/** A session's access token is still fresh enough to trust without a
+    round-trip to the server. */
+function tokenIsFresh(stored: { expiresAt: number }): boolean {
+  return stored.expiresAt > Date.now() + 60_000; // at least a minute left
+}
 
 type AuthStatus = 'booting' | 'authenticated' | 'guest';
 
@@ -55,7 +72,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [activity, setActivity] = useState<SessionSnapshot | null>(null);
 
   /* Load the navbar session panel data. Failures just leave the
-     panel hidden — auth state itself is owned by `me()` / `login()`. */
+     panel hidden — auth state itself is owned by `me()` / `login()`.
+     Runs after the first paint so it never blocks boot. */
   const refreshActivity = useCallback(async (accessToken: string) => {
     try {
       const payload = await api.sessionActivity(accessToken);
@@ -73,27 +91,60 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setStatus('guest');
       return;
     }
-    api
-      .me(stored.accessToken)
-      .then((fresh) => {
+
+    /* Paint the shell immediately with the stored user. Never block the
+       first paint on a network round-trip. */
+    setUser(stored.user);
+    setStatus('authenticated');
+
+    if (stored.source === 'api') {
+      enableApiSession({
+        role: stored.user.role,
+        employeeId: stored.user.employeeId ?? null,
+        name: stored.user.name,
+        email: stored.user.email,
+      });
+    }
+
+    if (stored.source === 'api' && tokenIsFresh(stored)) {
+      /* Access token still valid: skip auth/refresh entirely. Refresh the
+         user + dashboard in ONE bootstrap round-trip, in parallel with
+         the shell render (never blocks the first paint). */
+      void bootstrap(stored.accessToken).then((fresh) => {
         if (cancelled) return;
-        setUser(fresh);
-        setStatus('authenticated');
-        if (stored.source === 'api') {
+        setUser(fresh.user);
+        invalidateGetCache();
+      }).catch(() => {
+        /* keep the stored user; the shell is already painted */
+      });
+      /* Session panel is nice-to-have: load after paint, pause when hidden. */
+      afterPaint(() => void refreshActivity(stored.accessToken));
+      return;
+    }
+
+    /* Access token expired or missing: the serial refresh → me chain.
+       Only runs when a refresh is actually required. */
+    if (stored.source === 'api') {
+      api
+        .me(stored.accessToken)
+        .then((fresh) => {
+          if (cancelled) return;
+          setUser(fresh);
+          setStatus('authenticated');
           enableApiSession({
             role: fresh.role,
             employeeId: fresh.employeeId ?? null,
             name: fresh.name,
             email: fresh.email,
           });
-        }
-        void refreshActivity(stored.accessToken);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        clearSession();
-        setStatus('guest');
-      });
+          void refreshActivity(fresh.accessToken ?? stored.accessToken);
+        })
+        .catch(() => {
+          if (cancelled) return;
+          clearSession();
+          setStatus('guest');
+        });
+    }
     return () => {
       cancelled = true;
     };
