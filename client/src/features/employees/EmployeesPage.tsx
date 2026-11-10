@@ -115,8 +115,14 @@ export function EmployeesPage() {
         key: 'designation',
         label: 'Designation',
         type: 'select',
-        options: data.designations.map((d) => ({ value: d.title, label: d.title })),
-        fallback: data.designations[0]?.title ?? '',
+        getOptions: (values) => {
+          const deptId = values.dept;
+          if (!deptId) return [];
+          return data.designations
+            .filter((d) => d.deptId === deptId)
+            .map((d) => ({ value: d.id, label: d.title }));
+        },
+        dependsOn: 'dept',
       },
       {
         key: 'manager',
@@ -160,6 +166,8 @@ export function EmployeesPage() {
         phone: values.phone || undefined,
         department: values.dept,
         designation: values.designation || '—',
+        departmentId: values.deptId || undefined,
+        designationId: values.designationId || undefined,
         manager: values.manager || undefined,
         location: values.location || 'Noida',
         employmentType: (values.employmentType as Employee['employmentType']) || 'Full-time',
@@ -206,6 +214,8 @@ export function EmployeesPage() {
       phone: values.phone,
       dept: values.dept,
       designation: values.designation,
+      departmentId: values.deptId,
+      designationId: values.designationId,
       manager: values.manager || null,
       location: values.location,
       employmentType: values.employmentType,

@@ -5,7 +5,7 @@ services:
     region: oregon
     branch: main
     buildCommand: npm --prefix client ci && npm --prefix client run build && npm --prefix server ci && cp -r client/dist/* server/public/
-    startCommand: node server/server.js
+    startCommand: npm --prefix server start
     envVars:
       - key: NODE_ENV
         value: production

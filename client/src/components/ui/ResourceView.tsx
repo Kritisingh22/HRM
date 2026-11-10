@@ -37,6 +37,10 @@ export interface FieldDef {
   type?: 'text' | 'number' | 'date' | 'select' | 'textarea' | 'email' | 'tel';
   required?: boolean;
   options?: Array<{ value: string; label: string }>;
+  /** Dynamically computed options based on current form values (for dependent selects). */
+  getOptions?: (values: Record<string, string>) => Array<{ value: string; label: string }>;
+  /** Key of another field this field depends on; when that field changes, this field is cleared. */
+  dependsOn?: string;
   half?: boolean;
   placeholder?: string;
   /** value pre-filled when creating a new record */
@@ -296,7 +300,16 @@ export function ResourceView<T>({
               .filter((f) => !halfRows.includes(f))
               .map((f) => (
                 <div key={f.key} className={`field${invalid[f.key] ? ' invalid' : ''}`}>
-                  {renderFormField(f, values, (v) => setValues((prev) => ({ ...prev, [f.key]: v })))}
+                  {renderFormField(f, values, (v) => {
+                    const next = { ...prev, [f.key]: v };
+                    // Clear fields that depend on this one when it changes
+                    formFields
+                      .filter((f2) => f2.dependsOn === f.key)
+                      .forEach((f2) => {
+                        next[f2.key] = '';
+                      });
+                    setValues(next);
+                  })}
                   <div className="err">Please enter the {f.label.toLowerCase()}.</div>
                 </div>
               ))}
@@ -305,7 +318,15 @@ export function ResourceView<T>({
             <div className="form-2col">
               {halfRows.map((f) => (
                 <div key={f.key} className={`field${invalid[f.key] ? ' invalid' : ''}`}>
-                  {renderFormField(f, values, (v) => setValues((prev) => ({ ...prev, [f.key]: v })))}
+                  {renderFormField(f, values, (v) => {
+                    const next = { ...prev, [f.key]: v };
+                    formFields
+                      .filter((f2) => f2.dependsOn === f.key)
+                      .forEach((f2) => {
+                        next[f2.key] = '';
+                      });
+                    setValues(next);
+                  })}
                   <div className="err">Please enter the {f.label.toLowerCase()}.</div>
                 </div>
               ))}
@@ -326,11 +347,12 @@ function renderFormField(
   const value = values[f.key] ?? '';
   const label = <label htmlFor={id}>{f.label}</label>;
   if (f.type === 'select') {
+    const options = f.getOptions ? f.getOptions(values) : f.options ?? [];
     return (
       <>
         {label}
         <select id={id} value={value} onChange={(e) => onChange(e.target.value)}>
-          {(f.options ?? []).map((o) => (
+          {options.map((o) => (
             <option key={o.value} value={o.value}>
               {o.label}
             </option>

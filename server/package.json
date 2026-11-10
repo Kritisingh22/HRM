@@ -5,8 +5,9 @@
   "type": "commonjs",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
+    "start": "node scripts/check-imports.js && node server.js",
     "dev": "node server.js",
+    "check:imports": "node scripts/check-imports.js",
     "dev:mem": "node tests/dev-server-mem.js",
     "seed": "node seeds/seed.js",
     "seed:demo": "node seeds/demo-seeder.js",

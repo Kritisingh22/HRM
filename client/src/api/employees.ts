@@ -10,6 +10,8 @@ export interface CreateEmployeeParams {
   gender?: string;
   department: string;
   designation: string;
+  departmentId?: string;
+  designationId?: string;
   manager?: string;
   location?: string;
   employmentType?: string;

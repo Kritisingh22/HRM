@@ -81,7 +81,9 @@ export interface Employee {
   gender: 'Male' | 'Female' | 'Other';
   dob: string;
   dept: string;
+  departmentId?: string;
   designation: string;
+  designationId?: string;
   manager: string | null;
   location: string;
   employmentType: EmploymentType;
