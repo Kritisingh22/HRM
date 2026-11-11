@@ -3,8 +3,14 @@
 
    Shown after login (all roles) until the user has checked in
    for the day. Blocks the whole portal behind a modal.
-   Requires browser geolocation + consent before check-in is
-   accepted. On denial, stays blocked with a clear message.
+
+   Location is captured only when the employee clicks Check In:
+   a cached fix is used instantly when available, otherwise a single
+   geolocation attempt with an 8-second timeout. Location is
+   mandatory — the backend rejects check-in without it — so on
+   denial/timeout we show a clear message and a Retry button; we
+   never silently bypass location validation and never leave the
+   button loading indefinitely.
    ============================================================ */
 import { useCallback, useEffect, useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
@@ -12,7 +18,7 @@ import { Icon } from '@/components/ui/Icon';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
 import { checkIn, attendanceErrorMessage } from '@/api/attendance';
-import { captureLocation, clearCachedFix, getCachedFix, prefetchLocation } from '@/lib/geo';
+import { captureLocation, getCachedFix, type CaptureReason } from '@/lib/geo';
 import { todayISO } from '@/lib/date';
 
 interface AttendanceGateProps {
@@ -32,21 +38,14 @@ export function AttendanceGate({
   const [geoDenied, setGeoDenied] = useState(false);
   const [locating, setLocating] = useState(false);
 
-  /* Prefetch location on mount so it's ready before the user clicks. */
-  useEffect(() => {
-    prefetchLocation();
-  }, []);
+  const browserTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-  if (checkedInToday) {
-    onCheckInComplete();
-    return null;
-  }
-
-  const doCheckIn = async () => {
+  const doCheckIn = useCallback(async () => {
     if (busy) return;
     setBusy(true);
     setLocating(true);
     setError('');
+    setGeoDenied(false);
 
     if (!navigator.geolocation) {
       setGeoDenied(true);
@@ -55,7 +54,7 @@ export function AttendanceGate({
       return;
     }
 
-    /* Use cached fix if fresh (instant), otherwise try a fast fix. */
+    /* 1. cached fix first (instant) */
     let lat: number | null = null;
     let lng: number | null = null;
     let accuracy: number | null = null;
@@ -64,40 +63,26 @@ export function AttendanceGate({
       lat = cached.lat;
       lng = cached.lng;
       accuracy = cached.accuracy;
-      clearCachedFix();
     } else {
-      try {
-        const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
-          navigator.geolocation!.getCurrentPosition(resolve, reject, {
-            enableHighAccuracy: false,
-            maximumAge: 300_000,
-            timeout: 4000,
-          });
-        });
-        lat = Number(pos.coords.latitude.toFixed(6));
-        lng = Number(pos.coords.longitude.toFixed(6));
-        accuracy = Math.round(pos.coords.accuracy);
-      } catch {
-        /* Fast fix failed — retry once with a longer timeout, but never
-           block the check-in itself. */
-        try {
-          const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
-            navigator.geolocation!.getCurrentPosition(resolve, reject, {
-              enableHighAccuracy: false,
-              maximumAge: 300_000,
-              timeout: 12000,
-            });
-          });
-          lat = Number(pos.coords.latitude.toFixed(6));
-          lng = Number(pos.coords.longitude.toFixed(6));
-          accuracy = Math.round(pos.coords.accuracy);
-        } catch {
-          setLocating(false);
-          setGeoDenied(true);
-          setBusy(false);
-          return;
-        }
+      /* 2. single geolocation shot, 8-second timeout — no silent retry loop */
+      const res = await captureLocation(8000);
+      if (!res.point) {
+        setLocating(false);
+        setBusy(false);
+        const hint =
+          res.reason === 'denied'
+            ? 'Location permission was denied. Enable it in your browser (site settings → Location → Allow) and retry.'
+            : res.reason === 'timeout'
+              ? 'Location timed out. Make sure location is enabled and you have a clear view of the sky / Wi-Fi, then retry.'
+              : 'Location is unavailable on this device.';
+        setGeoDenied(true);
+        setError(hint);
+        toast(res.reason === 'denied' ? 'Location permission required' : 'Could not obtain location', 'error');
+        return;
       }
+      lat = res.point.lat;
+      lng = res.point.lng;
+      accuracy = res.point.accuracy;
     }
 
     try {
@@ -106,20 +91,29 @@ export function AttendanceGate({
         lat: lat!,
         lng: lng!,
         accuracy: accuracy!,
+        clientTimestamp: new Date().toISOString(),
+        timezone: browserTimezone,
       });
 
       toast('Checked in — location recorded.', 'success');
       onCheckInComplete();
     } catch (err) {
       setLocating(false);
-      setError(attendanceErrorMessage(err));
       setBusy(false);
+      setError(attendanceErrorMessage(err));
+      toast('Check-in failed', 'error');
       return;
     }
 
     setLocating(false);
+    setBusy(false);
     onCheckInComplete();
-  };
+  }, [busy, browserTimezone, onCheckInComplete]);
+
+  if (checkedInToday) {
+    onCheckInComplete();
+    return null;
+  }
 
   return (
     <Modal
@@ -167,17 +161,16 @@ export function AttendanceGate({
           </label>
         </div>
 
-        {geoDenied && (
+        {(geoDenied || error) && (
           <div style={{ padding: 12, background: '#fef3f2', border: '1px solid #ef4444', borderRadius: 8, fontSize: 13, color: '#b91c1c' }}>
             <Icon name="alertCircle" size={16} style={{ marginRight: 8 }} />
-            Location permission was denied or unavailable. Attendance is NOT marked.
+            {error || 'Location permission was denied or unavailable. Attendance is NOT marked.'}
             <button
               onClick={() => {
                 setGeoDenied(false);
+                setError('');
                 setBusy(false);
                 setLocating(false);
-                /* Trigger a fresh geolocation attempt — the browser will
-                   re-show the permission prompt if previously blocked. */
                 void doCheckIn();
               }}
               className="btn btn-outline btn-sm"
@@ -186,13 +179,6 @@ export function AttendanceGate({
             >
               Retry
             </button>
-            Enable it in your browser (site settings → Location → Allow) and retry.
-          </div>
-        )}
-
-        {error && (
-          <div style={{ padding: 12, background: '#fef3f2', border: '1px solid #ef4444', borderRadius: 8, fontSize: 13, color: '#b91c1c' }}>
-            {error}
           </div>
         )}
 

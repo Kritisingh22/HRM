@@ -18,8 +18,8 @@ router.put('/me/profile', ctrl.updateOwnProfile);
 router.get('/', ctrl.list);
 router.get('/:id', ctrl.getOne);
 
-// writes need explicit permissions (HR / Admin / Super Admin)
-// Manager can update team members via employees:update (checked in controller for team scope)
+// writes need explicit permissions (HR / Admin / Super Admin via employees:write,
+// Manager via employees:update — team scoping is enforced in the controller)
 function canWriteOrUpdate(req, res, next) {
   if (hasPermission(req.user.role, 'employees:write') || hasPermission(req.user.role, 'employees:update')) {
     return next();
@@ -27,7 +27,7 @@ function canWriteOrUpdate(req, res, next) {
   return next(ApiError.forbidden('You do not have permission to perform this action.'));
 }
 
-router.post('/', requirePermission('employees:write'), ctrl.create);
+router.post('/', canWriteOrUpdate, ctrl.create);
 router.put('/:id', canWriteOrUpdate, ctrl.update);
 router.delete('/:id', requirePermission('employees:delete'), ctrl.remove);
 

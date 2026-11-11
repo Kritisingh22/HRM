@@ -32,10 +32,15 @@ export function geoSupported(): boolean {
 /** Last successful fix, reused so check-in can fire immediately on click. */
 let cachedFix: { point: GeoPoint; fetchedAt: number } | null = null;
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+/* A cached fix is only reused when it is recent *and* accurate enough to
+   be meaningful for attendance geofencing. */
+const MAX_ACCEPTABLE_ACCURACY_M = 200;
 
-/** Return a cached fix if fresh, else null. */
+/** Return a cached fix if fresh and accurate enough, else null. */
 export function getCachedFix(): GeoPoint | null {
-  if (!cachedFix || Date.now() - cachedFix.fetchedAt > CACHE_TTL_MS) return null;
+  if (!cachedFix) return null;
+  if (Date.now() - cachedFix.fetchedAt > CACHE_TTL_MS) return null;
+  if (cachedFix.point.accuracy > MAX_ACCEPTABLE_ACCURACY_M) return null;
   return cachedFix.point;
 }
 
@@ -63,7 +68,7 @@ export function prefetchLocation(): void {
     () => {
       /* silent — we'll try again on click */
     },
-    { enableHighAccuracy: false, maximumAge: 300_000, timeout: 4000 },
+    { enableHighAccuracy: false, maximumAge: 300_000, timeout: 8000 },
   );
 }
 
@@ -72,10 +77,12 @@ export function prefetchLocation(): void {
  * (when the browser shows one) is triggered by this call, which is
  * only ever made from a user action.
  *
- * Defaults are tuned for speed: low accuracy, a short timeout, and a
- * 5-minute maximum cache age so a recent fix can be reused instantly.
+ * Defaults are tuned for speed: a single shot with an 8-10 second timeout,
+ * low accuracy (network/Wi-Fi based, fast), and a 5-minute maximum cache
+ * age. The caller must not retry automatically — on failure it should
+ * surface a clear retry option so the employee stays in control.
  */
-export function captureLocation(timeoutMs = 4000): Promise<CaptureResult> {
+export function captureLocation(timeoutMs = 8000): Promise<CaptureResult> {
   if (!geoSupported()) {
     return Promise.resolve({ point: null, reason: 'unsupported' });
   }

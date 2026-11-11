@@ -69,22 +69,6 @@ app.use(
   })
 );
 
-// ---- Content-Security-Policy-Report-Only (Trusted Types probe) ----
-// Report-only: violations are NOT enforced, only reported (DevTools
-// Issues panel). Mirrors the enforced CSP plus require-trusted-types-for
-// 'script' so we can see what would break before ever enabling it.
-app.use((_req, res, next) => {
-  res.setHeader(
-    'Content-Security-Policy-Report-Only',
-    "default-src 'self'; base-uri 'self'; font-src 'self' https://fonts.gstatic.com data:; " +
-    "form-action 'self'; frame-ancestors 'self'; img-src 'self' data:; object-src 'none'; " +
-    "script-src 'self'; script-src-attr 'none'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
-    "upgrade-insecure-requests; connect-src 'self'; " +
-    "require-trusted-types-for 'script';"
-  );
-  next();
-});
-
 app.use(cors({ origin: cfg.FRONTEND_URL, credentials: true }));
 app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());

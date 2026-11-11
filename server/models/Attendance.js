@@ -6,16 +6,31 @@
  * checkInDetail / checkOutDetail. activeSeconds / pausedSeconds are computed
  * by the SERVER from heartbeat sessions — never trusted from the client.
  * status reflects the day outcome: present / half-day / absent / outside-location.
+ *
+ * All check-in / check-out timestamps and the attendance DATE are minted by
+ * the server clock in Asia/Kolkata (company reporting timezone). The browser
+ * timestamp is stored only as clientTimestamp and is never treated as
+ * authoritative. serverTimestamp is the authoritative clock.
  */
 const mongoose = require('mongoose');
 
 const attendanceSchema = new mongoose.Schema(
   {
     employee: { type: mongoose.Schema.Types.ObjectId, ref: 'Employee', required: true, index: true },
-    date: { type: String, required: true, index: true }, // 'YYYY-MM-DD'
+    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true }, // authenticated account that performed the action
+    date: { type: String, required: true, index: true }, // 'YYYY-MM-DD' in Asia/Kolkata
 
-    // ---- check-in (server-minted time) ----
-    checkIn: { type: String }, // 'HH:mm' — kept for backward compat
+    // ---- employee snapshot (denormalised for the UI, never trusted from client) ----
+    employeeName: { type: String, trim: true },
+    timezone: { type: String, default: 'Asia/Kolkata' }, // reporting timezone; defaults to India
+
+    // ---- authoritative timestamps (minted by the server clock) ----
+    serverTimestamp: { type: Date }, // authoritative clock at the latest check-in / check-out
+    clientTimestamp: { type: Date }, // browser/device local timestamp at capture (never authoritative)
+
+    // ---- check-in ----
+    checkIn: { type: String }, // 'HH:mm' — kept for backward compatibility
+    checkInType: { type: String, default: 'manual' }, // manual | wfh
     checkInDetail: {
       lat: Number,
       lng: Number,
@@ -25,8 +40,9 @@ const attendanceSchema = new mongoose.Schema(
       capturedAt: Date,
     },
 
-    // ---- check-out (server-minted time) ----
-    checkOut: { type: String }, // 'HH:mm' — kept for backward compat
+    // ---- check-out ----
+    checkOut: { type: String }, // 'HH:mm' — kept for backward compatibility
+    checkOutType: { type: String, default: 'manual' }, // manual
     checkOutDetail: {
       lat: Number,
       lng: Number,
@@ -40,7 +56,15 @@ const attendanceSchema = new mongoose.Schema(
     location: {
       lat: { type: Number },
       lng: { type: Number },
+      verificationStatus: {
+        type: String,
+        enum: ['verified', 'failed', 'skipped'],
+        default: 'skipped',
+      }, // whether the GPS fix was obtained & whether it was in-range
     },
+
+    // ---- computed durations ----
+    workingHoursMinutes: { type: Number, default: 0, min: 0 }, // server-computed check-in -> check-out duration
 
     // ---- active-time tracking (server-computed from heartbeats) ----
     activeSeconds: { type: Number, default: 0, min: 0 },
@@ -75,12 +99,14 @@ const attendanceSchema = new mongoose.Schema(
 
     note: { type: String },
   },
-  { timestamps: true },
+  { timestamps: true }, // createdAt / updatedAt
 );
 
-// One row per employee per day — unique index preserves existing behaviour.
+// One row per employee per day — the unique index prevents duplicate records
+// even under concurrent check-in / check-out requests.
 attendanceSchema.index({ employee: 1, date: 1 }, { unique: true });
 attendanceSchema.index({ date: 1, status: 1 });
 attendanceSchema.index({ lastHeartbeatAt: 1 });
+attendanceSchema.index({ user: 1, date: 1 });
 
 module.exports = mongoose.model('Attendance', attendanceSchema);

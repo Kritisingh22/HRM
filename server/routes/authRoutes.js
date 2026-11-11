@@ -22,6 +22,8 @@ router.post('/refresh', ctrl.refresh);
 router.post('/logout', ctrl.logout);
 router.get('/me', authenticate, ctrl.me);
 router.post('/change-password', authenticate, ctrl.changePassword);
+// Public activation: new hires use the one-time token from HR to set their password.
+router.post('/activate-account', ctrl.activateAccount);
 // Public, but hardened: requires a valid SETUP_TOKEN (constant-time check) AND an
 // empty user store, and is rate-limited to blunt token-guessing after a DB reset.
 router.post('/bootstrap-admin', bootstrapLimiter, ctrl.bootstrapAdmin);

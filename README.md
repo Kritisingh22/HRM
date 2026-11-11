@@ -77,3 +77,27 @@ The frontend is built locally and committed inside `server/public`; Render only 
 `render.yaml` runs `npm --prefix server ci` as the build command and `npm --prefix server start` to start. The start script runs `scripts/check-public.js`, which fails fast if `server/public/index.html` (or `FRONTEND_DIST`) is missing or references `/assets` files that do not exist — so a deploy never boots without a complete frontend.
 
 Set `MONGODB_URI` manually in the Render environment (or via the manifest) and provide `R2_*` credentials when using Cloudflare R2; never commit real secrets — `.env` files are gitignored.
+
+## Uptime keep-alive (5-minute ping)
+
+Render's free tier spins the web service down after ~15 minutes of inactivity. The first request after a spin-down has to wait for a new instance to boot, which shows up in Lighthouse as `NO_NAVSTART / page loaded too slowly`. To keep the instance warm, set up an uptime pinger that hits `GET /health` every 5 minutes:
+
+- `GET /health` is an instant, zero-DB-call endpoint (no rate limiting, returns `{"status":"ok",...}` with HTTP 200). It is placed before every other middleware in `server/app.js` and never touches MongoDB, so a ping never waits on the database.
+- `render.yaml` already declares `healthCheckPath: /health`.
+- Choose any free uptime service (cron-job.org, UptimeRobot, Better Stack, etc.) and point it at `https://<your-service>.onrender.com/health` with a 5-minute interval. Or use GitHub Actions on a schedule:
+
+```yaml
+# .github/workflows/uptime.yml
+name: Uptime keep-alive
+on:
+  schedule:
+    - cron: '*/5 * * * *'   # every 5 minutes
+  workflow_dispatch:
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - run: curl -fsS https://cyethack-hrm-portal.onrender.com/health
+```
+
+Replace the hostname with your Render service URL. A successful ping is an immediate HTTP 200 with no database dependency, so it keeps the instance alive cheaply on the free tier.

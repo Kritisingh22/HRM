@@ -21,7 +21,7 @@ import { buildRosterId, money } from '@/lib/format';
 import { dateRange, niceDate } from '@/lib/date';
 import { canSeeSalary } from '@/data/nav';
 import { isApiSession } from '@/api/client';
-import { createEmployee, type CreateEmployeeParams } from '@/api/employees';
+import { createEmployee as createEmployeeApi, type CreateEmployeeParams } from '@/api/employees';
 import type {
   Department,
   Designation,
@@ -101,9 +101,20 @@ export function EmployeesPage() {
 
   const employeeForm: FieldDef[] = useMemo(() => {
     const fields: FieldDef[] = [
-      { key: 'name', label: 'Full name', required: true, placeholder: 'First and last name' },
-      { key: 'email', label: 'Work email', type: 'email', required: true, placeholder: 'name@cyethack.com' },
+      { key: 'firstName', label: 'First name', required: true, placeholder: 'First name' },
+      { key: 'lastName', label: 'Last name', placeholder: 'Last name' },
+      { key: 'email', label: 'Official work email', type: 'email', required: true, placeholder: 'name@cyethack.com' },
+      { key: 'personalEmail', label: 'Personal email', type: 'email', placeholder: 'name@gmail.com' },
       { key: 'phone', label: 'Phone', type: 'tel', placeholder: '+91 98…' },
+      {
+        key: 'gender',
+        label: 'Gender',
+        type: 'select',
+        options: ['Male', 'Female', 'Other', 'Prefer not to say'].map((g) => ({ value: g, label: g })),
+      },
+      { key: 'dateOfBirth', label: 'Date of birth', type: 'date' },
+      { key: 'address', label: 'Address', type: 'textarea', placeholder: 'Street address, city' },
+      { key: 'emergencyContact', label: 'Emergency contact', placeholder: 'Name and phone' },
       {
         key: 'dept',
         label: 'Department',
@@ -131,60 +142,77 @@ export function EmployeesPage() {
         options: [{ value: '', label: '— None —' }, ...data.employees.map((e) => ({ value: e.id, label: e.name }))],
       },
       {
-        key: 'location',
-        label: 'Location',
-        type: 'select',
-        options: ['Noida', 'Gurugram', 'Remote', 'Work from Home', 'Client site'].map((l) => ({ value: l, label: l })),
-      },
-      {
         key: 'employmentType',
         label: 'Employment type',
         type: 'select',
         options: ['Full-time', 'Part-time', 'Contract', 'Intern'].map((t) => ({ value: t, label: t })),
       },
+      {
+        key: 'workMode',
+        label: 'Work mode',
+        type: 'select',
+        options: ['On-site', 'Hybrid', 'Remote', 'Work from Home'].map((w) => ({ value: w, label: w })),
+      },
+      {
+        key: 'workLocation',
+        label: 'Work location',
+        type: 'select',
+        options: ['office', 'onsite'].map((w) => ({ value: w, label: w === 'office' ? 'Office' : 'On-site' })),
+      },
+      { key: 'bloodGroup', label: 'Blood group', type: 'select', options: ['A+', 'A-', 'B+', 'B-', 'O+', 'O-', 'AB+', 'AB-'].map((b) => ({ value: b, label: b })) },
       { key: 'joining', label: 'Joining date', type: 'date', required: true },
       {
         key: 'status',
-        label: 'Status',
+        label: 'Employment status',
         type: 'select',
         options: EMP_STATUSES.map((s) => ({ value: s, label: s })),
       },
-      { key: 'experience', label: 'Experience', placeholder: '3 yrs' },
     ];
     if (canSeeSalary) {
-      fields.push({ key: 'salary', label: 'Monthly in-hand (₹)', type: 'number', required: true });
+      fields.push({ key: 'salary', label: 'Annual salary (₹)', type: 'number', placeholder: '0' });
       fields.push({ key: 'grade', label: 'Grade', placeholder: 'E1 / M1…' });
     }
     return fields;
   }, [data.departments, data.designations, data.employees, canSeeSalary]);
 
   const createEmployee = async (values: Record<string, string>) => {
+    const fullName = [values.firstName, values.lastName].filter(Boolean).join(' ').trim();
     if (isApiSession()) {
       const params: CreateEmployeeParams = {
-        fullName: values.name.trim(),
+        fullName,
+        firstName: values.firstName.trim() || undefined,
+        lastName: values.lastName.trim() || undefined,
         email: values.email.trim(),
-        phone: values.phone || undefined,
+        personalEmail: values.personalEmail.trim() || undefined,
+        phone: values.phone.trim() || undefined,
+        gender: (values.gender as CreateEmployeeParams['gender']) || undefined,
+        dateOfBirth: values.dateOfBirth || undefined,
+        address: values.address.trim() || undefined,
+        emergencyContact: values.emergencyContact.trim() || undefined,
         department: values.dept,
-        designation: values.designation || '—',
         departmentId: values.deptId || undefined,
+        designation: values.designation || '—',
         designationId: values.designationId || undefined,
         manager: values.manager || undefined,
-        location: values.location || 'Noida',
-        employmentType: (values.employmentType as Employee['employmentType']) || 'Full-time',
+        location: values.location || 'office',
+        employmentType: (values.employmentType as CreateEmployeeParams['employmentType']) || 'Full-time',
+        workMode: (values.workMode as CreateEmployeeParams['workMode']) || 'On-site',
+        workLocation: (values.workLocation as CreateEmployeeParams['workLocation']) || 'office',
+        bloodGroup: (values.bloodGroup as CreateEmployeeParams['bloodGroup']) || undefined,
         joiningDate: values.joining,
-        status: (values.status as EmployeeStatus) || 'Probation',
-        salary: Number(values.salary || 0) || 0,
-        grade: values.grade || 'E1',
+        salary: canSeeSalary ? Number(values.salary || 0) : undefined,
+        grade: values.grade.trim() || undefined,
+        status: (values.status as EmployeeStatus) || 'Active',
       };
-      const res = await createEmployee(params);
-      toast(`${res.employee.fullName} joined with ID ${res.employee.employeeId}.`, 'success');
+      const res = await createEmployeeApi(params);
+      toast(`${res.employee.fullName} joined with ID ${res.employee.employeeId}. Account pending activation. Offer letter generated.`, 'success');
       return;
     }
     // Demo mode: local generation
-    const id = buildRosterId(values.name, data.employees.length);
+    const id = buildRosterId(fullName, data.employees.length);
     const record: Employee = {
       id,
-      name: values.name.trim(),
+      name: fullName,
       email: values.email.trim(),
       phone: values.phone || '—',
       gender: 'Male',

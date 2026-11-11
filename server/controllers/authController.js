@@ -14,6 +14,7 @@ const {
 const { permissionsFor } = require('../utils/permissions');
 const { navFor, portalFor } = require('../utils/navigation');
 const { notifyByEmployee } = require('../utils/notifyByEmployee');
+const { logAudit } = require('../utils/audit');
 
 const REFRESH_MS = ttlToMs(cfg.REFRESH_TOKEN_EXPIRES_IN);
 
@@ -274,6 +275,56 @@ exports.changePassword = catchAsync(async (req, res) => {
   await RefreshToken.updateMany({ user: user._id }, { revoked: true }); // force re-login elsewhere
   res.clearCookie(cfg.COOKIE_NAME, clearCookieOptions());
   res.json({ ok: true, message: 'Password changed. Please sign in again.' });
+});
+
+/* POST /api/auth/activate-account — new-hire account activation.
+ *
+ * The employee presents the one-time activation token (returned by
+ * POST /api/employees at creation time, delivered out-of-band by HR)
+ * and sets their password. The account transitions from pending-activation
+ * to active and mustChangePassword is cleared.
+ */
+exports.activateAccount = catchAsync(async (req, res) => {
+  const { activationToken, newPassword } = req.body || {};
+  if (!activationToken || !newPassword) {
+    throw ApiError.badRequest('activationToken and newPassword are required.');
+  }
+  if (String(newPassword).length < 8) {
+    throw ApiError.badRequest('Password must be at least 8 characters.');
+  }
+
+  const user = await User.findOne({
+    activationToken: hashToken(activationToken),
+    activationTokenExpires: { $gt: new Date() },
+    accountStatus: 'pending-activation',
+  }).select('+passwordHash');
+
+  if (!user) {
+    throw ApiError.forbidden('Invalid or expired activation token.');
+  }
+
+  user.password = newPassword;      // hashed on save via pre('validate')
+  user.accountStatus = 'active';
+  user.isVerified = true;
+  user.mustChangePassword = false;
+  user.activationToken = undefined;
+  user.activationTokenExpires = undefined;
+  await user.save();
+
+  // Revoke any existing refresh tokens so only the new password works
+  await RefreshToken.updateMany({ user: user._id }, { revoked: true });
+
+  logAudit(req, {
+    action: 'auth.activate_account',
+    targetType: 'User',
+    targetId: String(user._id),
+    description: `Activated account for ${user.email} (${user.employeeId})`,
+  });
+  res.json({
+    ok: true,
+    message: 'Account activated. You can now log in with your new password.',
+    user: user.toSafeJSON(),
+  });
 });
 
 /* POST /api/auth/bootstrap-admin — creates the FIRST admin account. Requires BOTH

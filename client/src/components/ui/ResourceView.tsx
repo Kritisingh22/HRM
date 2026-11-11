@@ -141,7 +141,7 @@ export function ResourceView<T>({
     setEditRow(row);
   };
 
-  const submit = () => {
+  const submit = async () => {
     if (!form) return;
     const bad: Record<string, boolean> = {};
     form.forEach((f) => {
@@ -149,10 +149,17 @@ export function ResourceView<T>({
     });
     setInvalid(bad);
     if (Object.keys(bad).length) return;
-    if (creating && onCreate) onCreate(values);
-    else if (editRow && onUpdate) onUpdate(editRow, values);
+    try {
+      if (creating && onCreate) await onCreate(values);
+      else if (editRow && onUpdate) await onUpdate(editRow, values);
+    } catch {
+      /* onCreate/onUpdate already surfaced a toast with the error —
+         keep the modal open so the user can correct and retry. */
+      return;
+    }
     setCreating(false);
     setEditRow(null);
+    setValues(initialValues(form, null));
   };
 
   const formFields = form ?? [];
@@ -301,7 +308,7 @@ export function ResourceView<T>({
               .map((f) => (
                 <div key={f.key} className={`field${invalid[f.key] ? ' invalid' : ''}`}>
                   {renderFormField(f, values, (v) => {
-                    const next = { ...prev, [f.key]: v };
+                    const next = { ...values, [f.key]: v };
                     // Clear fields that depend on this one when it changes
                     formFields
                       .filter((f2) => f2.dependsOn === f.key)
@@ -319,7 +326,7 @@ export function ResourceView<T>({
               {halfRows.map((f) => (
                 <div key={f.key} className={`field${invalid[f.key] ? ' invalid' : ''}`}>
                   {renderFormField(f, values, (v) => {
-                    const next = { ...prev, [f.key]: v };
+                    const next = { ...values, [f.key]: v };
                     formFields
                       .filter((f2) => f2.dependsOn === f.key)
                       .forEach((f2) => {

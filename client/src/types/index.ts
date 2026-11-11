@@ -76,18 +76,26 @@ export type EmploymentType = 'Full-time' | 'Part-time' | 'Contract' | 'Intern';
 export interface Employee {
   id: string;
   name: string;
+  firstName?: string;
+  lastName?: string;
   email: string;
+  personalEmail?: string;
   phone: string;
-  gender: 'Male' | 'Female' | 'Other';
+  gender: 'Male' | 'Female' | 'Other' | 'Prefer not to say';
+  dateOfBirth?: string;
   dob: string;
   dept: string;
   departmentId?: string;
   designation: string;
   designationId?: string;
   manager: string | null;
+  reportingManagerId?: string;
   location: string;
+  workLocation?: 'office' | 'onsite';
+  workMode?: 'On-site' | 'Hybrid' | 'Remote' | 'Work from Home';
   employmentType: EmploymentType;
   joining: string;
+  joiningDate?: string;
   status: EmployeeStatus;
   probation: boolean;
   experience: string;
@@ -96,7 +104,10 @@ export interface Employee {
   grade: string;
   bloodGroup?: string;
   emergency?: string;
+  emergencyContact?: string;
   address?: string;
+  userId?: string;
+  createdBy?: string;
 }
 
 export interface Department {
@@ -547,6 +558,14 @@ export interface AttendanceRecord {
   lateBy?: string;
   earlyOut?: string;
   overtime?: string;
+  /* Real-session fields, optional so the demo record type stays compatible. */
+  workingHoursMinutes?: number;
+  geofence?: { inRange: boolean; distanceMeters: number };
+  location?: {
+    lat: number;
+    lng: number;
+    verificationStatus?: 'verified' | 'failed' | 'skipped';
+  };
 }
 
 /* ---------------- Mandatory attendance (server-backed) ---------------- */
@@ -557,6 +576,10 @@ export interface AttendanceCheckInPayload {
   lat: number;
   lng: number;
   accuracy?: number;
+  /** Browser/device local timestamp at capture (ISO). Never authoritative. */
+  clientTimestamp?: string;
+  /** Browser timezone, e.g. 'Asia/Kolkata'. Server defaults to Asia/Kolkata. */
+  timezone?: string;
 }
 
 /** One heartbeat-derived session segment. */
@@ -596,10 +619,17 @@ export interface AttendanceSettings {
 export interface AttendanceRow {
   id: string;
   employee: string;
+  user?: string;
+  employeeName?: string;
   date: string;
+  timezone?: string;
   status: AttendanceStatus;
   checkIn?: string;
+  checkInType?: string;
+  lateBy?: string;
   checkOut?: string;
+  checkOutType?: string;
+  workingHours?: string;
   checkInDetail?: {
     lat: number;
     lng: number;
@@ -616,10 +646,18 @@ export interface AttendanceRow {
     device: string;
     capturedAt: string;
   };
+  location?: {
+    lat: number;
+    lng: number;
+    verificationStatus?: 'verified' | 'failed' | 'skipped';
+  };
+  geofence?: { inRange: boolean; distanceMeters: number };
   activeSeconds: number;
   pausedSeconds: number;
+  workingHoursMinutes?: number;
   lastHeartbeatAt?: string;
-  geofence?: { inRange: boolean; distanceMeters: number };
+  serverTimestamp?: string;
+  clientTimestamp?: string;
   consentGiven: boolean;
   sessions?: AttendanceSession[];
 }

@@ -9,26 +9,34 @@ const employeeSchema = new mongoose.Schema(
       unique: true,
       trim: true,
       index: true,
-    }, // e.g. CHS-0001
-    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
+    }, // e.g. CY0125JS201
+    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true }, // linked login account
+    userId: { type: String, trim: true, index: true }, // denormalised user id for quick lookups
     fullName: { type: String, required: true, trim: true },
+    firstName: { type: String, trim: true },
+    lastName: { type: String, trim: true },
     email: {
       type: String,
       lowercase: true,
       trim: true,
       unique: true,
       sparse: true,
-    }, // unique when present; sparse allows records without email
+    }, // official/work email — unique when present
+    personalEmail: { type: String, lowercase: true, trim: true }, // optional personal email
     phone: { type: String, trim: true },
     gender: {
       type: String,
       enum: ['Male', 'Female', 'Other', 'Prefer not to say'],
     },
+    dateOfBirth: { type: Date },
+    address: { type: String, trim: true }, // self-service editable
+    emergencyContact: { type: String, trim: true }, // self-service editable
     department: { type: String, trim: true },
     departmentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Department', index: true, default: null },
     designation: { type: String, trim: true },
     designationId: { type: mongoose.Schema.Types.ObjectId, ref: 'Designation', index: true, default: null },
-    manager: { type: String, trim: true }, // employeeId of the manager (mirrors portal data)
+    manager: { type: String, trim: true }, // employeeId of the reporting manager
+    reportingManagerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Employee', index: true, default: null },
     employmentType: { type: String, default: 'Full-time' },
     workMode: {
       type: String,
@@ -47,8 +55,6 @@ const employeeSchema = new mongoose.Schema(
     },
     assignedHrId: { type: String, trim: true, index: true, default: null },
     location: { type: String },
-    address: { type: String, trim: true }, // self-service editable
-    emergencyContact: { type: String, trim: true }, // self-service editable
     joiningDate: { type: Date },
     salary: { type: Number, default: 0 },
     grade: { type: String },
@@ -63,6 +69,9 @@ const employeeSchema = new mongoose.Schema(
     accountNumber: { type: String, trim: true },
     ifsc: { type: String, trim: true },
     accountHolderName: { type: String, trim: true },
+    // Onboarding / provenance
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true }, // who created this employee
+    createdByRole: { type: String },
   },
   { timestamps: true },
 );

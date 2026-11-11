@@ -5,13 +5,19 @@
  * Security principles (all enforced server-side):
  *  • The employee identity ALWAYS comes from the verified JWT (req.user),
  *    never from the request body.
- *  • Check-in/check-out timestamps are minted by the server clock.
+ *  • Check-in/check-out timestamps and the attendance DATE are minted by the
+ *    server clock in Asia/Kolkata (company reporting timezone). The browser
+ *    timestamp is stored only as clientTimestamp and is never authoritative;
+ *    serverTimestamp is authoritative.
  *  • Geofence (Haversine) is computed server-side from lat/lng sent by the
  *    client; the client cannot influence whether it is "in range".
  *  • activeSeconds / pausedSeconds are computed from heartbeat sessions;
  *    the client is never trusted for the final duration.
  *  • Row-level scoping: employees see only themselves, managers their team,
  *    HR their assigned employees, admins everything.
+ *  • One row per employee per day is enforced by a unique DB index; concurrent
+ *    check-in attempts are resolved atomically (the duplicate-key error is
+ *    converted to a 409, never a silent duplicate row).
  */
 'use strict';
 
@@ -26,6 +32,30 @@ const { userHasPermission } = require('../utils/permissions');
 const { logAudit } = require('../utils/audit');
 const { SEES_ALL, teamEmployeeIds } = require('../utils/teamScope');
 const { checkGeofence } = require('../utils/geofence');
+
+/* ---- Asia/Kolkata company clock --------------------------------------- */
+/* Asia/Kolkata = UTC+5:30, no daylight saving. We compute the attendance
+   date and the check-in/check-out times in this timezone so records land
+   under the correct calendar day regardless of where the server runs
+   (Render free tier typically runs in UTC). */
+const KOLKATA_OFFSET_MS = (5 * 60 + 30) * 60 * 1000;
+function kolkataNow() {
+  return new Date(Date.now() + KOLKATA_OFFSET_MS);
+}
+function pad2(n) {
+  return String(n).padStart(2, '0');
+}
+function serverNow() {
+  return kolkataNow();
+}
+function serverTimeStr() {
+  const now = kolkataNow();
+  return `${pad2(now.getUTCHours())}:${pad2(now.getUTCMinutes())}`;
+}
+function serverDateStr() {
+  const now = kolkataNow();
+  return `${now.getUTCFullYear()}-${pad2(now.getUTCMonth() + 1)}-${pad2(now.getUTCDate())}`;
+}
 
 /* ---- in-memory cache for AttendanceSettings (60s TTL) ---- */
 const SETTINGS_CACHE_TTL_MS = 60_000;
@@ -50,29 +80,13 @@ function invalidateSettingsCache() {
 async function myEmployee(user) {
   return Employee.findOne({
     $or: [{ user: user._id }, { employeeId: user.employeeId }],
-  }).select('_id employeeId').lean();
+  }).select('_id employeeId user fullName').lean();
 }
 
 async function inScope(user, employeeObjectId) {
   if (SEES_ALL.includes(user.role)) return true;
   const ids = await teamEmployeeIds(user);
   return ids.some((id) => String(id) === String(employeeObjectId));
-}
-
-function serverNow() {
-  return new Date();
-}
-
-function serverTimeStr() {
-  const now = new Date();
-  const pad2 = (n) => String(n).padStart(2, '0');
-  return `${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
-}
-
-function serverDateStr() {
-  const now = new Date();
-  const pad2 = (n) => String(n).padStart(2, '0');
-  return `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
 }
 
 /** Close any open (end === null) session at `at`, return the closed sessions. */
@@ -112,6 +126,15 @@ function computeStatus({ activeSeconds, geofence, settings, checkIn }) {
   return 'absent';
 }
 
+/** Whether a location fix is good enough to mark the attendance verified. */
+function locationVerificationStatus(geofence, settings) {
+  /* No office configured -> nothing to verify against, treat as verified. */
+  if (!settings || settings.officeLat == null || settings.officeLng == null) {
+    return 'verified';
+  }
+  return geofence && geofence.inRange ? 'verified' : 'failed';
+}
+
 /* ---- GET /api/attendance/me — caller's own attendance + active state ---- */
 exports.me = catchAsync(async (req, res) => {
   const me = await myEmployee(req.user);
@@ -125,7 +148,7 @@ exports.me = catchAsync(async (req, res) => {
   } else {
     const month = /^\d{4}-\d{2}$/.test(req.query.month || '')
       ? req.query.month
-      : new Date().toISOString().slice(0, 7);
+      : serverDateStr().slice(0, 7);
     from = `${month}-01`;
     to = `${month}-31`;
   }
@@ -160,9 +183,7 @@ exports.me = catchAsync(async (req, res) => {
 exports.checkIn = catchAsync(async (req, res) => {
   // Run independent lookups in parallel: employee, today's attendance, settings.
   const [me, rec, settings] = await Promise.all([
-    Employee.findOne({
-      $or: [{ user: req.user._id }, { employeeId: req.user.employeeId }],
-    }).select('_id employeeId').lean(),
+    myEmployee(req.user),
     Attendance.findOne({ employee: req.user._id, date: serverDateStr() }).lean(),
     getCachedSettings(),
   ]);
@@ -177,7 +198,7 @@ exports.checkIn = catchAsync(async (req, res) => {
   const now = serverNow();
 
   // ---- consent & geolocation (mandatory) ----
-  const { consentGiven, lat, lng, accuracy } = req.body || {};
+  const { consentGiven, lat, lng, accuracy, clientTimestamp, timezone } = req.body || {};
   if (!consentGiven) {
     throw ApiError.badRequest(
       'Consent is required before check-in. The portal records tab visibility/focus and your location at check-in only — no background tracking.',
@@ -196,11 +217,16 @@ exports.checkIn = catchAsync(async (req, res) => {
 
   // ---- geofence (server-computed) ----
   const geofence = checkGeofence(latitude, longitude, settings);
+  const verificationStatus = locationVerificationStatus(geofence, settings);
 
-  // If out of range and blocking is enabled, still record but flag outside-location.
-  // (The client gate decides whether to show the check-in button based on this.)
+  const tz = typeof timezone === 'string' && timezone ? timezone : 'Asia/Kolkata';
 
-  const status = (req.body && req.body.status === "wfh") ? "wfh" : (geofence.inRange || !settings?.blockOutsideLocation ? "present" : "outside-location");
+  const status =
+    req.body && req.body.status === 'wfh'
+      ? 'wfh'
+      : geofence.inRange || !settings?.blockOutsideLocation
+        ? 'present'
+        : 'outside-location';
 
   const checkInDetail = {
     lat: latitude,
@@ -213,48 +239,80 @@ exports.checkIn = catchAsync(async (req, res) => {
 
   const sessions = [{ start: now, end: null, state: 'active', reason: 'check-in' }];
 
+  const checkInDoc = {
+    employee: me._id,
+    user: me.user,
+    date,
+    employeeName: me.fullName || null,
+    timezone: tz,
+    serverTimestamp: now,
+    clientTimestamp: clientTimestamp ? new Date(clientTimestamp) : null,
+    status,
+    checkIn: time,
+    checkInType: 'manual',
+    checkInDetail,
+    location: { lat: latitude, lng: longitude, verificationStatus },
+    geofence,
+    sessions,
+    consentGiven: true,
+    consentAt: now,
+    lastHeartbeatAt: now,
+    activeSeconds: 0,
+    pausedSeconds: 0,
+    workingHoursMinutes: 0,
+  };
+
   let createdId;
-  if (!rec) {
-    const created = await Attendance.create({
-      employee: me._id,
-      date,
-      status,
-      checkIn: time,
-      checkInDetail,
-      location: { lat: latitude, lng: longitude },
-      geofence,
-      sessions,
-      consentGiven: true,
-      consentAt: now,
-      lastHeartbeatAt: now,
-      activeSeconds: 0,
-      pausedSeconds: 0,
-    });
-    createdId = created._id;
-  } else {
-    rec.status = status;
-    rec.checkIn = time;
-    rec.checkInDetail = checkInDetail;
-    rec.location = { lat: latitude, lng: longitude };
-    rec.geofence = geofence;
-    rec.sessions = sessions;
-    rec.consentGiven = true;
-    rec.consentAt = now;
-    rec.lastHeartbeatAt = now;
-    rec.activeSeconds = 0;
-    rec.pausedSeconds = 0;
-    await rec.save();
-    createdId = rec._id;
+  try {
+    if (!rec) {
+      const created = await Attendance.create(checkInDoc);
+      createdId = created._id;
+    } else {
+      /* Re-check-in on a row that exists but has no check-in yet. */
+      Object.assign(rec, {
+        user: me.user,
+        employeeName: me.fullName || null,
+        timezone: tz,
+        serverTimestamp: now,
+        clientTimestamp: clientTimestamp ? new Date(clientTimestamp) : null,
+        status,
+        checkIn: time,
+        checkInType: 'manual',
+        checkInDetail,
+        location: { lat: latitude, lng: longitude, verificationStatus },
+        geofence,
+        sessions,
+        consentGiven: true,
+        consentAt: now,
+        lastHeartbeatAt: now,
+        activeSeconds: 0,
+        pausedSeconds: 0,
+        workingHoursMinutes: 0,
+      });
+      await rec.save();
+      createdId = rec._id;
+    }
+  } catch (err) {
+    /* Unique index on { employee, date } guards against concurrent check-ins. */
+    if (err.code === 11000 || (err.name === 'MongoServerError' && err.code === 11000)) {
+      const existing = await Attendance.findOne({ employee: me._id, date });
+      if (existing && existing.checkIn) {
+        throw ApiError.conflict('You have already checked in today.');
+      }
+      throw err;
+    }
+    throw err;
   }
 
   // Fire-and-forget: don't block the response on audit/event writes.
   AttendanceEvent.create({
     employee: me._id,
+    user: me.user,
     date,
     type: 'check-in',
     reason: 'check-in',
     at: now,
-    details: { geofence, distanceMeters: geofence.distanceMeters },
+    details: { geofence, distanceMeters: geofence.distanceMeters, verificationStatus },
   }).catch((e) => console.error('[checkin] AttendanceEvent.create failed:', e.message));
 
   logAudit(req, {
@@ -264,7 +322,29 @@ exports.checkIn = catchAsync(async (req, res) => {
     description: `Checked in at ${time} on ${date} (${geofence.inRange ? 'in-range' : 'out-of-range'})`,
   });
 
-  res.status(201).json({ attendance: { _id: createdId, ...(rec || {}), date, status, checkIn: time }, settings, geofence });
+  const attendance = {
+    _id: createdId,
+    employee: me._id,
+    user: me.user,
+    date,
+    status,
+    checkIn: time,
+    checkInType: 'manual',
+    checkInDetail,
+    location: { lat: latitude, lng: longitude, verificationStatus },
+    geofence,
+    activeSeconds: 0,
+    pausedSeconds: 0,
+    workingHoursMinutes: 0,
+    consentGiven: true,
+    sessions,
+    serverTimestamp: now,
+    clientTimestamp: checkInDoc.clientTimestamp,
+    timezone: tz,
+    employeeName: me.fullName || null,
+  };
+
+  res.status(201).json({ attendance, settings, geofence });
 });
 
 /* ---- POST /api/attendance/heartbeat — client heartbeat (active/paused) ---- */
@@ -300,6 +380,7 @@ exports.heartbeat = catchAsync(async (req, res) => {
         // Record an offline gap event
         AttendanceEvent.create({
           employee: me._id,
+          user: me.user,
           date,
           type: 'offline',
           reason: 'offline',
@@ -330,6 +411,7 @@ exports.heartbeat = catchAsync(async (req, res) => {
 
   AttendanceEvent.create({
     employee: me._id,
+    user: me.user,
     date,
     type: state === 'paused' ? 'pause' : 'resume',
     reason: reason || (state === 'paused' ? 'idle' : 'resume'),
@@ -384,6 +466,7 @@ exports.pause = catchAsync(async (req, res) => {
 
   AttendanceEvent.create({
     employee: me._id,
+    user: me.user,
     date,
     type: 'pause',
     reason: reason || 'idle',
@@ -419,14 +502,16 @@ exports.checkOut = catchAsync(async (req, res) => {
   }
 
   // ---- optional geolocation at check-out ----
-  const { lat, lng, accuracy } = req.body || {};
+  const { lat, lng, accuracy, clientTimestamp } = req.body || {};
   let geofenceOut = null;
+  let verificationStatusOut = 'skipped';
   if (lat != null && lng != null) {
     const latitude = Number(lat);
     const longitude = Number(lng);
     if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
       const settings = await getCachedSettings();
       geofenceOut = checkGeofence(latitude, longitude, settings);
+      verificationStatusOut = locationVerificationStatus(geofenceOut, settings);
     }
   }
 
@@ -452,17 +537,35 @@ exports.checkOut = catchAsync(async (req, res) => {
     checkIn: rec.checkIn,
   });
 
+  // Server-computed working duration from check-in to check-out.
+  let workingHoursMinutes = 0;
+  if (rec.checkIn) {
+    const [checkInH, checkInM] = rec.checkIn.split(':').map(Number);
+    const [checkOutH, checkOutM] = time.split(':').map(Number);
+    const checkInMs = checkInH * 60 + checkInM;
+    const checkOutMs = checkOutH * 60 + checkOutM;
+    workingHoursMinutes = Math.max(0, checkOutMs - checkInMs);
+  }
+
   rec.checkOut = time;
+  rec.checkOutType = 'manual';
   rec.checkOutDetail = checkOutDetail;
   rec.sessions = sessions;
   rec.lastHeartbeatAt = now;
   rec.activeSeconds = totals.activeSeconds;
   rec.pausedSeconds = totals.pausedSeconds;
   rec.status = status;
+  rec.serverTimestamp = now;
+  if (clientTimestamp) rec.clientTimestamp = new Date(clientTimestamp);
+  rec.workingHoursMinutes = workingHoursMinutes;
+  if (geofenceOut) {
+    rec.location = { ...(rec.location || {}), lat: Number(lat), lng: Number(lng), verificationStatus: verificationStatusOut };
+  }
   await rec.save();
 
   AttendanceEvent.create({
     employee: me._id,
+    user: me.user,
     date,
     type: 'check-out',
     reason: 'check-out',
@@ -477,7 +580,13 @@ exports.checkOut = catchAsync(async (req, res) => {
     description: `Checked out at ${time} on ${date} — active ${Math.floor(totals.activeSeconds / 3600)}h ${Math.floor((totals.activeSeconds % 3600) / 60)}m`,
   });
 
-  res.json({ attendance: rec, activeSeconds: totals.activeSeconds, pausedSeconds: totals.pausedSeconds, status });
+  res.json({
+    attendance: rec,
+    activeSeconds: totals.activeSeconds,
+    pausedSeconds: totals.pausedSeconds,
+    status,
+    workingHoursMinutes,
+  });
 });
 
 /* ---- GET /api/attendance — scoped list with filters ---- */

@@ -32,6 +32,15 @@ const userSchema = new mongoose.Schema(
       index: true,
     },
     isVerified: { type: Boolean, default: true },
+    accountStatus: {
+      type: String,
+      enum: ['pending-activation', 'active', 'suspended'],
+      default: 'pending-activation',
+      index: true,
+    }, // new hires start pending-activation until first login sets a password
+    mustChangePassword: { type: Boolean, default: false }, // forces password reset on next login
+    activationToken: { type: String, select: false }, // hashed one-time activation token
+    activationTokenExpires: { type: Date, select: false },
     failedLoginAttempts: { type: Number, default: 0 },
     accountLockedUntil: { type: Date, default: null },
     lastLogin: { type: Date, default: null },
@@ -88,6 +97,8 @@ userSchema.methods.toSafeJSON = function () {
     department: this.department,
     designation: this.designation,
     status: this.status,
+    accountStatus: this.accountStatus,
+    mustChangePassword: this.mustChangePassword,
     permissions: this.permissions || [],
   };
 };
