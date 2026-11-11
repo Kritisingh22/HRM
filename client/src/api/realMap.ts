@@ -128,6 +128,10 @@ export function mapEmployee(e: Raw): Employee {
     bloodGroup: e.bloodGroup || undefined,
     emergency: e.emergencyContact || undefined,
     address: e.address || undefined,
+    userId: e.userId || undefined,
+    accountStatus: e.accountStatus || undefined,
+    mustChangePassword: e.mustChangePassword === true,
+    role: e.role || undefined,
   };
 }
 

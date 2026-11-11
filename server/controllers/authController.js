@@ -273,6 +273,11 @@ exports.changePassword = catchAsync(async (req, res) => {
   user.password = newPassword;   // hashed on save
   await user.save();
   await RefreshToken.updateMany({ user: user._id }, { revoked: true }); // force re-login elsewhere
+  // Clear first-login / temporary-password flag now that a real password is set.
+  if (user.mustChangePassword) {
+    user.mustChangePassword = false;
+    await user.save();
+  }
   res.clearCookie(cfg.COOKIE_NAME, clearCookieOptions());
   res.json({ ok: true, message: 'Password changed. Please sign in again.' });
 });
@@ -285,44 +290,50 @@ exports.changePassword = catchAsync(async (req, res) => {
  * to active and mustChangePassword is cleared.
  */
 exports.activateAccount = catchAsync(async (req, res) => {
-  const { activationToken, newPassword } = req.body || {};
-  if (!activationToken || !newPassword) {
-    throw ApiError.badRequest('activationToken and newPassword are required.');
+  const { activationToken, setupToken, newPassword } = req.body || {};
+  const token = activationToken || setupToken;
+  if (!token || !newPassword) {
+    throw ApiError.badRequest('A one-time token and newPassword are required.');
   }
   if (String(newPassword).length < 8) {
     throw ApiError.badRequest('Password must be at least 8 characters.');
   }
 
+  const isSetup = !!setupToken;
   const user = await User.findOne({
-    activationToken: hashToken(activationToken),
-    activationTokenExpires: { $gt: new Date() },
-    accountStatus: 'pending-activation',
+    $or: [
+      { activationToken: hashToken(token), activationTokenExpires: { $gt: new Date() }, accountStatus: 'pending-activation' },
+      { passwordResetToken: hashToken(token), passwordResetExpires: { $gt: new Date() }, mustChangePassword: true },
+    ],
   }).select('+passwordHash');
 
   if (!user) {
-    throw ApiError.forbidden('Invalid or expired activation token.');
+    throw ApiError.forbidden('Invalid or expired setup/activation token.');
   }
 
+  // Single-use: consume the token so it cannot be redeemed again.
   user.password = newPassword;      // hashed on save via pre('validate')
   user.accountStatus = 'active';
   user.isVerified = true;
   user.mustChangePassword = false;
   user.activationToken = undefined;
   user.activationTokenExpires = undefined;
+  user.passwordResetToken = undefined;
+  user.passwordResetExpires = undefined;
   await user.save();
 
-  // Revoke any existing refresh tokens so only the new password works
+  // Revoke any existing refresh tokens so only the new password works.
   await RefreshToken.updateMany({ user: user._id }, { revoked: true });
 
   logAudit(req, {
-    action: 'auth.activate_account',
+    action: isSetup ? 'auth.setup_invite_redeem' : 'auth.activate_account',
     targetType: 'User',
     targetId: String(user._id),
-    description: `Activated account for ${user.email} (${user.employeeId})`,
+    description: `${isSetup ? 'Redeemed one-time setup invitation' : 'Activated account'} for ${user.email} (${user.employeeId})`,
   });
   res.json({
     ok: true,
-    message: 'Account activated. You can now log in with your new password.',
+    message: 'Password set. You can now log in with your new password.',
     user: user.toSafeJSON(),
   });
 });

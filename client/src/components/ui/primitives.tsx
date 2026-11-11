@@ -3,7 +3,7 @@
    feature composes: pills, avatars, progress, stat chips,
    detail lists, tabs, empty states.
    ============================================================ */
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Icon } from '@/components/ui/Icon';
 import { avatarColor, initials, statusClass } from '@/lib/format';
 
@@ -228,4 +228,42 @@ export function PageHead({
 /* ---------------- Inline notice ---------------- */
 export function InfoNote({ children }: { children: ReactNode }) {
   return <div className="info-note">{children}</div>;
+}
+
+/* ---------------- Copy-to-clipboard button ---------------- */
+export interface CopyButtonProps {
+  value: string;
+  label?: string;
+  size?: 14 | 16 | 18;
+}
+
+/**
+ * One-shot copy control: shows a copy icon, flips to a check for ~1.5s after
+ * a successful copy, then reverts. Never exposes the value beyond the click.
+ */
+export function CopyButton({ value, label = 'Copy', size = 16 }: CopyButtonProps) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard blocked — silently fail, value remains selectable */
+    }
+  };
+
+  return (
+    <button
+      className="copy-btn"
+      onClick={handleCopy}
+      type="button"
+      title={label}
+      aria-label={copied ? 'Copied' : label}
+    >
+      <Icon name={copied ? 'check' : 'copy'} size={size} />
+      {copied ? <span className="copy-hint">Copied</span> : null}
+    </button>
+  );
 }

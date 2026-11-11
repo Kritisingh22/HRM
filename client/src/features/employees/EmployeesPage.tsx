@@ -21,7 +21,24 @@ import { buildRosterId, money } from '@/lib/format';
 import { dateRange, niceDate } from '@/lib/date';
 import { canSeeSalary } from '@/data/nav';
 import { isApiSession } from '@/api/client';
-import { createEmployee as createEmployeeApi, type CreateEmployeeParams } from '@/api/employees';
+import {
+  createEmployee as createEmployeeApi,
+  updateEmployee as updateEmployeeApi,
+  resetEmployeePassword,
+  inviteEmployee,
+  setAccountStatus,
+  type CreateEmployeeParams,
+  type ResetPasswordResponse,
+  type InviteResponse,
+  type SetAccountStatusResponse,
+} from '@/api/employees';
+import {
+  CredentialModal,
+  ResetPasswordDialog,
+  InviteDialog,
+  AccountStatusDialog,
+  ActivityHistory,
+} from './EmployeeCredentials';
 import type {
   Department,
   Designation,
@@ -30,9 +47,12 @@ import type {
   Promotion,
   Training,
   Transfer,
+  AccountStatus,
 } from '@/types';
 
 const EMP_STATUSES: EmployeeStatus[] = ['Active', 'Probation', 'On Leave', 'Resigned', 'Terminated'];
+const CAN_MANAGE_CREDENTIALS = (role: string | undefined) =>
+  role === 'SUPER_ADMIN' || role === 'ADMIN' || role === 'HR';
 
 type TabKey = 'directory' | 'departments' | 'designations' | 'promotions' | 'training' | 'exit';
 
@@ -45,6 +65,28 @@ export function EmployeesPage() {
 
   const [tab, setTab] = useState<TabKey>('directory');
   const [deptDrill, setDeptDrill] = useState(seedDept);
+
+  /* Credential management dialog state. The one-time credential payload is held
+   * in component state only while the success modal is open — it is never
+   * persisted to localStorage or re-shown after the modal closes. */
+  const [creatingCredential, setCreatingCredential] = useState<{
+    employeeId: string;
+    loginUserId: string;
+    employeeName: string;
+    department: string;
+    designation: string;
+    role: string;
+    accountStatus: string;
+    temporaryPassword: string;
+    activationToken: string;
+    creatorName: string;
+    creatorRole: string;
+  } | null>(null);
+  const [resetOpen, setResetOpen] = useState(false);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [statusOpen, setStatusOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [credTarget, setCredTarget] = useState<{ id: string; name: string; status: AccountStatus } | null>(null);
 
   useEffect(() => {
     setDeptDrill(seedDept);
@@ -87,11 +129,25 @@ export function EmployeesPage() {
     const cols: Array<{ header: string; render: (e: Employee) => ReactNode; num?: boolean }> = [
       { header: 'Employee', render: (e) => <EmpCell name={e.name} sub={e.email} seed={e.id} /> },
       { header: 'ID', render: (e) => <span className="num">{e.id}</span> },
+      { header: 'User ID', render: (e) => <span className="num" style={{ fontSize: 11, color: 'var(--text-2)' }}>{e.userId || '—'}</span> },
       { header: 'Department', render: (e) => deptName(data.departments, e.dept) },
       { header: 'Designation', render: (e) => e.designation },
       { header: 'Manager', render: (e) => empName(data.employees, e.manager) },
       { header: 'Location', render: (e) => e.location },
-      { header: 'Status', render: (e) => <Pill status={e.status} /> },
+      {
+        header: 'Account',
+        render: (e) => (
+          <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <Pill status={e.status} />
+            {e.accountStatus ? (
+              <span style={{ fontSize: 10, color: 'var(--text-2)', textTransform: 'lowercase' }}>{e.accountStatus}</span>
+            ) : null}
+            {e.mustChangePassword ? (
+              <span style={{ fontSize: 10, color: 'var(--text-2)', fontWeight: 600, textTransform: 'lowercase' }}>reset password</span>
+            ) : null}
+          </span>
+        ),
+      },
     ];
     if (canSeeSalary) {
       cols.push({ header: 'Monthly in-hand', render: (e) => <span className="num">{money(e.salary)}</span>, num: true });
@@ -205,7 +261,22 @@ export function EmployeesPage() {
         status: (values.status as EmployeeStatus) || 'Active',
       };
       const res = await createEmployeeApi(params);
-      toast(`${res.employee.fullName} joined with ID ${res.employee.employeeId}. Account pending activation. Offer letter generated.`, 'success');
+      /* Hold the one-time credentials in state so the success modal can show
+       * them exactly once. After the modal closes they cannot be retrieved. */
+      setCreatingCredential({
+        employeeId: res.employee.employeeId,
+        loginUserId: res.account.loginUserId,
+        employeeName: res.employee.fullName,
+        department: res.employee.department,
+        designation: res.employee.designation,
+        role: res.account.role,
+        accountStatus: res.account.accountStatus,
+        temporaryPassword: res.temporaryPassword,
+        activationToken: res.activationToken,
+        creatorName: res.creator?.name ?? user?.name ?? '—',
+        creatorRole: res.creator?.role ?? user?.role ?? '—',
+      });
+      toast(`${res.employee.fullName} joined with ID ${res.employee.employeeId}. One-time credentials shown below.`, 'success');
       return;
     }
     // Demo mode: local generation
@@ -235,7 +306,7 @@ export function EmployeesPage() {
     toast(`${record.name} joined the roster.`, 'success');
   };
 
-  const updateEmployee = (row: Employee, values: Record<string, string>) => {
+  const updateEmployee = async (row: Employee, values: Record<string, string>) => {
     const patch: Record<string, unknown> = {
       name: values.name.trim(),
       email: values.email.trim(),
@@ -256,6 +327,19 @@ export function EmployeesPage() {
       patch.salary = Number(values.salary || 0);
       patch.grade = values.grade;
     }
+    if (isApiSession()) {
+      try {
+        await updateEmployeeApi(row.id, patch);
+        audit('Employee updated', `${row.name} (${row.id})`);
+        toast('Employee record updated.', 'success');
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Update failed.';
+        toast(msg, 'error');
+        throw err;
+      }
+      return;
+    }
+    // Demo mode: local generation
     dispatch({ type: 'update', collection: 'employees', id: row.id, patch });
     audit('Employee updated', `${row.name} (${row.id})`);
     toast('Employee record updated.', 'success');
@@ -626,13 +710,33 @@ export function EmployeesPage() {
                 { k: 'Probation', v: rows.filter((e) => e.status === 'Probation').length },
                 { k: 'On leave', v: rows.filter((e) => e.status === 'On Leave').length },
               ]}
-              actions={(e) => (canManage ? [{ key: 'documents', label: 'Docs', variant: 'ghost' as const }] : [])}
+              actions={(e) => {
+                if (!canManage) return [];
+                const credActions: Array<{ key: string; label: string; variant?: 'outline' | 'danger' | 'ghost' }> = [
+                  { key: 'reset', label: 'Reset password', variant: 'danger' },
+                  { key: 'invite', label: 'Send invitation' },
+                  { key: 'status', label: e.accountStatus === 'active' ? 'Deactivate' : 'Activate' },
+                  { key: 'history', label: 'Activity history', variant: 'ghost' },
+                ];
+                // Managers may only act on their own team (server enforces scope).
+                return credActions;
+              }}
               onAction={(key, e) => {
-                if (key === 'documents') navigate(PAGE_PATH.Documents, { state: { query: e.name } });
+                if (key === 'documents') {
+                  navigate(PAGE_PATH.Documents, { state: { query: e.name } });
+                  return;
+                }
+                if (!CAN_MANAGE_CREDENTIALS(user?.role)) return;
+                setCredTarget({ id: e.id, name: e.name, status: (e.accountStatus as AccountStatus) || 'active' });
+                if (key === 'reset') setResetOpen(true);
+                if (key === 'invite') setInviteOpen(true);
+                if (key === 'status') setStatusOpen(true);
+                if (key === 'history') setHistoryOpen(true);
               }}
               detail={(e) => [
                 'Employment',
                 ['Employee ID', e.id],
+                ['User ID', e.userId || '—'],
                 ['Department', deptName(data.departments, e.dept)],
                 ['Designation', e.designation],
                 ['Reports to', empName(data.employees, e.manager)],
@@ -641,6 +745,8 @@ export function EmployeesPage() {
                 ['Joined', niceDate(e.joining)],
                 ['Experience', e.experience],
                 ['Status', <Pill status={e.status} key="st" />],
+                ['Account status', e.accountStatus ? (<span style={{ textTransform: 'lowercase' }}>{e.accountStatus}</span>) : '—'],
+                ['Must change password', e.mustChangePassword ? 'Yes' : 'No'],
                 ...(canSeeSalary ? ([['Monthly in-hand', money(e.salary)], ['Grade', e.grade]] as Array<[string, ReactNode]>) : []),
                 'Personal',
                 ['Email', e.email],
@@ -801,6 +907,58 @@ export function EmployeesPage() {
             </>
           ) : null}
         </div>
+
+        {/* One-time credential success modal — shown once after creation. */}
+        {creatingCredential ? (
+          <CredentialModal
+            open
+            onClose={() => setCreatingCredential(null)}
+            data={creatingCredential}
+          />
+        ) : null}
+
+        {/* Credential management dialogs (permission-aware). */}
+        {credTarget ? (
+          <>
+            <ResetPasswordDialog
+              open={resetOpen}
+              onClose={() => setResetOpen(false)}
+              employeeId={credTarget.id}
+              employeeName={credTarget.name}
+              onSuccess={() => {
+                setResetOpen(false);
+                setCredTarget(null);
+              }}
+            />
+            <InviteDialog
+              open={inviteOpen}
+              onClose={() => setInviteOpen(false)}
+              employeeId={credTarget.id}
+              employeeName={credTarget.name}
+              onSuccess={() => {
+                setInviteOpen(false);
+                setCredTarget(null);
+              }}
+            />
+            <AccountStatusDialog
+              open={statusOpen}
+              onClose={() => setStatusOpen(false)}
+              employeeId={credTarget.id}
+              employeeName={credTarget.name}
+              currentStatus={credTarget.status}
+              onSuccess={() => {
+                setStatusOpen(false);
+                setCredTarget(null);
+              }}
+            />
+            <ActivityHistory
+              open={historyOpen}
+              onClose={() => setHistoryOpen(false)}
+              employeeId={credTarget.id}
+              employeeName={credTarget.name}
+            />
+          </>
+        ) : null}
       </section>
     </div>
   );

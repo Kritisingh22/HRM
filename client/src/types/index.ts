@@ -23,6 +23,8 @@ export interface User {
 export interface SessionUser extends User {
   nav: string[];
   portal: Portal;
+  /** When true the user must set a new password before accessing HRM features. */
+  mustChangePassword?: boolean;
 }
 
 export interface Session {
@@ -71,6 +73,7 @@ export interface SessionActivity {
 
 /* ---------------- People & org ---------------- */
 export type EmployeeStatus = 'Active' | 'Probation' | 'On Leave' | 'Resigned' | 'Terminated';
+export type AccountStatus = 'active' | 'inactive' | 'suspended' | 'pending-activation';
 export type EmploymentType = 'Full-time' | 'Part-time' | 'Contract' | 'Intern';
 
 export interface Employee {
@@ -108,6 +111,10 @@ export interface Employee {
   address?: string;
   userId?: string;
   createdBy?: string;
+  /** Linked login-account facts (server sessions only). Never includes secrets. */
+  accountStatus?: AccountStatus;
+  mustChangePassword?: boolean;
+  role?: string;
 }
 
 export interface Department {

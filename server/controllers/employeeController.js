@@ -5,6 +5,7 @@
  * Changing the :id in the URL to someone else's record yields 403, not data. */
 const mongoose = require("mongoose");
 const crypto = require("crypto");
+const bcrypt = require("bcryptjs");
 const cfg = require("../config/env");
 const Employee = require("../models/Employee");
 const User = require("../models/User");
@@ -15,8 +16,9 @@ const Document = require("../models/Document");
 const ApiError = require("../utils/ApiError");
 const catchAsync = require("../utils/catchAsync");
 const { SEES_ALL, scopeFilter, teamEmployeeIds } = require("../utils/teamScope");
-const { hasPermission, userHasPermission, permissionsFor } = require("../utils/permissions");
+const { hasPermission, userHasPermission, permissionsFor, ROLES } = require("../utils/permissions");
 const { logAudit } = require("../utils/audit");
+const { createNotification } = require("../utils/createNotification");
 const { 
   generateUniqueEmployeeId, 
   getInitials, 
@@ -25,10 +27,33 @@ const {
   DEPARTMENT_SERIAL_MAP 
 } = require("../utils/employeeIdGenerator");
 const { hashToken } = require("../utils/tokens");
+const RefreshToken = require("../models/RefreshToken");
 const { putObject } = require("../services/storage");
 const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
 const HR_ACCESS = ["HR", "ADMIN", "SUPER_ADMIN"];
 const canCreateEmployees = (role) => userHasPermission({ role, permissions: [] }, 'employees:write') || userHasPermission({ role, permissions: [] }, 'employees:update');
+
+// Who may ASSIGN a role on employee creation. Mirrors the guards in userController
+// so an HR actor cannot escalate themselves or others to admin-level roles.
+function assertCanAssignRole(actor, targetRole) {
+  if (!targetRole) return;
+  const ADMIN_LEVEL = ['ADMIN', 'SUPER_ADMIN'];
+  if (targetRole === 'SUPER_ADMIN' && actor.role !== 'SUPER_ADMIN') {
+    throw ApiError.forbidden('Only a Super Admin can assign the Super Admin role.');
+  }
+  if (targetRole === 'ADMIN' && !ADMIN_LEVEL.includes(actor.role)) {
+    throw ApiError.forbidden('Only an administrator can assign admin-level roles.');
+  }
+}
+
+// Roles an actor may provision on a new employee. HR provisions non-admin roles;
+// Admin/SUPER_ADMIN may provision any role; Managers provision EMPLOYEE reports.
+function provisionableRoles(actor) {
+  if (actor.role === 'SUPER_ADMIN') return [...ROLES]; // imported from permissions? define locally below
+  if (actor.role === 'ADMIN') return ['EMPLOYEE', 'MANAGER', 'HR', 'ADMIN'];
+  if (actor.role === 'HR') return ['EMPLOYEE', 'MANAGER', 'HR'];
+  return ['EMPLOYEE']; // MANAGER
+}
 // Salary is compensation data: it is returned ONLY to roles the existing permission
 // model authorises to read payroll (HR / ADMIN / SUPER_ADMIN via payroll:read | payroll:* | *).
 // MANAGER and EMPLOYEE hold only payroll:read_own, so they never receive the salary
@@ -134,6 +159,15 @@ exports.create = catchAsync(async (req, res) => {
   if (!isPrivileged && creator.role !== 'MANAGER') {
     throw ApiError.forbidden('Only HR, Admin, Manager or Super Admin can create employees.');
   }
+
+  // ---- role assignment (backend-enforced) ----
+  const requestedRole = body.role && ROLES.includes(body.role) ? body.role : 'EMPLOYEE';
+  assertCanAssignRole(creator, requestedRole);
+  if (!provisionableRoles(creator).includes(requestedRole)) {
+    throw ApiError.forbidden(`${creator.role} cannot provision a ${requestedRole} account.`);
+  }
+  delete body.role;
+
   if (creator.role === 'MANAGER') {
     /* Managers may only onboard reports: they become the reporting
        manager and the employee must be within the manager's team scope. */
@@ -141,6 +175,9 @@ exports.create = catchAsync(async (req, res) => {
       throw ApiError.forbidden('Managers can only create employees who report to them.');
     }
     body.reportingManagerId = creator._id;
+    if (requestedRole !== 'EMPLOYEE') {
+      throw ApiError.forbidden('Managers can only create EMPLOYEE-role reports.');
+    }
   }
 
   if (!body.fullName) {
@@ -257,8 +294,8 @@ exports.create = catchAsync(async (req, res) => {
           fullName: body.fullName,
           email: emailLower,
           passwordHash,
-          role: 'EMPLOYEE',
-          permissions: permissionsFor('EMPLOYEE'),
+          role: requestedRole,
+          permissions: permissionsFor(requestedRole),
           department: body.department,
           designation: body.designation,
           manager: creator.role === 'MANAGER' ? creator._id : null,
@@ -324,8 +361,8 @@ exports.create = catchAsync(async (req, res) => {
       fullName: body.fullName,
       email: emailLower,
       passwordHash,
-      role: 'EMPLOYEE',
-      permissions: permissionsFor('EMPLOYEE'),
+      role: requestedRole,
+      permissions: permissionsFor(requestedRole),
       department: body.department,
       designation: body.designation,
       manager: creator.role === 'MANAGER' ? creator._id : null,
@@ -348,8 +385,34 @@ exports.create = catchAsync(async (req, res) => {
     action: 'employee.create',
     targetType: 'Employee',
     targetId: emp.employeeId,
-    description: `Created employee ${emp.employeeId} (${emp.fullName}) + login account (pending activation), created by ${creator.role} ${creator.employeeId || creator._id}`,
+    description: `Created employee ${emp.employeeId} (${emp.fullName}) + login account (pending activation, role ${user.role}), created by ${creator.role} ${creator.employeeId || creator._id}`,
   });
+
+  // ---- notify the actual creator (not every user sharing the role) ----
+  try {
+    await createNotification({
+      user: creator._id,
+      type: 'Employee Created',
+      title: 'Employee created successfully',
+      message: `Employee created successfully. Employee ID: ${emp.employeeId}. Login User ID: ${user._id}. Employee: ${emp.fullName}.`,
+      relatedEntity: { type: 'Employee', id: emp._id },
+      priority: 'Normal',
+      metadata: {
+        employeeId: emp.employeeId,
+        userId: String(user._id),
+        employeeName: emp.fullName,
+        department: emp.department,
+        designation: emp.designation,
+        role: user.role,
+        accountStatus: user.accountStatus,
+        createdBy: String(creator._id),
+        createdByRole: creator.role,
+      },
+    });
+  } catch (e) {
+    // Notification failure must not roll back or fail employee creation.
+    console.error('[employee.create] creator notification failed:', e.message);
+  }
 
   // ---- generate offer letter PDF ----
   let offerLetterResult = null;
@@ -360,6 +423,10 @@ exports.create = catchAsync(async (req, res) => {
     console.error('[employee.create] offer letter generation failed:', e.message);
   }
 
+  /* The temporary password exists only in this response. It is never written
+   * to MongoDB (only its hash is), never logged, never emailed, and never
+   * returned on any subsequent GET. If the creator closes this modal they must
+   * use the password-reset workflow. */
   res.status(201).json({
     employee: {
       employeeId: emp.employeeId,
@@ -375,12 +442,20 @@ exports.create = catchAsync(async (req, res) => {
     },
     account: {
       employeeId: user.employeeId,
+      loginUserId: String(user._id),
       email: user.email,
       role: user.role,
       accountStatus: user.accountStatus,
       mustChangePassword: user.mustChangePassword,
     },
-    activationToken, // returned ONCE — client must deliver it to the employee out-of-band
+    creator: {
+      id: String(creator._id),
+      name: creator.fullName || creator.name,
+      email: creator.email,
+      role: creator.role,
+    },
+    temporaryPassword: tempPassword, // returned ONCE
+    activationToken, // one-time invitation alternative, returned ONCE
     offerLetter: offerLetterResult,
   });
 });
@@ -476,26 +551,362 @@ exports.update = catchAsync(async (req, res) => {
     delete changes.employeeId;
   }
 
+  // Capture pre-change values for the audit trail before we mutate.
+  const previous = {
+    email: emp.email,
+    department: emp.department,
+    designation: emp.designation,
+    status: emp.status,
+    employeeId: emp.employeeId,
+  };
+
   Object.assign(emp, changes);
   await emp.save();
-  // Highlight the sensitive HR actions the spec calls out (assign manager / change department)
+
+  // ---- Synchronize the linked User account for account-linked fields ----
+  // Email, department, designation and (de)activation flow through to login.
+  const linkedUser = emp.user
+    ? await User.findById(emp.user)
+    : emp.employeeId
+      ? await User.findOne({ employeeId: emp.employeeId })
+      : null;
+
+  if (linkedUser) {
+    const userChanges = {};
+    if (changes.email !== undefined) {
+      const emailLower = String(changes.email).trim().toLowerCase();
+      if (emailLower !== linkedUser.email) {
+        const taken = await User.findOne({ email: emailLower, _id: { $ne: linkedUser._id } });
+        if (taken) throw ApiError.conflict('This official email is already used by another account.');
+        userChanges.email = emailLower;
+        emp.email = emailLower; // keep Employee and User in sync
+      }
+    }
+    if (changes.department !== undefined) userChanges.department = emp.department;
+    if (changes.designation !== undefined) userChanges.designation = emp.designation;
+    if (changes.status !== undefined) {
+      // Employee status → login account status. Exited/terminated means inactive.
+      userChanges.status =
+        emp.status === 'Exited' || emp.status === 'Terminated' ? 'inactive' : 'active';
+    }
+    if (Object.keys(userChanges).length) {
+      Object.assign(linkedUser, userChanges);
+      await linkedUser.save();
+    }
+  }
+
+  // Build an accurate audit description covering what actually changed.
+  const changedKeys = Object.keys(changes);
   const notable = [];
-  if (changes.manager !== undefined)
-    notable.push(`assigned manager→${changes.manager}`);
-  if (changes.department !== undefined)
-    notable.push(`department→${changes.department}`);
-  if (changes.designation !== undefined)
-    notable.push(`designation→${changes.designation}`);
+  if (changes.manager !== undefined) notable.push(`assigned manager→${changes.manager}`);
+  if (changes.department !== undefined) notable.push(`department ${previous.department} → ${emp.department}`);
+  if (changes.designation !== undefined) notable.push(`designation ${previous.designation} → ${emp.designation}`);
+  if (changes.email !== undefined) notable.push(`email ${previous.email} → ${emp.email}`);
+  if (changes.status !== undefined) notable.push(`status ${previous.status} → ${emp.status}`);
+  if (changes.employeeId !== undefined) notable.push(`employeeId ${previous.employeeId} → ${emp.employeeId}`);
+
   logAudit(req, {
     action:
       changes.manager !== undefined
         ? "employee.assign_manager"
-        : "employee.update",
+        : changedKeys.includes('status') && emp.status === 'Exited'
+          ? "employee.deactivate"
+          : changedKeys.includes('status') && emp.status === 'Active'
+            ? "employee.activate"
+            : "employee.update",
     targetType: "Employee",
     targetId: emp.employeeId,
     description: `Updated ${emp.employeeId}: ${notable.join(", ") || Object.keys(changes).join(", ") || "no change"}`,
   });
-  res.json({ employee: emp });
+
+  // Re-fetch the persisted record so the response reflects stored truth.
+  const persisted = await findByIdOrEmployeeId(emp.employeeId);
+  const out = persisted ? persisted.toObject() : emp.toObject();
+  if (!canSeeSalary(req.user)) delete out.salary;
+  res.json({ employee: out });
+});
+
+/* Resolve the linked login account for an employee (by ref, else by employeeId).
+ * Selects passwordHash only when the caller needs it. */
+async function resolveLinkedUser(empId, selectPlusHash = false) {
+  const emp = await findByIdOrEmployeeId(empId);
+  if (!emp) return null;
+  if (emp.user) {
+    return selectPlusHash ? await User.findById(emp.user).select('+passwordHash') : await User.findById(emp.user);
+  }
+  if (emp.employeeId) {
+    return selectPlusHash
+      ? await User.findOne({ employeeId: emp.employeeId }).select('+passwordHash')
+      : await User.findOne({ employeeId: emp.employeeId });
+  }
+  return null;
+}
+
+/* Actor-scope guard for sensitive account operations on another user's login.
+ * Managers are already scoped to their team by canAccess; here we additionally
+ * block resetting/deactivating privileged (admin-level) accounts unless the
+ * actor is a Super Admin, and block an actor from locking themselves out. */
+function assertCanTouchAccount(actor, targetUser, { allowSelf = false } = {}) {
+  if (targetUser.role === 'SUPER_ADMIN' && actor.role !== 'SUPER_ADMIN') {
+    throw ApiError.forbidden('Only a Super Admin can modify a Super Admin account.');
+  }
+  if (targetUser.role === 'ADMIN' && !['ADMIN', 'SUPER_ADMIN'].includes(actor.role)) {
+    throw ApiError.forbidden('Only an administrator can modify an administrator account.');
+  }
+  // A user must not use the admin reset/invite endpoint on their own account
+  // (that bypasses the current-password check); use the change-password flow instead.
+  if (!allowSelf && String(actor._id) === String(targetUser._id)) {
+    throw ApiError.forbidden('You cannot reset or invite your own account through this endpoint.');
+  }
+  if (String(actor._id) === String(targetUser._id) && !['active'].includes(targetUser.status)) {
+    throw ApiError.forbidden('You cannot deactivate your own account.');
+  }
+}
+
+/* POST /api/employees/:id/reset-password
+ * Administrator-initiated password reset. Generates a cryptographically secure
+ * temporary password (returned ONCE), hashes it, forces a change on next login,
+ * revokes all refresh sessions, and notifies both the employee and the initiator.
+ * The existing password is never revealed. */
+exports.resetPassword = catchAsync(async (req, res) => {
+  const emp = await findByIdOrEmployeeId(req.params.id);
+  if (!emp) throw ApiError.notFound("Employee not found.");
+  if (!canAccess(req.user, emp))
+    throw ApiError.forbidden("You do not have permission to reset this employee's password.");
+
+  const linked = await resolveLinkedUser(emp.employeeId, true);
+  if (!linked) throw ApiError.notFound('No login account is linked to this employee.');
+  assertCanTouchAccount(req.user, linked);
+
+  const tempPassword = crypto.randomBytes(16).toString('base64url');
+  const passwordHash = await bcrypt.hash(tempPassword, cfg.BCRYPT_ROUNDS);
+
+  linked.passwordHash = passwordHash;
+  linked.accountStatus = 'active';
+  linked.isVerified = true;
+  linked.mustChangePassword = true;
+  linked.passwordResetToken = undefined;
+  linked.passwordResetExpires = undefined;
+  linked.activationToken = undefined;
+  linked.activationTokenExpires = undefined;
+  await linked.save();
+
+  // Invalidate every existing refresh session so old credentials cannot be used.
+  await RefreshToken.updateMany({ user: linked._id }, { revoked: true });
+
+  logAudit(req, {
+    action: 'employee.password_reset',
+    targetType: 'Employee',
+    targetId: emp.employeeId,
+    description: `Password reset for ${emp.employeeId} (${emp.fullName}) initiated by ${req.user.role} ${req.user.employeeId || req.user._id}. Temporary password issued, mustChangePassword set, sessions revoked.`,
+  });
+
+  // Notify the employee — generic message, NEVER the password.
+  try {
+    await createNotification({
+      user: linked._id,
+      type: 'Password Reset',
+      title: 'Your password has been reset',
+      message: `Your login password was reset by an administrator (Employee ID: ${emp.employeeId}). Use the temporary credential shared with you to sign in, then set a new password.`,
+      relatedEntity: { type: 'Employee', id: emp._id },
+      priority: 'High',
+    });
+  } catch (e) {
+    console.error('[employee.resetPassword] employee notification failed:', e.message);
+  }
+
+  // Notify the administrator who initiated the reset.
+  try {
+    await createNotification({
+      user: req.user._id,
+      type: 'Password Reset Initiated',
+      title: 'Password reset completed',
+      message: `You reset the login password for employee ${emp.employeeId} (${emp.fullName}). A temporary password was generated and is shown only in this response.`,
+      relatedEntity: { type: 'Employee', id: emp._id },
+      priority: 'Normal',
+      metadata: { employeeId: emp.employeeId, employeeName: emp.fullName, resetBy: String(req.user._id) },
+    });
+  } catch (e) {
+    console.error('[employee.resetPassword] initiator notification failed:', e.message);
+  }
+
+  res.json({
+    ok: true,
+    employeeId: emp.employeeId,
+    loginUserId: String(linked._id),
+    employeeName: emp.fullName,
+    temporaryPassword: tempPassword, // returned ONCE — never stored or logged plaintext
+    mustChangePassword: true,
+    message: 'Temporary password generated. Show it to the employee once; it cannot be retrieved again.',
+  });
+});
+
+/* POST /api/employees/:id/invite
+ * Generate a secure one-time password-setup invitation for an employee. A
+ * random setup token is hashed at rest with an expiry and returned to the
+ * initiator ONCE for out-of-band delivery. The employee redeems it at
+ * POST /api/auth/activate-account to set their password. */
+exports.invite = catchAsync(async (req, res) => {
+  const emp = await findByIdOrEmployeeId(req.params.id);
+  if (!emp) throw ApiError.notFound("Employee not found.");
+  if (!canAccess(req.user, emp))
+    throw ApiError.forbidden("You do not have permission to invite this employee.");
+
+  const linked = await resolveLinkedUser(emp.employeeId);
+  if (!linked) throw ApiError.notFound('No login account is linked to this employee.');
+  assertCanTouchAccount(req.user, linked);
+
+  const setupToken = crypto.randomBytes(32).toString('base64url');
+  const setupTokenExpires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+  linked.passwordResetToken = hashToken(setupToken);
+  linked.passwordResetExpires = setupTokenExpires;
+  linked.accountStatus = 'active';
+  linked.isVerified = true;
+  linked.mustChangePassword = true;
+  linked.activationToken = undefined;
+  linked.activationTokenExpires = undefined;
+  await linked.save();
+
+  logAudit(req, {
+    action: 'employee.invite',
+    targetType: 'Employee',
+    targetId: emp.employeeId,
+    description: `One-time password-setup invitation generated for ${emp.employeeId} (${emp.fullName}) by ${req.user.role} ${req.user.employeeId || req.user._id}. Token expires ${setupTokenExpires.toISOString()}.`,
+  });
+
+  // Notify the employee — generic message, NEVER the token.
+  try {
+    await createNotification({
+      user: linked._id,
+      type: 'Account Invitation',
+      title: 'Account setup invitation',
+      message: `A one-time password-setup invitation has been generated for your account (Employee ID: ${emp.employeeId}). Contact your administrator to receive the setup link, then set your password.`,
+      relatedEntity: { type: 'Employee', id: emp._id },
+      priority: 'High',
+    });
+  } catch (e) {
+    console.error('[employee.invite] employee notification failed:', e.message);
+  }
+
+  // Notify the administrator who initiated the invitation.
+  try {
+    await createNotification({
+      user: req.user._id,
+      type: 'Invitation Generated',
+      title: 'Setup invitation generated',
+      message: `You generated a password-setup invitation for employee ${emp.employeeId} (${emp.fullName}). The setup token is shown only in this response and expires in 7 days.`,
+      relatedEntity: { type: 'Employee', id: emp._id },
+      priority: 'Normal',
+      metadata: { employeeId: emp.employeeId, employeeName: emp.fullName, generatedBy: String(req.user._id), expiresAt: setupTokenExpires },
+    });
+  } catch (e) {
+    console.error('[employee.invite] initiator notification failed:', e.message);
+  }
+
+  res.json({
+    ok: true,
+    employeeId: emp.employeeId,
+    loginUserId: String(linked._id),
+    employeeName: emp.fullName,
+    setupToken, // returned ONCE — never stored or logged plaintext
+    setupTokenExpires,
+    mustChangePassword: true,
+    message: 'Setup token generated. Deliver it to the employee out-of-band; it cannot be retrieved again.',
+  });
+});
+
+/* PUT /api/employees/:id/status
+ * Activate or deactivate an employee's login account. Deactivating revokes all
+ * refresh sessions. Protects administrative availability (last Super Admin /
+ * last administrator cannot be deactivated). */
+exports.setAccountStatus = catchAsync(async (req, res) => {
+  const emp = await findByIdOrEmployeeId(req.params.id);
+  if (!emp) throw ApiError.notFound("Employee not found.");
+  if (!canAccess(req.user, emp))
+    throw ApiError.forbidden("You do not have permission to change this employee's account status.");
+
+  const { status: nextStatus } = req.body;
+  if (!['active', 'inactive', 'suspended'].includes(nextStatus)) {
+    throw ApiError.badRequest("status must be one of: active, inactive, suspended.");
+  }
+
+  const linked = await resolveLinkedUser(emp.employeeId);
+  if (!linked) throw ApiError.notFound('No login account is linked to this employee.');
+  assertCanTouchAccount(req.user, linked);
+
+  // Protect administrative availability: never leave the system without an active admin.
+  if (nextStatus !== 'active' && ['SUPER_ADMIN', 'ADMIN'].includes(linked.role)) {
+    if (linked.role === 'SUPER_ADMIN') {
+      const activeSupers = await User.countDocuments({ role: 'SUPER_ADMIN', status: 'active' });
+      if (activeSupers <= 1) throw ApiError.conflict('Cannot deactivate the last active Super Admin.');
+    }
+    const activeAdmins = await User.countDocuments({ role: { $in: ['SUPER_ADMIN', 'ADMIN'] }, status: 'active' });
+    if (activeAdmins <= 1) throw ApiError.conflict('Cannot deactivate the last active administrator.');
+  }
+
+  const previousStatus = linked.status;
+  linked.status = nextStatus;
+  if (nextStatus !== 'active') {
+    linked.mustChangePassword = false;
+    // Invalidate all refresh sessions so the account cannot authenticate.
+    await RefreshToken.updateMany({ user: linked._id }, { revoked: true });
+  } else {
+    linked.mustChangePassword = linked.mustChangePassword === true; // preserve pending-activation intent
+  }
+  await linked.save();
+
+  // Mirror the login status onto the Employee record where the enums overlap.
+  if (nextStatus === 'inactive' || nextStatus === 'suspended') {
+    if (emp.status !== 'Exited') emp.status = 'Exited';
+  } else if (nextStatus === 'active' && emp.status === 'Exited') {
+    emp.status = 'Active';
+  }
+  await emp.save();
+
+  logAudit(req, {
+    action: nextStatus === 'active' ? 'employee.activate' : 'employee.deactivate',
+    targetType: 'Employee',
+    targetId: emp.employeeId,
+    description: `Account ${nextStatus === 'active' ? 'activated' : 'deactivated'} for ${emp.employeeId} (${emp.fullName}) by ${req.user.role} ${req.user.employeeId || req.user._id} (was ${previousStatus}).`,
+  });
+
+  // Notify the employee.
+  try {
+    await createNotification({
+      user: linked._id,
+      type: 'Account Status Change',
+      title: `Account ${nextStatus === 'active' ? 'activated' : 'deactivated'}`,
+      message: `Your login account (Employee ID: ${emp.employeeId}) is now ${nextStatus}.${nextStatus !== 'active' ? ' Contact your administrator.' : ''}`,
+      relatedEntity: { type: 'Employee', id: emp._id },
+      priority: nextStatus !== 'active' ? 'High' : 'Normal',
+    });
+  } catch (e) {
+    console.error('[employee.setAccountStatus] employee notification failed:', e.message);
+  }
+
+  // Notify the administrator who made the change.
+  try {
+    await createNotification({
+      user: req.user._id,
+      type: 'Account Status Change',
+      title: `Account ${nextStatus === 'active' ? 'activated' : 'deactivated'}`,
+      message: `You ${nextStatus === 'active' ? 'activated' : 'deactivated'} the login account for employee ${emp.employeeId} (${emp.fullName}).`,
+      relatedEntity: { type: 'Employee', id: emp._id },
+      priority: 'Normal',
+      metadata: { employeeId: emp.employeeId, employeeName: emp.fullName, previousStatus, nextStatus },
+    });
+  } catch (e) {
+    console.error('[employee.setAccountStatus] initiator notification failed:', e.message);
+  }
+
+  res.json({
+    ok: true,
+    employeeId: emp.employeeId,
+    loginUserId: String(linked._id),
+    accountStatus: linked.status,
+    employeeStatus: emp.status,
+    message: `Account ${nextStatus}.`,
+  });
 });
 
 /* DELETE /api/employees/:id   (employees:delete)

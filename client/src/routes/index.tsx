@@ -23,6 +23,7 @@ import { EmptyState } from '@/components/ui/primitives';
 import { useAuth } from '@/context/AuthContext';
 import { PAGE_PATH } from '@/data/nav';
 import { LoginPage } from '@/features/auth/Login';
+import { ChangePasswordPage } from '@/features/auth/ChangePassword';
 import { NotFound } from '@/routes/NotFound';
 import logoMark from '../../img/cyethack-logo.svg';
 
@@ -40,11 +41,16 @@ function BootSplash() {
 
 /* ---------- guards ---------- */
 
-/** Guests are sent to the login gate; everyone waits out the boot check. */
+/** Guests are sent to the login gate; everyone waits out the boot check.
+ * Users with `mustChangePassword = true` (new hire / admin reset) are sent to
+ * the change-password screen before they can reach any HRM feature. */
 function RequireAuth() {
   const { status, user } = useAuth();
   if (status === 'booting') return <BootSplash />;
   if (status !== 'authenticated' || !user) return <Navigate to="/login" replace />;
+  if (user.mustChangePassword && window.location.pathname !== '/change-password') {
+    return <Navigate to="/change-password" replace />;
+  }
   return <Outlet />;
 }
 
@@ -157,6 +163,11 @@ export function AppRoutes() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route element={<RequireAuth />}>
+        {/* First-login / forced password change — clean page, no shell. */}
+        <Route
+          path="/change-password"
+          element={<ChangePasswordPage redirectTo="/" />}
+        />
         <Route element={<AppShell />}>
           {Object.entries(PAGE_PATH).map(([page, path]) => (
             <Route

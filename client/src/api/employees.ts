@@ -32,7 +32,7 @@ export interface CreateEmployeeParams {
   assignedHrId?: string;
 }
 
-/** Returned by POST /api/employees — includes the one-time activation token. */
+/** Returned by POST /api/employees — includes the one-time credentials. */
 export interface CreateEmployeeResponse {
   employee: {
     employeeId: string;
@@ -48,12 +48,20 @@ export interface CreateEmployeeResponse {
   };
   account: {
     employeeId: string;
+    loginUserId: string;
     email: string;
     role: string;
     accountStatus: string;
     mustChangePassword: boolean;
   };
+  creator: {
+    id: string;
+    name: string;
+    email: string;
+    role: string;
+  };
   activationToken: string;
+  temporaryPassword: string;
   offerLetter?: {
     documentId: string;
     referenceId: string;
@@ -65,10 +73,42 @@ export interface CreateEmployeeResponse {
   };
 }
 
-/**
- * Create a new employee via the API
+/** Result of an admin-initiated password reset (temporary password shown ONCE). */
+export interface ResetPasswordResponse {
+  ok: boolean;
+  employeeId: string;
+  loginUserId: string;
+  employeeName: string;
+  temporaryPassword: string;
+  mustChangePassword: boolean;
+  message: string;
+}
+
+/** Result of generating a one-time password-setup invitation. */
+export interface InviteResponse {
+  ok: boolean;
+  employeeId: string;
+  loginUserId: string;
+  employeeName: string;
+  setupToken: string;
+  setupTokenExpires: string;
+  mustChangePassword: boolean;
+  message: string;
+}
+
+/** Result of activating/deactivating an account. */
+export interface SetAccountStatusResponse {
+  ok: boolean;
+  employeeId: string;
+  loginUserId: string;
+  accountStatus: string;
+  employeeStatus: string;
+  message: string;
+}
+
+/** Create a new employee via the API
  * The backend auto-generates the employeeId and provisions a login account.
- * Returns a one-time activation token (deliver to the employee out-of-band).
+ * Returns one-time temporary credentials (shown once, never retrievable again).
  */
 export async function createEmployee(params: CreateEmployeeParams): Promise<CreateEmployeeResponse> {
   return apiSend('POST', '/api/employees', params);
@@ -86,6 +126,28 @@ export async function updateEmployee(employeeId: string, params: Partial<CreateE
  */
 export async function getEmployee(employeeId: string) {
   return apiGet(`/api/employees/${encodeURIComponent(employeeId)}`);
+}
+
+/**
+ * Administrator-initiated password reset.
+ * Returns a temporary password shown ONCE (never stored or logged plaintext).
+ */
+export async function resetEmployeePassword(employeeId: string): Promise<ResetPasswordResponse> {
+  return apiSend('POST', `/api/employees/${encodeURIComponent(employeeId)}/reset-password`);
+}
+
+/**
+ * Generate a one-time password-setup invitation (setup token shown ONCE).
+ */
+export async function inviteEmployee(employeeId: string): Promise<InviteResponse> {
+  return apiSend('POST', `/api/employees/${encodeURIComponent(employeeId)}/invite`);
+}
+
+/**
+ * Activate or deactivate an employee's login account.
+ */
+export async function setAccountStatus(employeeId: string, status: 'active' | 'inactive' | 'suspended'): Promise<SetAccountStatusResponse> {
+  return apiSend('PUT', `/api/employees/${encodeURIComponent(employeeId)}/status`, { status });
 }
 
 /** Activate a new-hire account using the one-time activation token. */

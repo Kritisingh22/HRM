@@ -31,4 +31,10 @@ router.post('/', canWriteOrUpdate, ctrl.create);
 router.put('/:id', canWriteOrUpdate, ctrl.update);
 router.delete('/:id', requirePermission('employees:delete'), ctrl.remove);
 
+/* Account credential & status management (HR/Admin/Super Admin company-wide;
+   Manager scoped to their team via canAccess in the controller). */
+router.post('/:id/reset-password', canWriteOrUpdate, ctrl.resetPassword);
+router.post('/:id/invite', canWriteOrUpdate, ctrl.invite);
+router.put('/:id/status', canWriteOrUpdate, ctrl.setAccountStatus);
+
 module.exports = router;
