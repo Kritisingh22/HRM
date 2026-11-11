@@ -17,10 +17,7 @@ const BASE = '/api/attendance';
 
 /** Check in (mandatory): consent + geolocation required. */
 export async function checkIn(payload: AttendanceCheckInPayload): Promise<{ attendance: AttendanceRow; settings: AttendanceSettings | null }> {
-  const t0 = Date.now();
   const res = await apiSend('POST', `${BASE}/check-in`, payload);
-  /* TEMP TIMING — remove after measurement */
-  console.log(`[TIMING][http] POST /api/attendance/check-in: ${Date.now() - t0}ms`);
   return res as never;
 }
 

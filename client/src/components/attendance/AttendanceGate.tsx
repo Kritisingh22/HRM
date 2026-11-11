@@ -12,7 +12,8 @@ import { Icon } from '@/components/ui/Icon';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
 import { checkIn, attendanceErrorMessage } from '@/api/attendance';
-import { captureLocation, clearCachedFix, getCachedFix, prefetchLocation, todayISO } from '@/lib/geo';
+import { captureLocation, clearCachedFix, getCachedFix, prefetchLocation } from '@/lib/geo';
+import { todayISO } from '@/lib/date';
 
 interface AttendanceGateProps {
   checkedInToday: boolean;

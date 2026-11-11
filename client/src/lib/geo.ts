@@ -27,40 +27,6 @@ export function geoSupported(): boolean {
   return typeof navigator !== 'undefined' && 'geolocation' in navigator;
 }
 
-/**
- * Ask the browser for a single position fix. The permission prompt
- * (when the browser shows one) is triggered by this call, which is
- * only ever made from a user action.
- */
-/* ============================================================
-   Geolocation — one-shot capture for login & attendance actions.
-
-   Privacy stance:
-   • the portal never calls `watchPosition` and never tracks in
-     the background;
-   • a fix is requested only when the user performs an action —
-     sign-in, check-in or check-out;
-   • denial, timeout or an unsupported browser resolves to `null`
-     and the action still completes, just without a location.
-
-   In production the result is the payload a real backend would
-   persist per event: latitude, longitude, accuracy, captured-at
-   timestamp and the action reference (see README).
-   ============================================================ */
-import type { GeoActivityKind, GeoPoint } from '@/types';
-import { niceDate } from '@/lib/date';
-
-export type CaptureReason = 'ok' | 'denied' | 'unavailable' | 'timeout' | 'unsupported';
-
-export interface CaptureResult {
-  point: GeoPoint | null;
-  reason: CaptureReason;
-}
-
-export function geoSupported(): boolean {
-  return typeof navigator !== 'undefined' && 'geolocation' in navigator;
-}
-
 /* ---- cached location for instant check-in ---- */
 
 /** Last successful fix, reused so check-in can fire immediately on click. */
@@ -110,15 +76,12 @@ export function prefetchLocation(): void {
  * 5-minute maximum cache age so a recent fix can be reused instantly.
  */
 export function captureLocation(timeoutMs = 4000): Promise<CaptureResult> {
-  const t0 = Date.now();
   if (!geoSupported()) {
-    GEO_TIMING('unsupported', t0);
     return Promise.resolve({ point: null, reason: 'unsupported' });
   }
   return new Promise((resolve) => {
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        GEO_TIMING('position-fix', t0);
         cachedFix = {
           point: {
             lat: Number(pos.coords.latitude.toFixed(6)),
@@ -134,7 +97,6 @@ export function captureLocation(timeoutMs = 4000): Promise<CaptureResult> {
         });
       },
       (err) => {
-        GEO_TIMING('position-error', t0);
         const reason: CaptureReason =
           err.code === err.PERMISSION_DENIED
             ? 'denied'

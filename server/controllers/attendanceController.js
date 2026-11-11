@@ -158,8 +158,6 @@ exports.me = catchAsync(async (req, res) => {
 
 /* ---- POST /api/attendance/check-in — mandatory check-in ---- */
 exports.checkIn = catchAsync(async (req, res) => {
-  const t0 = Date.now();
-
   // Run independent lookups in parallel: employee, today's attendance, settings.
   const [me, rec, settings] = await Promise.all([
     Employee.findOne({
