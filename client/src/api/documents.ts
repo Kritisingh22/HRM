@@ -49,6 +49,22 @@ export async function fetchDocumentBlob(
   };
 }
 
+/** Fetch one stored document by its public reference (DOC-YYYY-NNNNNN). */
+export async function fetchDocumentByReference(
+  referenceId: string,
+  opts: { download?: boolean; fallbackName?: string } = {},
+): Promise<DocumentBlob> {
+  const qs = opts.download ? '?download=1' : '';
+  const res = await apiRequest(`/api/documents/reference/${encodeURIComponent(referenceId)}/download${qs}`);
+  const blob = await res.blob();
+  return {
+    blob,
+    filename:
+      filenameFromHeader(res.headers.get('Content-Disposition')) ?? opts.fallbackName ?? `document-${referenceId}`,
+    mimeType: res.headers.get('Content-Type') ?? blob.type ?? 'application/octet-stream',
+  };
+}
+
 /** Open a stored document inline in a new tab (blob URL — never a Drive link). */
 export async function openDocument(id: string, fallbackName?: string): Promise<void> {
   const { blob } = await fetchDocumentBlob(id, { fallbackName });

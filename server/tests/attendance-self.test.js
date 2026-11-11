@@ -97,7 +97,7 @@ const empIdOf = (row) => String(row.employee && row.employee._id ? row.employee.
     const before = await api("GET", "/api/attendance/me", { access: empA.access });
     ok("3. employee A starts with no attendance row for today", !todayRow(before.body.attendance));
 
-    const inA = await api("POST", "/api/attendance/check-in", { access: empA.access });
+    const inA = await api("POST", "/api/attendance/check-in", { access: empA.access, body: { consentGiven: true, lat: 28.6139, lng: 77.209, accuracy: 10 } });
     const recA = inA.body.attendance || {};
     ok(
       "4. check-in → 201 with a server timestamp for today",
@@ -109,7 +109,7 @@ const empIdOf = (row) => String(row.employee && row.employee._id ? row.employee.
       JSON.stringify(recA).slice(0, 200),
     );
 
-    const dupIn = await api("POST", "/api/attendance/check-in", { access: empA.access });
+    const dupIn = await api("POST", "/api/attendance/check-in", { access: empA.access, body: { consentGiven: true, lat: 28.6139, lng: 77.209 } });
     ok("5. duplicate check-in → 409", dupIn.status === 409);
 
     /* ---------------- identity comes from the token only ---------------- */
@@ -120,7 +120,7 @@ const empIdOf = (row) => String(row.employee && row.employee._id ? row.employee.
 
     const idor = await api("POST", "/api/attendance/check-in", {
       access: empB.access,
-      body: { employee: aId, status: "present", date: "2000-01-01", checkIn: "00:00" },
+      body: { consentGiven: true, lat: 28.6139, lng: 77.209, employee: aId, status: "present", date: "2000-01-01", checkIn: "00:00" },
     });
     const listA2 = await api("GET", "/api/attendance/me", { access: empA.access });
     const listB2 = await api("GET", "/api/attendance/me", { access: empB.access });
@@ -161,7 +161,7 @@ const empIdOf = (row) => String(row.employee && row.employee._id ? row.employee.
     /* ---------------- server-owned fields cannot be spoofed ---------------- */
     const hrIn = await api("POST", "/api/attendance/check-in", {
       access: hr.access,
-      body: { status: "wfh", checkIn: "00:00", checkOut: "23:59", date: "2000-01-01" },
+      body: { consentGiven: true, lat: 28.6139, lng: 77.209, status: "wfh", checkIn: "00:00", checkOut: "23:59", date: "2000-01-01" },
     });
     const recHr = hrIn.body.attendance || {};
     ok(

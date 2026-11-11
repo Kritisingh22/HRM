@@ -11,6 +11,7 @@ import { FloatingActions } from '@/components/layout/FloatingActions';
 import { Icon } from '@/components/ui/Icon';
 import { useAuth } from '@/context/AuthContext';
 import { PATH_PAGE, pageLabel } from '@/data/nav';
+import { AttendanceGate } from '@/components/attendance/AttendanceGate';
 
 const RAIL_KEY = 'cyethackHRM.rail';
 
@@ -135,10 +136,15 @@ function WelcomeBar() {
 
 export function AppShell() {
   const location = useLocation();
-  const { user } = useAuth();
+  const { user, status, checkedInToday, hasOpenSession, fetchAttendanceState } = useAuth();
   const contentRef = useRef<HTMLElement>(null);
   const [rail, setRail] = useState(initialRail);
   const [drawer, setDrawer] = useState(false);
+
+  /* Ensure attendance state is loaded once the shell mounts. */
+  useEffect(() => {
+    if (user) void fetchAttendanceState();
+  }, [user, fetchAttendanceState]);
 
   /* The topbar title follows the portal: a manager reads "My Team",
      an employee "My Attendance" — same table as the sidebar. */
@@ -178,6 +184,15 @@ export function AppShell() {
       </div>
       {drawer ? <div className="mobile-scrim" onClick={() => setDrawer(false)} aria-hidden="true" /> : null}
       <FloatingActions />
+
+      {/* Mandatory check-in gate — blocks the portal until checked in today. */}
+      {user && status === 'authenticated' && !checkedInToday ? (
+        <AttendanceGate
+          checkedInToday={checkedInToday}
+          hasOpenSession={hasOpenSession}
+          onCheckInComplete={() => void fetchAttendanceState()}
+        />
+      ) : null}
     </div>
   );
 }

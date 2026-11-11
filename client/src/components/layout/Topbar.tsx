@@ -12,6 +12,7 @@ import { useApp } from '@/store/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
 import { useTheme } from '@/context/ThemeContext';
+import { ActiveTimer } from '@/components/attendance/ActiveTimer';
 import { DAYS_LONG, dateFromMs, durationFromMs, niceDate, timeFromMs, toISO, todayISO } from '@/lib/date';
 import { PAGE_PATH } from '@/data/nav';
 import type { LoginSessionRecord } from '@/types';
@@ -242,6 +243,8 @@ export function Topbar({ page, onOpenDrawer }: TopbarProps) {
             ) : null}
           </div>
         ) : null}
+
+        <ActiveTimer />
 
         <div className="menu-anchor">
           <button

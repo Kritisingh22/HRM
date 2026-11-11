@@ -391,6 +391,8 @@ export interface DocumentRecord {
   size?: number;
   /** `missing` when the stored bytes are gone; `deleted` for archived records */
   uploadStatus?: 'active' | 'missing' | 'deleted';
+  /** Public reference (DOC-YYYY-NNNNNN) — download by reference instead of by record id. */
+  referenceId?: string;
 }
 
 export interface Announcement {
@@ -533,7 +535,7 @@ export interface LeaveRequest {
   decidedAt?: string | null;
 }
 
-export type AttendanceStatus = 'present' | 'absent' | 'halfday' | 'wfh' | 'leave';
+export type AttendanceStatus = 'present' | 'absent' | 'halfday' | 'half-day' | 'wfh' | 'leave' | 'outside-location';
 
 export interface AttendanceRecord {
   status: AttendanceStatus;
@@ -545,6 +547,89 @@ export interface AttendanceRecord {
   lateBy?: string;
   earlyOut?: string;
   overtime?: string;
+}
+
+/* ---------------- Mandatory attendance (server-backed) ---------------- */
+
+/** Payload for POST /api/attendance/check-in */
+export interface AttendanceCheckInPayload {
+  consentGiven: boolean;
+  lat: number;
+  lng: number;
+  accuracy?: number;
+}
+
+/** One heartbeat-derived session segment. */
+export interface AttendanceSession {
+  start: string;
+  end: string | null;
+  state: 'active' | 'paused';
+  reason: string;
+}
+
+/** One pause/resume/lifecycle event. */
+export interface AttendanceEvent {
+  type: 'pause' | 'resume' | 'check-in' | 'check-out' | 'offline';
+  reason: string;
+  at: string;
+  details?: Record<string, unknown>;
+}
+
+/** Geofence + session configuration (HR-managed). */
+export interface AttendanceSettings {
+  _id?: string;
+  officeLat: number | null;
+  officeLng: number | null;
+  radiusMeters: number;
+  workStart: string;
+  workEnd: string;
+  minActiveHours: number;
+  blockOutsideLocation: boolean;
+  idleMinutes: number;
+  heartbeatIntervalSeconds: number;
+  sessionTimeoutSeconds: number;
+  updatedBy?: string;
+  updatedAt?: string;
+}
+
+/** Server row for /api/attendance/me and /api/attendance list. */
+export interface AttendanceRow {
+  id: string;
+  employee: string;
+  date: string;
+  status: AttendanceStatus;
+  checkIn?: string;
+  checkOut?: string;
+  checkInDetail?: {
+    lat: number;
+    lng: number;
+    accuracy?: number;
+    ip: string;
+    device: string;
+    capturedAt: string;
+  };
+  checkOutDetail?: {
+    lat?: number;
+    lng?: number;
+    accuracy?: number;
+    ip: string;
+    device: string;
+    capturedAt: string;
+  };
+  activeSeconds: number;
+  pausedSeconds: number;
+  lastHeartbeatAt?: string;
+  geofence?: { inRange: boolean; distanceMeters: number };
+  consentGiven: boolean;
+  sessions?: AttendanceSession[];
+}
+
+/** Response from POST /api/attendance/heartbeat. */
+export interface AttendanceHeartbeatResponse {
+  attendance: AttendanceRow;
+  activeSeconds: number;
+  pausedSeconds: number;
+  status: AttendanceStatus;
 }
 
 export interface Holiday {

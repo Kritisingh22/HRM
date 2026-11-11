@@ -16,7 +16,7 @@ export function can(role: Role | undefined, action: string): boolean {
       'payslipRequests:*', 'tasks:read', 'tasks:write', 'tasks:approve'],
     HR: ['employees:read', 'employees:write', 'employees:delete',
       'leaves:read', 'leaves:write', 'leaves:approve',
-      'attendance:read', 'attendance:write',
+      'attendance:read', 'attendance:write', 'attendance:settings',
       'payroll:read', 'payroll:write',
       'hiring:read', 'hiring:write', 'hiring:delete',
       'performance:read', 'performance:write',

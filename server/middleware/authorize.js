@@ -17,13 +17,9 @@ function requireRole(...roles) {
 // require a specific "<resource>:<action>" permission
 function requirePermission(permission) {
   return (req, res, next) => {
-    console.log(`[requirePermission] Checking permission: ${permission} for user: ${req.user?.email} role: ${req.user?.role}`);
-    console.log(`[requirePermission] User permissions: ${JSON.stringify(req.user?.permissions)}`);
     if (!req.user || !userHasPermission(req.user, permission)) {
-      console.log(`[requirePermission] Permission denied for ${permission}`);
       return next(ApiError.forbidden('You do not have permission to perform this action.'));
     }
-    console.log(`[requirePermission] Permission granted for ${permission}`);
     next();
   };
 }

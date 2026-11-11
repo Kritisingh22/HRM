@@ -36,8 +36,10 @@ export const ATTENDANCE_META: Record<AttendanceStatus, { label: string; color: s
   present: { label: 'Present', color: '#22C55E' },
   absent: { label: 'Absent', color: '#EF4444' },
   halfday: { label: 'Half Day', color: '#F97316' },
+  'half-day': { label: 'Half Day', color: '#F97316' },
   wfh: { label: 'Work From Home', color: '#8B5CF6' },
   leave: { label: 'Leave', color: '#F59E0B' },
+  'outside-location': { label: 'Outside Location', color: '#EF4444' },
 };
 
 /** Status colours used by calendar chips/dots, matching the ported design tones. */

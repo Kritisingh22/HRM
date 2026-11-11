@@ -215,6 +215,25 @@ const PNG_BYTES_2 = Buffer.concat([
       access: empB.access,
     });
     ok("7. cross-employee private download → 403 (IDOR blocked)", dlB.status === 403);
+
+    // ---- cross-employee payslip download -----------------------------------
+    const rohithSlip = await Payroll.findOne({ employee: A.emp._id }).sort({ period: -1 });
+    ok("7b. seeded payslip exists for rohith", !!rohithSlip);
+    const dlForeignSlip = await apiRaw("GET", `/api/payroll/${rohithSlip._id}/download`, {
+      access: empB.access,
+    });
+    ok(
+      "7c. employee cannot download another employee's payslip → 403",
+      dlForeignSlip.status === 403,
+    );
+    const dlForeignSlipPdf = await apiRaw("GET", `/api/payroll/${rohithSlip._id}/payslip/pdf`, {
+      access: empB.access,
+    });
+    ok(
+      "7d. employee cannot view another employee's payslip PDF → 403",
+      dlForeignSlipPdf.status === 403,
+    );
+
     const listA = await apiJson("GET", "/api/documents", { access: empA.access });
     const listB0 = await apiJson("GET", "/api/documents", { access: empB.access });
     ok(

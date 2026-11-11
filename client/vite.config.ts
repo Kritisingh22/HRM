@@ -57,10 +57,9 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    /* 'hidden' generates source maps but omits the sourceMappingURL comment
-       from the built JS/CSS, so they are not publicly referenced. Upload the
-       .map files to your error tracker separately if desired. */
-    sourcemap: 'hidden',
+    /* Source maps are disabled for production builds so build output contains
+       only minified assets (no .map files, no source references). */
+    sourcemap: false,
     /* esbuild minification is on by default in production; make it explicit. */
     cssMinify: 'esbuild',
     /* Split CSS per chunk so lazy route chunks only pull their own styles. */

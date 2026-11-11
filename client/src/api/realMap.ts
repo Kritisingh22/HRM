@@ -508,6 +508,7 @@ export function mapDocument(d: Raw): DocumentRecord {
     size: typeof d.size === 'number' ? d.size : undefined,
     uploadStatus:
       d.uploadStatus === 'missing' || d.uploadStatus === 'deleted' ? d.uploadStatus : 'active',
+    referenceId: typeof d.referenceId === 'string' && d.referenceId ? d.referenceId : undefined,
   };
 }
 

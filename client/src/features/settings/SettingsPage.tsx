@@ -2,7 +2,7 @@
    Settings — role matrix, HR configuration (departments,
    designations, holidays) and workspace options.
    ============================================================ */
-import { Fragment, useState } from 'react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
 import { Icon } from '@/components/ui/Icon';
 import { Modal } from '@/components/ui/Modal';
 import { ResourceView, type FieldDef } from '@/components/ui/ResourceView';
@@ -16,7 +16,9 @@ import { isApiSession } from '@/api/client';
 import { DEMO_CREDENTIALS } from '@/api/mockServer';
 import { deptName, empName } from '@/lib/lookups';
 import { niceDate, todayISO } from '@/lib/date';
-import type { Department, Designation, Holiday } from '@/types';
+import type { Department, Designation, Holiday, AttendanceSettings } from '@/types';
+import { getAttendanceSettings, updateAttendanceSettings } from '@/api/attendance';
+import { attendanceErrorMessage } from '@/api/attendance';
 
 type TabKey = 'roles' | 'config' | 'workspace';
 
@@ -33,7 +35,10 @@ export function SettingsPage() {
   const { toast } = useToast();
   const [tab, setTab] = useState<TabKey>('roles');
   const [confirmReset, setConfirmReset] = useState(false);
-  const [subTab, setSubTab] = useState<'departments' | 'designations' | 'holidays'>('departments');
+  const [subTab, setSubTab] = useState<'departments' | 'designations' | 'holidays' | 'attendance'>('departments');
+  const [attSettings, setAttSettings] = useState<AttendanceSettings | null>(null);
+  const [attLoading, setAttLoading] = useState(false);
+  const [attBusy, setAttBusy] = useState(false);
 
   /* ---------------- config CRUD ---------------- */
   const departmentForm: FieldDef[] = [
@@ -127,6 +132,47 @@ export function SettingsPage() {
     }
     audit('Holiday saved', `${values.name} · ${values.date}`);
   };
+
+  /* ---------------- attendance config (HR) ---------------- */
+  const loadAttSettings = useCallback(async () => {
+    if (user?.role !== 'HR' && user?.role !== 'MANAGER' && user?.role !== 'ADMIN' && user?.role !== 'SUPER_ADMIN') return;
+    setAttLoading(true);
+    try {
+      const data = await getAttendanceSettings();
+      setAttSettings(data.settings ?? null);
+    } catch {
+      setAttSettings(null);
+    } finally {
+      setAttLoading(false);
+    }
+  }, [user]);
+
+  const saveAttSettings = async (values: Record<string, string>) => {
+    setAttBusy(true);
+    try {
+      const data = await updateAttendanceSettings({
+        officeLat: values.officeLat ? Number(values.officeLat) : null,
+        officeLng: values.officeLng ? Number(values.officeLng) : null,
+        radiusMeters: values.radiusMeters ? Number(values.radiusMeters) : undefined,
+        workStart: values.workStart || undefined,
+        workEnd: values.workEnd || undefined,
+        minActiveHours: values.minActiveHours ? Number(values.minActiveHours) : undefined,
+        blockOutsideLocation: values.blockOutsideLocation === 'true',
+        idleMinutes: values.idleMinutes ? Number(values.idleMinutes) : undefined,
+      });
+      setAttSettings(data.settings);
+      toast('Attendance settings saved.', 'success');
+    } catch (err) {
+      toast(attendanceErrorMessage(err), 'error');
+    } finally {
+      setAttBusy(false);
+    }
+  };
+
+  /* Load attendance settings when the config tab opens. */
+  useEffect(() => {
+    if (tab === 'config' && subTab === 'attendance') void loadAttSettings();
+  }, [tab, subTab, loadAttSettings]);
 
   /* ---------------- workspace ---------------- */
   const exportJson = () => {
@@ -249,6 +295,11 @@ export function SettingsPage() {
                 <button className={`tab${subTab === 'holidays' ? ' active' : ''}`} onClick={() => setSubTab('holidays')} type="button">
                   Holidays ({data.holidays.length})
                 </button>
+                {(user?.role === 'HR' || user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN') && (
+                  <button className={`tab${subTab === 'attendance' ? ' active' : ''}`} onClick={() => setSubTab('attendance')} type="button">
+                    Attendance
+                  </button>
+                )}
               </div>
 
               {subTab === 'departments' ? (
@@ -311,6 +362,118 @@ export function SettingsPage() {
             </>
           ) : null}
 
+          {subTab === 'attendance' ? (
+            <section className="card span12">
+              <div className="card-head">
+                <div>
+                  <h2>Attendance & Geofence Settings</h2>
+                  <div className="sub">HR configures office location, radius, working hours and session rules.</div>
+                </div>
+                {attLoading ? (
+                  <span className="chip">Loading…</span>
+                ) : user?.role === 'HR' ? (
+                  <button className="btn btn-primary btn-sm" onClick={() => setSubTab('attendance')} type="button" disabled={attBusy}>
+                    {attBusy ? 'Saving…' : 'Refresh'}
+                  </button>
+                ) : null}
+              </div>
+
+              {attSettings ? (
+                <div className="form-2col" style={{ marginTop: 16 }}>
+                  <div className="field">
+                    <label htmlFor="att-office-lat">Office latitude</label>
+                    <input
+                      id="att-office-lat"
+                      className="input"
+                      type="number"
+                      step="any"
+                      value={attSettings.officeLat != null ? String(attSettings.officeLat) : ''}
+                      onChange={(e) => {}}
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="att-office-lng">Office longitude</label>
+                    <input
+                      id="att-office-lng"
+                      className="input"
+                      type="number"
+                      step="any"
+                      value={attSettings.officeLng != null ? String(attSettings.officeLng) : ''}
+                      onChange={(e) => {}}
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="att-radius">Radius (meters)</label>
+                    <input
+                      id="att-radius"
+                      className="input"
+                      type="number"
+                      value={String(attSettings.radiusMeters)}
+                      onChange={(e) => {}}
+                    />
+                    <div className="field-hint">Check-ins beyond this radius are flagged or blocked.</div>
+                  </div>
+                  <div className="field">
+                    <label htmlFor="att-work-start">Work start (HH:mm)</label>
+                    <input id="att-work-start" className="input" type="time" value={attSettings.workStart} onChange={(e) => {}} />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="att-work-end">Work end (HH:mm)</label>
+                    <input id="att-work-end" className="input" type="time" value={attSettings.workEnd} onChange={(e) => {}} />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="att-min-active">Minimum active hours (full day)</label>
+                    <input id="att-min-active" className="input" type="number" value={String(attSettings.minActiveHours)} onChange={(e) => {}} />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="att-block-outside">Block outside-location check-in</label>
+                    <select id="att-block-outside" className="input" value={String(attSettings.blockOutsideLocation)} onChange={(e) => {}}>
+                      <option value="true">Yes — block</option>
+                      <option value="false">No — flag only</option>
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label htmlFor="att-idle">Idle timeout (minutes)</label>
+                    <input id="att-idle" className="input" type="number" value={String(attSettings.idleMinutes)} onChange={(e) => {}} />
+                    <div className="field-hint">No mouse/keyboard → pause the timer.</div>
+                  </div>
+                  <div className="field">
+                    <label htmlFor="att-hb">Heartbeat interval (seconds)</label>
+                    <input id="att-hb" className="input" type="number" value={String(attSettings.heartbeatIntervalSeconds)} onChange={(e) => {}} />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="att-session-timeout">Session timeout (seconds)</label>
+                    <input id="att-session-timeout" className="input" type="number" value={String(attSettings.sessionTimeoutSeconds)} onChange={(e) => {}} />
+                    <div className="field-hint">No heartbeat → close session at last heartbeat.</div>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ marginTop: 16, color: 'var(--text-2)' }}>
+                  No attendance settings configured. Ask HR to set up the geofence.
+                </div>
+              )}
+
+              {user?.role === 'HR' && attSettings ? (
+                <div style={{ marginTop: 20 }}>
+                  <button
+                    className="btn btn-primary"
+                    onClick={() => {
+                      const vals: Record<string, string> = {};
+                      ['office-lat', 'office-lng', 'radius', 'work-start', 'work-end', 'min-active', 'block-outside', 'idle', 'hb', 'session-timeout'].forEach((id) => {
+                        const el = document.getElementById(`att-${id}`);
+                        if (el) vals[id] = (el as HTMLInputElement).value;
+                      });
+                      void saveAttSettings(vals);
+                    }}
+                    disabled={attBusy}
+                    type="button"
+                  >
+                    {attBusy ? 'Saving…' : 'Save settings'}
+                  </button>
+                </div>
+              ) : null}
+            </section>
+          ) : null}
           {tab === 'workspace' ? (
             <div className="grid">
               <section className="card span6">

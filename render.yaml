@@ -4,7 +4,7 @@ services:
     env: node
     region: oregon
     branch: main
-    buildCommand: npm --prefix client ci && npm --prefix client run build && npm --prefix server ci && cp -r client/dist/* server/public/
+    buildCommand: npm --prefix client ci && npm --prefix client run build && npm --prefix server ci && node scripts/sync-dist.js
     startCommand: npm --prefix server start
     envVars:
       - key: NODE_ENV
@@ -12,13 +12,15 @@ services:
       - key: PORT
         value: 10000
       - key: MONGODB_URI
-        fromDatabase:
-          name: cyethack-hrm-mongodb
-          property: connectionString
+        # Set manually — do not bind to a fromDatabase in this repo. Replace with
+        # your production MongoDB connection string (no real credentials below).
+        value: mongodb://127.0.0.1:27017/cyethack_hr
       - key: JWT_SECRET
         generateValue: true
+        sync: false
       - key: JWT_REFRESH_SECRET
         generateValue: true
+        sync: false
       - key: FRONTEND_URL
         value: https://cyethack-hrm-portal.onrender.com
       - key: FRONTEND_DIST
@@ -29,7 +31,22 @@ services:
         value: 15
       - key: SETUP_TOKEN
         generateValue: true
+        sync: false
       - key: PAYROLL_CURRENCY
         value: INR
+      - key: DOCUMENT_STORAGE
+        value: cloudflare-r2
+      - key: R2_ACCOUNT_ID
+        value: ""
+      - key: R2_ACCESS_KEY_ID
+        value: ""
+      - key: R2_SECRET_ACCESS_KEY
+        value: ""
+      - key: R2_BUCKET_NAME
+        value: ""
+      - key: R2_ENDPOINT
+        value: ""
+      - key: R2_REGION
+        value: auto
     healthCheckPath: /health
     autoDeploy: true

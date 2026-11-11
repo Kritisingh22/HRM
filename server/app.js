@@ -104,38 +104,32 @@ if (DIST_EXISTS) {
     })
   );
 
+  // Font files (/fonts/*): long-lived immutable cache. The self-hosted IBM Plex
+  // font binaries in client/public/fonts are immutable and referenced directly
+  // by the @font-face rules in client/index.html (plus the preload hint).
+  app.use(
+    '/fonts',
+    express.static(path.join(FRONTEND_DIST, 'fonts'), {
+      setHeaders: (res) => {
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      }
+    })
+  );
+
   // Other static files (robots.txt, favicon.ico, manifest.json, llms.txt, ai-catalog.json, etc.)
   app.use(express.static(FRONTEND_DIST));
 }
 
-// ---- Temporary request timing log (remove after measurement) ----
-// Logs every API request's duration so we can find slow endpoints.
-app.use((req, res, next) => {
-  if (!req.url.startsWith('/api')) return next();
-  const start = Date.now();
-  const originalSend = res.send;
-  res.send = function (body) {
-    try {
-      // eslint-disable-next-line no-console
-      console.log(`[API-TIMING] ${req.method} ${req.url} ${res.statusCode} ${Date.now() - start}ms`);
-    } catch {
-      /* ignore */
-    }
-    return originalSend.call(this, body);
-  };
-  next();
-});
-
 // API
 app.use('/api', apiLimiter, apiRoutes);
-
-// Serve uploaded files (payslips, documents) from <cwd>/uploads
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // ---- SPA fallback — index.html with no-cache ----
 // The HTML itself must always revalidate so deploys pick up the new asset
 // hashes. Hashed assets inside it are cached immutably (see /assets above).
 // Only serves index.html for GET requests to non-API paths without file extensions.
+// Uploaded files (payslips, documents) are NOT served here: they are private and
+// streamed only through the authenticated download routes (documentRoutes,
+// employeeDocumentRoutes, payrollRoutes) after object-level authorization.
 app.get(/^\/(?!api\/).*/, (req, res, next) => {
   if (req.method !== 'GET') return next();
 
@@ -147,7 +141,20 @@ app.get(/^\/(?!api\/).*/, (req, res, next) => {
   }
 
   if (!DIST_EXISTS) {
-    return res.status(503).json({ error: 'Frontend not built. Run the client build first.' });
+    // Dev shell when the frontend build output has not been (re)generated.
+    // server/public is build output (gitignored, cleaned on checkout) — the
+    // portal becomes fully functional once `npm --prefix ../client run build`
+    // has run and the server is restarted.
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    return res.send(
+      '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cyethack HRM Portal</title></head>' +
+      '<body><h2>Cyethack HRM Portal</h2><p>The frontend build output (server/public) is missing.</p>' +
+      '<p>Run <code>npm --prefix ../client run build</code> (or set FRONTEND_DIST) and restart the server.</p>' +
+      '<p>API endpoints remain available under <code>/api</code>.</p></body></html>',
+    );
   }
 
   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');

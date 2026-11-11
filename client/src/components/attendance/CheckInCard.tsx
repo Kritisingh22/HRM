@@ -7,7 +7,7 @@
    only when the browser allows location — a refusal never blocks
    the action, it just skips the record. No background tracking.
    ============================================================ */
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Icon } from '@/components/ui/Icon';
 import { isApiSession } from '@/api/client';
 import { useApp } from '@/store/AppContext';
@@ -18,12 +18,15 @@ import { clockNow, DAYS_LONG, isWeekendISO, niceDate, parseISO, todayISO } from 
 import {
   accuracyText,
   captureLocation,
+  clearCachedFix,
   coordText,
   GEO_KIND_LABELS,
+  getCachedFix,
   mapsUrl,
+  prefetchLocation,
   type CaptureReason,
 } from '@/lib/geo';
-import type { AttendanceRecord } from '@/types';
+import type { AttendanceRecord, GeoPoint } from '@/types';
 
 export function CheckInCard() {
   const { data, dispatch, audit, logLocation } = useApp();
@@ -31,12 +34,19 @@ export function CheckInCard() {
   const { toast } = useToast();
   const [busy, setBusy] = useState<'in' | 'out' | null>(null);
   const [note, setNote] = useState('');
+  const [locating, setLocating] = useState(false);
 
   const empId = user?.employeeId ?? null;
   const today = todayISO();
   /* Real sessions: the server mints the timestamps and stores no
      per-action GPS — so no location prompt is raised here. */
   const api = isApiSession();
+
+  /* Prefetch a location fix on mount so it's ready before the user clicks. */
+  useEffect(() => {
+    if (!api) prefetchLocation();
+    return () => { /* no cleanup needed */ };
+  }, [api]);
 
   /* Nothing to check into on weekends or holidays. */
   if (!empId || !user) return null;
@@ -63,10 +73,36 @@ export function CheckInCard() {
   const checkIn = async () => {
     if (busy || onLeave) return;
     setBusy('in');
+    setLocating(true);
     setNote('');
-    const { point, reason } = api
-      ? { point: null, reason: 'ok' as CaptureReason }
-      : await captureLocation();
+    let point: GeoPoint | null = null;
+    let reason: CaptureReason = 'ok';
+    if (!api) {
+      /* Use cached fix if fresh (instant), otherwise try a fast fix. */
+      point = getCachedFix();
+      if (!point) {
+        try {
+          const res = await captureLocation(4000);
+          point = res.point;
+          reason = res.reason;
+        } catch {
+          reason = 'unavailable';
+        }
+        /* If the fast fix failed, retry once with a longer timeout —
+           but never block the check-in itself. */
+        if (!point) {
+          try {
+            const res = await captureLocation(12000);
+            point = res.point;
+            reason = res.reason;
+          } catch {
+            reason = 'unavailable';
+          }
+        }
+      } else {
+        clearCachedFix();
+      }
+    }
     const time = clockNow();
     const mins = parseClockMinutes(time);
     const rec: AttendanceRecord = {
@@ -80,6 +116,7 @@ export function CheckInCard() {
       logLocation({ kind: 'check-in', ref: key, employeeId: empId, email: user.email, ...point });
     }
     audit('Attendance check-in', `${today} · ${time}`, user.name);
+    setLocating(false);
     toast(
       api
         ? 'Checked in — the server recorded your time.'
@@ -95,10 +132,33 @@ export function CheckInCard() {
   const checkOut = async () => {
     if (busy || !record?.checkIn) return;
     setBusy('out');
+    setLocating(true);
     setNote('');
-    const { point, reason } = api
-      ? { point: null, reason: 'ok' as CaptureReason }
-      : await captureLocation();
+    let point: GeoPoint | null = null;
+    let reason: CaptureReason = 'ok';
+    if (!api) {
+      point = getCachedFix();
+      if (!point) {
+        try {
+          const res = await captureLocation(4000);
+          point = res.point;
+          reason = res.reason;
+        } catch {
+          reason = 'unavailable';
+        }
+        if (!point) {
+          try {
+            const res = await captureLocation(12000);
+            point = res.point;
+            reason = res.reason;
+          } catch {
+            reason = 'unavailable';
+          }
+        }
+      } else {
+        clearCachedFix();
+      }
+    }
     const time = clockNow();
     const rec: AttendanceRecord = { ...record, checkOut: time };
     const worked = durationText(record.checkIn, time);
@@ -108,6 +168,7 @@ export function CheckInCard() {
       logLocation({ kind: 'check-out', ref: key, employeeId: empId, email: user.email, ...point });
     }
     audit('Attendance check-out', `${today} · ${time}`, user.name);
+    setLocating(false);
     toast(
       api
         ? 'Checked out — the server recorded your time.'

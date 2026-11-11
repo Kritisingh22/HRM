@@ -10,6 +10,12 @@
     <style>
       /* Critical shell — inlined so the first paint shows the login card skeleton
          instead of a blank white screen while the main bundle loads. */
+      /* IBM Plex (self-hosted, /fonts/*) — preloaded 400 weight is used on first paint. */
+      @font-face{font-family:"IBM Plex Sans";font-style:normal;font-weight:400;font-display:swap;src:url("/fonts/ibm-plex-sans-latin-400-normal.woff2") format("woff2")}
+      @font-face{font-family:"IBM Plex Sans";font-style:normal;font-weight:500;font-display:swap;src:url("/fonts/ibm-plex-sans-latin-500-normal.woff2") format("woff2")}
+      @font-face{font-family:"IBM Plex Sans";font-style:normal;font-weight:600;font-display:swap;src:url("/fonts/ibm-plex-sans-latin-600-normal.woff2") format("woff2")}
+      @font-face{font-family:"IBM Plex Mono";font-style:normal;font-weight:500;font-display:swap;src:url("/fonts/ibm-plex-mono-latin-500-normal.woff2") format("woff2")}
+      @font-face{font-family:"IBM Plex Mono";font-style:normal;font-weight:600;font-display:swap;src:url("/fonts/ibm-plex-mono-latin-600-normal.woff2") format("woff2")}
       :root{--bg:#0f172a;--surface:#172238;--border:#243352;--text:#e6edf7;--text-2:#94a3b8;--muted:#64748b;--teal:#509888;--radius:12px}
       *{box-sizing:border-box;margin:0;padding:0}
       html,body,#root{height:100%;width:100%}

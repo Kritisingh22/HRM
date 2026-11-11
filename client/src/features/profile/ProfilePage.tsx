@@ -4,7 +4,7 @@
    Personal & job details, contact editing, this month's
    attendance, leave balance and personal documents.
    ============================================================ */
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Icon } from '@/components/ui/Icon';
 import { Modal } from '@/components/ui/Modal';
 import { Avatar, EmptyState, Pill, Progress } from '@/components/ui/primitives';
@@ -13,10 +13,14 @@ import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
 import { deptName, empName } from '@/lib/lookups';
 import { ATTENDANCE_META, attendanceOn, monthSummary } from '@/lib/attendance';
-import { daysInMonth, isWeekend, niceDate, pad, shortDate, todayISO, yearsSince } from '@/lib/date';
+import { daysInMonth, isWeekend, niceDate, pad, shortDate, todayISO, toISO, yearsSince } from '@/lib/date';
 import { accuracyText, capturedText, coordText, GEO_KIND_LABELS, mapsUrl } from '@/lib/geo';
 import { clampPct, money, pct } from '@/lib/format';
 import { PROFESSIONAL_TAX, salaryBreakdown } from '@/lib/payroll';
+import { apiRequest, isApiSession } from '@/api/client';
+import { apiUpload } from '@/api/services/http';
+import { downloadBlob, documentErrorMessage, fetchDocumentByReference, openDocument } from '@/api/documents';
+import type { DocumentRecord } from '@/types';
 
 export function ProfilePage() {
   const { data, dispatch, audit } = useApp();
@@ -39,6 +43,64 @@ export function ProfilePage() {
   );
 
   const now = new Date();
+  const api = isApiSession();
+  const [serverDocs, setServerDocs] = useState<DocumentRecord[]>([]);
+  const [docBusy, setDocBusy] = useState(false);
+  const [newDoc, setNewDoc] = useState<File | null>(null);
+
+  const refreshMyDocs = useCallback(async () => {
+    if (!api || !me) return;
+    try {
+      setDocBusy(true);
+      const res = await apiRequest('/api/documents');
+      const data = await res.json();
+      const rows = (data.documents || []).filter(
+        (d: any) => String(d.owner?.employeeId || d.employee?.employeeId) === me.id || d.visibility === 'all',
+      );
+      setServerDocs(
+        rows.map((d: any) => ({
+          id: String(d._id),
+          name: d.title || d.originalName || 'Document',
+          type: d.category || 'Other',
+          owner: d.owner?.employeeId ?? null,
+          uploaded: toISO(new Date(d.createdAt)),
+          status: d.verified ? 'Verified' : 'Pending',
+          mimeType: typeof d.mimeType === 'string' ? d.mimeType : undefined,
+          size: typeof d.size === 'number' ? d.size : undefined,
+          uploadStatus:
+            d.uploadStatus === 'missing' || d.uploadStatus === 'deleted' ? d.uploadStatus : 'active',
+          referenceId: typeof d.referenceId === 'string' ? d.referenceId : undefined,
+        })),
+      );
+    } catch {
+      /* best-effort: the documents panel stays empty on failure */
+    } finally {
+      setDocBusy(false);
+    }
+  }, [api, me]);
+
+  useEffect(() => {
+    void refreshMyDocs();
+  }, [refreshMyDocs]);
+
+  const uploadMyDoc = async (file: File) => {
+    setDocBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('title', file.name);
+      fd.append('category', 'Personal Document');
+      await apiUpload('POST', '/api/documents', fd);
+      setNewDoc(null);
+      await refreshMyDocs();
+      toast('Document uploaded.', 'success');
+    } catch (err) {
+      toast(documentErrorMessage(err), 'error');
+    } finally {
+      setDocBusy(false);
+    }
+  };
+
   const summary = useMemo(
     () => (me ? monthSummary(me.id, now.getFullYear(), now.getMonth(), ctx) : null),
     [me, ctx],
@@ -293,39 +355,121 @@ export function ProfilePage() {
         <div className="card-head">
           <div>
             <h2>My documents</h2>
-            <div className="sub">Documents HR has on file against your record</div>
+            <div className="sub">
+              {api ? 'Official documents on file against your record' : 'Documents HR has on file against your record'}
+            </div>
           </div>
-          <span className="chip">{myDocs.length}</span>
+          <span className="chip">{serverDocs.length}</span>
         </div>
-        {myDocs.length === 0 ? (
-          <EmptyState icon="fileText" title="No documents yet" sub="Letters and certificates shared by HR will appear here." />
+        {api ? (
+          <>
+            <div className="form-2col" style={{ marginBottom: 10 }}>
+              <input
+                id="pf-doc"
+                type="file"
+                className="input"
+                onChange={(e) => setNewDoc(e.target.files?.[0] ?? null)}
+              />
+              <button
+                className="btn btn-primary"
+                onClick={() => newDoc && void uploadMyDoc(newDoc)}
+                disabled={docBusy || !newDoc}
+                type="button"
+              >
+                {docBusy ? 'Uploading…' : 'Upload document'}
+              </button>
+            </div>
+            {serverDocs.length === 0 ? (
+              <EmptyState icon="fileText" title="No documents yet" sub="Uploaded documents and payslip archives appear here." />
+            ) : (
+              <div className="table-scroll">
+                <table className="data">
+                  <thead>
+                    <tr>
+                      <th>Document</th>
+                      <th>Type</th>
+                      <th>Uploaded</th>
+                      <th>Status</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {serverDocs.map((d) => (
+                      <tr key={d.id}>
+                        <td>
+                          <b>{d.name}</b>
+                        </td>
+                        <td>{d.type}</td>
+                        <td className="num">{niceDate(d.uploaded)}</td>
+                        <td>
+                          <Pill status={d.status} />
+                        </td>
+                        <td className="num">
+                          <button
+                            className="icon-btn"
+                            onClick={() => void openDocument(d.referenceId ?? d.id, d.name)}
+                            type="button"
+                            title="Open"
+                          >
+                            <Icon name="fileText" size={12} />
+                          </button>{' '}
+                          <button
+                            className="icon-btn"
+                            onClick={() => {
+                              void fetchDocumentByReference(d.referenceId ?? d.id, {
+                                download: true,
+                                fallbackName: d.name,
+                              }).then(({ blob, filename }) => downloadBlob(blob, filename));
+                            }}
+                            type="button"
+                            title="Download"
+                          >
+                            <Icon name="download" size={12} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <div className="card-foot">
+              Files stream through the HR server — downloads are authorised against your record every time.
+            </div>
+          </>
         ) : (
-          <div className="table-scroll">
-            <table className="data">
-              <thead>
-                <tr>
-                  <th>Document</th>
-                  <th>Type</th>
-                  <th>Uploaded</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {myDocs.map((d) => (
-                  <tr key={d.id}>
-                    <td>
-                      <b>{d.name}</b>
-                    </td>
-                    <td>{d.type}</td>
-                    <td className="num">{niceDate(d.uploaded)}</td>
-                    <td>
-                      <Pill status={d.status} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <>
+            {myDocs.length === 0 ? (
+              <EmptyState icon="fileText" title="No documents yet" sub="Letters and certificates shared by HR will appear here." />
+            ) : (
+              <div className="table-scroll">
+                <table className="data">
+                  <thead>
+                    <tr>
+                      <th>Document</th>
+                      <th>Type</th>
+                      <th>Uploaded</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {myDocs.map((d) => (
+                      <tr key={d.id}>
+                        <td>
+                          <b>{d.name}</b>
+                        </td>
+                        <td>{d.type}</td>
+                        <td className="num">{niceDate(d.uploaded)}</td>
+                        <td>
+                          <Pill status={d.status} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
         )}
 
         <div className="card-head" style={{ marginTop: 22 }}>
