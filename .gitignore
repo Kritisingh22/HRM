@@ -12,8 +12,6 @@ server/.env
 # Build output
 client/dist/
 client/build/
-server/public/assets/
-server/public/index.html
 
 # Uploaded files (runtime data, not source)
 server/uploads/*

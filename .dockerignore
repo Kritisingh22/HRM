@@ -10,7 +10,6 @@ server/node_modules
 client/dist
 client/build
 server/dist
-server/public
 
 # --- Environment files (never copy secrets into the image) ---
 .env

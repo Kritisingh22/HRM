@@ -48,7 +48,15 @@ npm install
 npm run dev                     # Vite on :5173, proxies /api to :5000
 
 # build (production output → server/public)
-npm --prefix client run build
+npm run build:client
+#   builds client/, wipes old server/public/assets + index.html, copies the new
+#   dist into server/public, strips .map files, and verifies index.html references.
+#
+# Deployment workflow:
+#   1) Make frontend changes in client/
+#   2) npm run build:client        (regenerates server/public)
+#   3) git add server/ && git commit   (commit the built frontend)
+#   4) deploy (Render builds `npm --prefix server ci` and serves the committed server/public)
 ```
 
 ## Tests
@@ -64,4 +72,8 @@ The suite also asserts an employee **cannot** download another employee's docume
 
 ## Deployment (Render)
 
-`render.yaml` builds the client (`npm --prefix client ci && npm --prefix client run build && cp -r client/dist/* server/public/`) then installs and starts the server. Set `MONGODB_URI` manually in the Render environment (or via the manifest) and provide `R2_*` credentials when using Cloudflare R2; never commit real secrets — `.env` files are gitignored.
+The frontend is built locally and committed inside `server/public`; Render only installs and starts the server.
+
+`render.yaml` runs `npm --prefix server ci` as the build command and `npm --prefix server start` to start. The start script runs `scripts/check-public.js`, which fails fast if `server/public/index.html` (or `FRONTEND_DIST`) is missing or references `/assets` files that do not exist — so a deploy never boots without a complete frontend.
+
+Set `MONGODB_URI` manually in the Render environment (or via the manifest) and provide `R2_*` credentials when using Cloudflare R2; never commit real secrets — `.env` files are gitignored.

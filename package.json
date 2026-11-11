@@ -7,7 +7,7 @@
     "build": "npm --prefix client ci && npm --prefix client run build && npm --prefix server ci && node scripts/sync-dist.js",
     "build:client": "npm --prefix client run build && node scripts/sync-dist.js",
     "sync:dist": "node scripts/sync-dist.js",
-    "guard:dist": "scripts/guard-frontend-dist.sh cyethack-hrm-portal:latest"
+    "guard:dist": "scripts/guard-frontend-dist.sh cyethack-hrm-portal:latest",
     "start": "npm --prefix server ci && node server/server.js",
     "dev": "npm --prefix server run dev & npm --prefix client run dev",
     "test": "npm --prefix server test"
