@@ -18,7 +18,9 @@ services:
       - mongo-data:/data/db
 
   server:
-    build: ./server
+    build:
+      context: .
+      dockerfile: Dockerfile
     restart: unless-stopped
     depends_on:
       - mongo

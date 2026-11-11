@@ -20,8 +20,8 @@ server/.env
 server/.env.*
 
 # --- Runtime data (uploads is a mounted volume in production) ---
-uploads/*
-!uploads/.gitkeep
+server/uploads/*
+!server/uploads/.gitkeep
 
 # --- Logs, test artifacts, reports, OS/editor cruft ---
 *.log
