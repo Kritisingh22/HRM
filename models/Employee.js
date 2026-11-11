@@ -25,7 +25,9 @@ const employeeSchema = new mongoose.Schema(
       enum: ['Male', 'Female', 'Other', 'Prefer not to say'],
     },
     department: { type: String, trim: true },
+    departmentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Department', index: true, default: null },
     designation: { type: String, trim: true },
+    designationId: { type: mongoose.Schema.Types.ObjectId, ref: 'Designation', index: true, default: null },
     manager: { type: String, trim: true }, // employeeId of the manager (mirrors portal data)
     employmentType: { type: String, default: 'Full-time' },
     workMode: {
@@ -66,3 +68,5 @@ const employeeSchema = new mongoose.Schema(
 );
 
 module.exports = mongoose.model('Employee', employeeSchema);
+
+employeeSchema.index({ employeeId: 1, user: 1 });

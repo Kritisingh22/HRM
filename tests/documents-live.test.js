@@ -264,7 +264,7 @@ const sha = (b) => crypto.createHash("sha256").update(b).digest("hex");
     });
     ok("L9b. payslip archived to real Drive → 201", arch.status === 201 && arch.body.document.category === "payslip");
     if (arch.status === 201) {
-      const archRec = await require("../models/EmployeeDocument")
+      const archRec = await require("../models/Document")
         .findById(arch.body.document._id)
         .select("driveFileId");
       created.push(archRec.driveFileId);

@@ -2,7 +2,7 @@
 const mongoose = require('mongoose');
 const Payroll = require('../models/Payroll');
 const Employee = require('../models/Employee');
-const EmployeeDocument = require('../models/EmployeeDocument');
+const Document = require('../models/Document');
 const SalaryStructure = require('../models/SalaryStructure');
 const Leave = require('../models/Leave');
 const WorkCalendarPolicy = require('../models/WorkCalendarPolicy');
@@ -630,11 +630,11 @@ exports.downloadPDF = catchAsync(async (req, res) => {
 
 /* ---------------- payslip archive (object storage) ---------------- */
 
-/** Generate + store the payslip PDF as a private, retained EmployeeDocument. */
+/** Generate + store the payslip PDF as a private, retained Document. */
 async function archivePayslipFor(req, slip) {
   const filename = payslipFilename(slip.employee.employeeId, slip.period);
   // Idempotent: reuse an existing active archive for this payslip.
-  const existing = await EmployeeDocument.findOne({
+  const existing = await Document.findOne({
     relatedModel: 'Payroll',
     relatedId: slip._id,
     uploadStatus: 'active',
@@ -663,20 +663,21 @@ async function archivePayslipFor(req, slip) {
   });
 
   try {
-    const document = await EmployeeDocument.create({
+    const document = await Document.create({
       _id: docId,
+      title: filename,
       employee: slip.employee._id,
+      owner: slip.employee._id,
+      scope: 'personal',
       type: `Payslip ${slip.period}`,
       category: 'payslip',
-      fileKey: put.key,
+      storageKey: put.key,
       storageProvider: put.provider,
-      driveFileId: put.driveFileId || undefined,
-      driveFolderId: put.folderId || undefined,
       checksum: put.checksum,
       retention: 'retain',
       originalName: filename,
       mimeType: 'application/pdf',
-      fileSize: put.size,
+      size: put.size,
       uploadedBy: req.user._id,
       uploaderRole: req.user.role,
       visibility: 'private',
@@ -731,10 +732,10 @@ exports.getArchiveStatus = catchAsync(async (req, res) => {
   res.json(status);
 });
 
-// Retry failed Google Drive upload for a payslip
+// Retry failed R2 upload for a payslip
 exports.retryDriveUpload = catchAsync(async (req, res) => {
-  const { retryDriveUpload } = require('../services/payslipArchive');
-  const result = await retryDriveUpload(req.params.id, req.user._id, req.user.role);
+  const { retryR2Upload } = require('../services/payslipArchive');
+  const result = await retryR2Upload(req.params.id, req.user._id, req.user.role);
   res.json(result);
 });
 

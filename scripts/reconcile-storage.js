@@ -29,7 +29,6 @@ function modelSpecs() {
   /* eslint-disable global-require */
   return [
     { name: 'Document', model: require('../models/Document'), keyField: 'storageKey', statusField: 'uploadStatus' },
-    { name: 'EmployeeDocument', model: require('../models/EmployeeDocument'), keyField: 'fileKey', statusField: 'uploadStatus' },
     { name: 'Certification', model: require('../models/Certification'), keyField: 'certificateFileKey', statusField: null },
   ];
   /* eslint-enable global-require */

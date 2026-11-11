@@ -1,6 +1,10 @@
 /* Verifies the Bearer access token on protected routes and attaches the live
  * user (from the DB) to req.user. The identity ALWAYS comes from the verified
- * token + database — never from anything the client claims in the body. */
+ * token + database — never from anything the client claims in the body.
+ *
+ * Selects only the fields needed downstream (_id, employeeId, role, status)
+ * and uses .lean() to avoid Mongoose document hydration overhead.
+ */
 const { verifyAccessToken } = require('../utils/tokens');
 const User = require('../models/User');
 const ApiError = require('../utils/ApiError');
@@ -19,7 +23,7 @@ module.exports = catchAsync(async (req, res, next) => {
     throw ApiError.unauthorized('Invalid access token.');
   }
 
-  const user = await User.findById(payload.sub);
+  const user = await User.findById(payload.sub).select('_id employeeId role status').lean();
   if (!user) throw ApiError.unauthorized('User no longer exists.');
   if (user.status !== 'active') throw ApiError.forbidden('This account is not active.');
 

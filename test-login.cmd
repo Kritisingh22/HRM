@@ -1,1 +1,0 @@
-curl.exe -v -X POST http://127.0.0.1:5000/api/auth/login -H "Content-Type: application/json" -d "{\"email\":\"rohith.sai@cyethack.com\",\"password\":\"GangCY0525RS109\"}"

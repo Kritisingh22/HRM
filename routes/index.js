@@ -30,6 +30,8 @@ router.use('/sessions', require('./sessionRoutes'));
 router.use('/dashboard', require('./dashboardRoutes'));
 router.use('/bootstrap', require('./bootstrapRoutes'));
 router.use('/todos', require('./todoRoutes'));
+router.use('/departments', require('./departments'));
+router.use('/designations', require('./designations'));
 
 // New routes for enhanced HRM features
 router.use('/leave-types', require('./leaveTypeRoutes'));

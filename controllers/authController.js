@@ -25,7 +25,7 @@ const DUMMY_PASSWORD_HASH = bcrypt.hashSync('cyethack-timing-equalizer', cfg.BCR
 function baseCookieOptions() {
   return {
     httpOnly: true,
-    sameSite: cfg.isProd ? 'none' : 'lax',  // 'none' for cross-site in prod (requires secure), 'lax' for dev
+    sameSite: 'strict',                       // refresh cookie is same-site only
     secure: cfg.isProd,          // HTTPS-only in production
     path: '/api'                 // cookie sent to all API routes for token refresh
   };

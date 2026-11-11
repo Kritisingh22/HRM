@@ -42,7 +42,9 @@ const PERMISSIONS = {
     'notifications:read',
     'requirements:*', 'transfers:*',
     'payslipRequests:read', 'payslipRequests:create', 'payslipRequests:review',
-    'tasks:read', 'tasks:write'
+    'tasks:read', 'tasks:write',
+    'attendance:settings',
+    'resources:write'
   ],
 
   MANAGER: [
@@ -70,6 +72,7 @@ const PERMISSIONS = {
     // team-scoped operational reads
     'offboarding:read',
     'trainingAssignments:read',
+    'resources:write'
   ],
 
   EMPLOYEE: [
