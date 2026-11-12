@@ -43,6 +43,18 @@ k6 version
 
 For other operating systems, use the official [k6 installation guide](https://grafana.com/docs/k6/latest/set-up/install-k6/). No npm dependency is required.
 
+## Isolated local smoke tests
+
+The local helper uses the repository's existing `mongodb-memory-server` dependency and starts a fresh, disposable MongoDB plus the real Express app on a dynamically assigned loopback port. It creates cryptographically random synthetic accounts for the run, then removes the ignored credential file and shuts down both processes. It never uses the app already running on port 5000 or any configured external MongoDB.
+
+```powershell
+node .\tests\performance\scripts\run-local.js smoke
+node .\tests\performance\scripts\run-local.js authentication
+node .\tests\performance\scripts\run-local.js baseline
+```
+
+Each invocation gets its own fresh login-rate-limit state. The local baseline is capped at 20 VUs to respect the existing 20-logins-per-IP/15-minute rule; this helper does not disable that limit. The current source tree must boot successfully for these tests; the harness reports startup errors without changing application routes.
+
 ## Environment and test accounts
 
 1. Start the app and MongoDB against an isolated local test database. For remote staging, get approval from the staging owner and set the explicit staging guard below.
