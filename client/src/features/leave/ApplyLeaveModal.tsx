@@ -38,7 +38,7 @@ export function ApplyLeaveModal({ presetDate, onClose }: ApplyLeaveModalProps) {
   const [halfDay, setHalfDay] = useState(false);
   const [reason, setReason] = useState('');
   const [contact, setContact] = useState('');
-  const [approvalAuthority, setApprovalAuthority] = useState('Manager');
+  const [approvalAuthority, setApprovalAuthority] = useState<'Manager' | 'HR' | 'Admin' | 'Super Admin'>('Manager');
   const [errors, setErrors] = useState<string[]>([]);
   const [invalid, setInvalid] = useState<Record<string, boolean>>({});
 
@@ -228,10 +228,12 @@ export function ApplyLeaveModal({ presetDate, onClose }: ApplyLeaveModalProps) {
         <select
           id="alApprovalAuthority"
           value={approvalAuthority}
-          onChange={(e) => setApprovalAuthority(e.target.value)}
+          onChange={(e) => setApprovalAuthority(e.target.value as 'Manager' | 'HR' | 'Admin' | 'Super Admin')}
         >
           <option value="Manager">Manager</option>
           <option value="HR">HR</option>
+          <option value="Admin">Admin</option>
+          <option value="Super Admin">Super Admin</option>
         </select>
         <div className="err">Select approval authority.</div>
       </div>

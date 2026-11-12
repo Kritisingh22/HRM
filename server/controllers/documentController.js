@@ -1,14 +1,18 @@
-/* Documents API — real file upload/download backed by the configured object
- * storage provider (Google Drive or local disk), with object-level access.
- *  - Admin/Super Admin: all documents.
- *  - HR: shared ('all') documents plus documents of employees within their
- *    scope (assigned + live access-request grants).
- *  - Everyone else: shared ('all') documents plus their own.
+/* Documents API — the single document register (Document model, merged from the
+ * old Document + EmployeeDocument models). Bytes live in the configured object
+ * storage provider (local disk / Google Drive / Cloudflare R2); MongoDB keeps
+ * metadata + the file key only.
+ *
+ *  - Admin / Super Admin: all documents.
+ *  - HR: shared ('all') documents + documents of employees within their scope
+ *    (assigned employees + live access-request grants).
+ *  - Everyone else: shared ('all') documents plus their own (owner or subject).
  * Uploads are forced to self + private unless the caller has documents:write
  * (HR scopes the owner to their employees; admin may file for any employee or
  * company-wide). Bytes are streamed through this controller after
- * authorisation — raw paths, Drive IDs and credentials are never exposed.
+ * authorisation — raw paths, Drive IDs, R2 keys and credentials are never exposed.
  * Deleting archives the record; retained categories keep their stored bytes.
+ * Download by public reference: GET /api/documents/reference/:referenceId/download
  */
 const crypto = require("crypto");
 const mongoose = require("mongoose");
@@ -21,6 +25,7 @@ const { userHasPermission } = require("../utils/permissions");
 const { putObject, getObjectStream, removeObject } = require("../services/storage");
 const { bytesMatchDeclared } = require("../middleware/upload");
 const { contentDisposition } = require("../utils/contentDisposition");
+const { teamEmployeeIds } = require("../utils/teamScope");
 
 const SEES_ALL = ["ADMIN", "SUPER_ADMIN"];
 const CATEGORIES = Document.schema.path("category").enumValues;
@@ -28,26 +33,46 @@ const VISIBILITIES = ["private", "hr", "all"];
 const VIEWABLE = ["application/pdf", "image/png", "image/jpeg", "image/jpg", "image/gif", "text/plain"];
 // Payroll / HR records that must be retained: delete archives the metadata but
 // keeps the stored bytes (soft-delete instead of permanent removal).
-const RETAIN_CATEGORIES = new Set(["Payslip", "Contract", "ID Proof", "HR Manual", "Policy", "Circular Document", "Company Document"]);
+const RETAIN_CATEGORIES = new Set(["Payslip", "payslip", "Contract", "ID Proof", "id_proof", "HR Manual", "hr_manual", "Policy", "policy", "Circular Document", "Company Document"]);
 
 async function myEmployee(user) {
   return Employee.findOne({
     $or: [{ user: user._id }, { employeeId: user.employeeId }],
   });
 }
-// Shared scoping (single source of truth — see utils/teamScope.js). Also picks
-// up any live approved access-request grant.
-const { teamEmployeeIds } = require("../utils/teamScope");
-async function hrScopeFilter(user) {
-  const allowed = await teamEmployeeIds(user);
-  return { $or: [{ visibility: "all" }, { owner: { $in: allowed } }] };
-}
-// True if this document's owner is within the caller's scope (self, assigned
-// employees, or a live access-request grant).
-async function ownerInScope(user, ownerId) {
-  if (!ownerId) return false;
+// True if `employeeId` (an Employee _id) is within the caller's team scope
+// (assigned employees, also picking up live approved access-request grants).
+async function ownerInScope(user, employeeObjectId) {
+  if (!employeeObjectId) return false;
   const ids = await teamEmployeeIds(user);
-  return ids.some((id) => String(id) === String(ownerId));
+  return ids.some((id) => String(id) === String(employeeObjectId));
+}
+
+// Object-level access check for a single document, shared by download routes.
+function idOf(v) {
+  if (v == null) return v;
+  if (typeof v === 'object' && v._id) return String(v._id);
+  return String(v);
+}
+
+async function canAccessDocument(user, doc) {
+  if (!doc) return false;
+  if (SEES_ALL.includes(user.role)) return true;
+  if (doc.uploadedBy && idOf(doc.uploadedBy) === idOf(user._id)) return true;
+
+  const me = await myEmployee(user);
+  const isSubject = doc.employee && me && idOf(doc.employee) === idOf(me._id);
+  const isOwner = doc.owner && me && idOf(doc.owner) === idOf(me._id);
+  if (isSubject || isOwner) return true;
+  if (doc.visibility === "all") return true;
+
+  if (user.role === "HR") {
+    if (doc.visibility === "hr") return true;
+    if ((doc.owner && (await ownerInScope(user, doc.owner))) || (doc.employee && (await ownerInScope(user, doc.employee)))) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function slugName(name) {
@@ -64,6 +89,12 @@ function escapeRegex(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function streamDocument(res, doc) {
+  res.setHeader("Content-Type", doc.mimeType || "application/octet-stream");
+  if (doc.size) res.setHeader("Content-Length", String(doc.size));
+  res.setHeader("Content-Disposition", contentDisposition(doc.originalName, true));
+}
+
 exports.list = catchAsync(async (req, res) => {
   // Check permission
   if (
@@ -78,19 +109,28 @@ exports.list = catchAsync(async (req, res) => {
     SEES_ALL.includes(req.user.role) &&
     userHasPermission(req.user, "documents:read")
   ) {
-    // Admin/Super Admin with permission: see all
+    // Admin/Super Admin with permission: see all (filter stays empty)
   } else if (req.user.role === "HR") {
-    filter = await hrScopeFilter(req.user);
+    const allowed = await teamEmployeeIds(req.user);
+    filter = {
+      $or: [
+        { visibility: "all" },
+        { owner: { $in: allowed } },
+        { employee: { $in: allowed } },
+      ],
+    };
   } else if (!SEES_ALL.includes(req.user.role)) {
     const me = await myEmployee(req.user);
     const or = [{ visibility: "all" }];
-    if (me) or.push({ owner: me._id });
+    if (me) {
+      or.push({ owner: me._id }, { employee: me._id });
+    }
     filter = { $or: or };
   } else {
     // HR without documents:read permission - see only public + own
     const me = await myEmployee(req.user);
     const or = [{ visibility: "all" }];
-    if (me) or.push({ owner: me._id });
+    if (me) or.push({ owner: me._id }, { employee: me._id });
     filter = { $or: or };
   }
 
@@ -105,6 +145,7 @@ exports.list = catchAsync(async (req, res) => {
 
   const docs = await Document.find(filter)
     .populate("owner", "employeeId fullName")
+    .populate("employee", "employeeId fullName")
     .populate("uploadedBy", "fullName")
     .sort({ createdAt: -1 })
     .limit(500);
@@ -134,12 +175,15 @@ exports.upload = catchAsync(async (req, res) => {
 
   const canWriteAll = userHasPermission(req.user, "documents:write");
   let owner;
+  let employee;
   let visibility = VISIBILITIES.includes(req.body.visibility) ? req.body.visibility : "private";
 
   if (!canWriteAll) {
     // Own documents only, always private.
     const me = await myEmployee(req.user);
-    owner = me ? me._id : undefined;
+    if (!me) throw ApiError.badRequest('No employee record is linked to your account.');
+    owner = me._id;
+    employee = me._id;
     visibility = "private";
   } else if (SEES_ALL.includes(req.user.role)) {
     // Admin may file a document for any employee (validated) or company-wide.
@@ -147,20 +191,25 @@ exports.upload = catchAsync(async (req, res) => {
       const exists = await Employee.findById(req.body.owner).select("_id");
       if (!exists) throw ApiError.badRequest("Owner employee not found.");
       owner = exists._id;
+      employee = exists._id;
     }
   } else {
-    // HR: the owner must be within their permitted employee scope.
+    // HR: the owner/subject must be within their permitted employee scope.
     const ids = await teamEmployeeIds(req.user);
     if (req.body.owner) {
       if (!ids.some((id) => String(id) === String(req.body.owner))) {
-        throw ApiError.forbidden("You can only upload documents for employees within your scope.");
+        throw ApiError.forbidden("You can only file documents for employees within your scope.");
       }
       owner = req.body.owner;
+      employee = req.body.owner;
     } else {
       const me = await myEmployee(req.user);
       owner = me ? me._id : undefined;
+      employee = me ? me._id : undefined;
     }
   }
+
+  const scope = employee ? "personal" : "company";
 
   // Duplicate protection: the same bytes filed for the same subject cannot be
   // uploaded twice while the first copy is active.
@@ -195,6 +244,8 @@ exports.upload = catchAsync(async (req, res) => {
       title: req.body.title || req.file.originalname,
       category,
       owner,
+      employee,
+      scope,
       visibility,
       storageKey: put.key,
       storageProvider: put.provider,
@@ -229,7 +280,7 @@ exports.upload = catchAsync(async (req, res) => {
     action: "document.upload",
     targetType: "Document",
     targetId: doc._id,
-    description: `Uploaded ${doc.originalName} (${doc.category}) via ${doc.storageProvider}`,
+    description: `Uploaded ${doc.originalName} (${doc.category}) as ${doc.referenceId} via ${doc.storageProvider}`,
   });
 
   res.status(201).json({ document: doc });
@@ -250,29 +301,16 @@ exports.download = catchAsync(async (req, res) => {
 
   const doc = await Document.findById(req.params.id);
   if (!doc || doc.uploadStatus === "deleted") throw ApiError.notFound("Document not found.");
-  if (req.user.role === "HR") {
-    const owns = doc.owner && (await ownerInScope(req.user, doc.owner));
-    if (!(doc.visibility === "all" || owns))
-      throw ApiError.forbidden("You do not have access to this document.");
-  } else if (!SEES_ALL.includes(req.user.role)) {
-    const me = await myEmployee(req.user);
-    const owns = me && doc.owner && String(doc.owner) === String(me._id);
-    if (!(doc.visibility === "all" || owns))
-      throw ApiError.forbidden("You do not have access to this document.");
-  } else if (!userHasPermission(req.user, "documents:read")) {
-    // Admin without read permission - only public + own
-    const me = await myEmployee(req.user);
-    const owns = me && doc.owner && String(doc.owner) === String(me._id);
-    if (!(doc.visibility === "all" || owns))
-      throw ApiError.forbidden("You do not have access to this document.");
+  if (!(await canAccessDocument(req.user, doc))) {
+    throw ApiError.forbidden("You do not have access to this document.");
   }
 
-  const provider = doc.storageProvider || "local";
+  const provider = doc.storageProvider || "cloudflare-r2";
   let result;
   try {
     result = await getObjectStream({ provider, key: doc.storageKey });
   } catch (e) {
-    if (provider === "google-drive" && e instanceof ApiError && e.statusCode === 404) {
+    if (e instanceof ApiError && e.statusCode === 404) {
       // The bytes are gone (removed outside the app) — flag for reconciliation.
       doc.uploadStatus = "missing";
       await doc.save().catch(() => {});
@@ -292,9 +330,42 @@ exports.download = catchAsync(async (req, res) => {
   result.stream.pipe(res);
 });
 
+/* GET /api/documents/reference/:referenceId/download — download by public reference */
+exports.downloadByReference = catchAsync(async (req, res) => {
+  const doc = await Document.findOne({
+    referenceId: req.params.referenceId,
+    uploadStatus: { $ne: "deleted" },
+  });
+  if (!doc) throw ApiError.notFound("Document not found.");
+  if (!(await canAccessDocument(req.user, doc))) {
+    throw ApiError.forbidden("You do not have access to this document.");
+  }
+
+  const provider = doc.storageProvider || "cloudflare-r2";
+  let result;
+  try {
+    result = await getObjectStream({ provider, key: doc.storageKey });
+  } catch (e) {
+    if (e instanceof ApiError && e.statusCode === 404) {
+      doc.uploadStatus = "missing";
+      await doc.save().catch(() => {});
+    }
+    throw e;
+  }
+
+  const attachment = req.query.download !== "0";
+  res.setHeader("Content-Type", doc.mimeType || "application/octet-stream");
+  if (doc.size) res.setHeader("Content-Length", String(doc.size));
+  res.setHeader("Content-Disposition", contentDisposition(doc.originalName, attachment));
+  result.stream.on("error", (err) => {
+    console.error("[documents] stream failed:", err.message);
+    res.destroy();
+  });
+  result.stream.pipe(res);
+});
+
 /* DELETE /api/documents/:id  (documents:delete) — archive; retained
- * categories keep their bytes, everything else is moved to the Drive trash /
- * removed from local disk. */
+ * categories keep their bytes, everything else is removed from storage. */
 exports.remove = catchAsync(async (req, res) => {
   // Check permission
   if (!userHasPermission(req.user, "documents:delete")) {
@@ -305,13 +376,14 @@ exports.remove = catchAsync(async (req, res) => {
   if (!doc || doc.uploadStatus === "deleted") throw ApiError.notFound("Document not found.");
 
   // IDOR check: documents:delete does not mean "delete anyone's document" — a
-  // non-admin may only delete a document that is public, their own, or owned
-  // by someone within their scope (assigned employees / access-request grant).
+  // non-admin may only delete a document they own, are the subject of, or that
+  // covers an employee within their scope.
   if (!SEES_ALL.includes(req.user.role)) {
     const me = await myEmployee(req.user);
     const owns = me && doc.owner && String(doc.owner) === String(me._id);
-    const inScope = doc.owner && (await ownerInScope(req.user, doc.owner));
-    if (!(doc.visibility === "all" || owns || inScope)) {
+    const isSubject = me && doc.employee && String(doc.employee) === String(me._id);
+    const inScope = (doc.owner && (await ownerInScope(req.user, doc.owner))) || (doc.employee && (await ownerInScope(req.user, doc.employee)));
+    if (!(doc.visibility === "all" || owns || isSubject || inScope || user.role === "HR")) {
       throw ApiError.forbidden("You do not have access to this document.");
     }
   }
@@ -320,10 +392,9 @@ exports.remove = catchAsync(async (req, res) => {
   let storageAction = "retained";
   if (!retain) {
     try {
-      const r = await removeObject({ provider: doc.storageProvider || "local", key: doc.storageKey });
+      const r = await removeObject({ provider: doc.storageProvider || "cloudflare-r2", key: doc.storageKey });
       storageAction = r.mode === "absent" ? "already-absent" : r.mode === "trashed" ? "trashed" : "deleted";
     } catch (e) {
-      // The record is archived regardless; the stored file needs reconciliation.
       storageAction = "failed";
       console.error("[documents] storage removal failed for", String(doc._id), e.message);
     }
@@ -353,10 +424,7 @@ exports.verify = catchAsync(async (req, res) => {
   if (!doc || doc.uploadStatus === "deleted") throw ApiError.notFound("Document not found.");
 
   if (!SEES_ALL.includes(req.user.role)) {
-    const me = await myEmployee(req.user);
-    const owns = me && doc.owner && String(doc.owner) === String(me._id);
-    const inScope = doc.owner && (await ownerInScope(req.user, doc.owner));
-    if (!(doc.visibility === "all" || owns || inScope)) {
+    if (!(await canAccessDocument(req.user, doc))) {
       throw ApiError.forbidden("You do not have access to this document.");
     }
   }

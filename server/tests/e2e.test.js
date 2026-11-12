@@ -98,7 +98,7 @@ async function apiForm(method, path, { access, form } = {}) {
   const existingProvision = await provisionUsers(realProvisionAccounts);
   ok(
     "0a. explicit provisioner preserves existing account hashes and identities",
-    existingProvision.length === 6 &&
+    existingProvision.length === DEV_USERS.length &&
       existingProvision.every(
         (account) => account.status === "existing hash preserved",
       ) &&

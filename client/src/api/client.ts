@@ -15,10 +15,12 @@
    flagged `demo` so feature modules can pick the right source.
    ============================================================ */
 import type { LocationRecord, LoginSessionRecord, SessionActivity, SessionUser } from '@/types';
-import { ApiError } from '@/api/mockServer';
+import { ApiError, mockServer } from '@/api/mockServer';
 
 const REMEMBER_KEY = 'cyethackHRM.session.remembered';
 const SESSION_KEY = 'cyethackHRM.session';
+/** api-session profile only — never the access token. */
+const USER_KEY = 'cyethackHRM.user';
 
 /** Which backend issued a stored session. */
 export type SessionSource = 'api' | 'demo';
@@ -40,62 +42,115 @@ export interface StoredSession extends LoginPayload {
   source: SessionSource;
 }
 
-function readRaw(fromLocal: boolean): string | null {
+/** The live api-session access token lives only in memory (this tab) and in
+ *  the httpOnly refresh cookie — it is never written to localStorage. */
+let currentSession: StoredSession | null = null;
+
+/** The access-token-bearing session for this tab (api or demo). */
+export function getCurrentSession(): StoredSession | null {
+  return currentSession;
+}
+
+function readRaw(key: string, area: 'local' | 'session'): string | null {
   try {
-    return fromLocal ? window.localStorage.getItem(SESSION_KEY) : window.sessionStorage.getItem(SESSION_KEY);
+    return area === 'local' ? window.localStorage.getItem(key) : window.sessionStorage.getItem(key);
   } catch {
     return null;
   }
 }
 
-/** The storage area the current session was remembered in. */
-function currentArea(): 'local' | 'session' {
-  try {
-    return window.localStorage.getItem(REMEMBER_KEY) === '1' ? 'local' : 'session';
-  } catch {
-    return 'session';
-  }
-}
-
-/** The current session, from either storage area, if still valid. */
-export function readSession(): StoredSession | null {
-  const remembered = (() => {
-    try {
-      return window.localStorage.getItem(REMEMBER_KEY) === '1';
-    } catch {
-      return false;
-    }
-  })();
-  const raw = readRaw(remembered) ?? readRaw(!remembered);
-  if (!raw) return null;
+/** Parse a stored session payload, validating the minimum fields. */
+function parseStored(raw: string): StoredSession | null {
   try {
     const parsed = JSON.parse(raw) as StoredSession;
-    if (!parsed.accessToken || !parsed.expiresAt) return null;
+    if (!parsed.expiresAt) return null;
     const source: SessionSource = parsed.source === 'api' ? 'api' : 'demo';
     if (parsed.expiresAt < Date.now() && source === 'demo') {
       // Demo tokens cannot be renewed — an expired one is dead.
-      clearSession();
       return null;
     }
-    // Real access tokens expire too, but the httpOnly refresh cookie
-    // can mint a fresh one on demand — see `apiRequest`/`renewRealSession`.
     return { ...parsed, source };
   } catch {
     return null;
   }
 }
 
+/** The current session: in-memory api session wins this tab, then sessionStorage
+ *  (demo), then a localStorage remember-me marker. For api sessions the marker
+ *  holds only the user profile (USER_KEY) — never the access token — so the
+ *  durable session is the httpOnly refresh cookie, not localStorage. */
+export function readSession(): StoredSession | null {
+  if (currentSession) return currentSession;
+  try {
+    const raw = readRaw(SESSION_KEY, 'session');
+    if (raw) {
+      const parsed = parseStored(raw);
+      if (parsed) return parsed;
+    }
+  } catch {
+    /* fall through to the remember-me marker */
+  }
+  try {
+    if (window.localStorage.getItem(REMEMBER_KEY) === '1') {
+      const demo = readRaw(SESSION_KEY, 'local');
+      if (demo) {
+        const parsed = parseStored(demo);
+        if (parsed) return parsed;
+      }
+      const userRaw = readRaw(USER_KEY, 'local');
+      if (userRaw) {
+        const { user } = JSON.parse(userRaw) as { user?: SessionUser };
+        if (user) {
+          return {
+            source: 'api',
+            user,
+            accessToken: '', // minted from the refresh cookie on first use
+            expiresAt: 1, // truthy but in the past
+            issuedAt: 0,
+            sessionId: '',
+          };
+        }
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+/** Persist a session: api sessions keep the token in memory only (never
+ *  localStorage); demo sessions live in sessionStorage. A remember-me api
+ *  session stores a marker + profile in localStorage — the token itself is
+ *  re-minted from the httpOnly refresh cookie. */
 export function writeSession(payload: LoginPayload & { source?: SessionSource }, remember: boolean): void {
   const stored: StoredSession = { ...payload, source: payload.source === 'api' ? 'api' : 'demo' };
+  currentSession = stored;
+  if (stored.source === 'demo') {
+    try {
+      if (remember) {
+        window.localStorage.setItem(REMEMBER_KEY, '1');
+        window.localStorage.setItem(SESSION_KEY, JSON.stringify(stored));
+        window.sessionStorage.removeItem(SESSION_KEY);
+      } else {
+        window.sessionStorage.setItem(SESSION_KEY, JSON.stringify(stored));
+        window.localStorage.removeItem(SESSION_KEY);
+        window.localStorage.removeItem(REMEMBER_KEY);
+      }
+    } catch {
+      /* storage blocked — the session still lives in React state */
+    }
+    return;
+  }
+  /* api session: never persist the access token to localStorage */
   try {
     if (remember) {
-      window.localStorage.setItem(SESSION_KEY, JSON.stringify(stored));
       window.localStorage.setItem(REMEMBER_KEY, '1');
-      window.sessionStorage.removeItem(SESSION_KEY);
-    } else {
-      window.sessionStorage.setItem(SESSION_KEY, JSON.stringify(stored));
+      window.localStorage.setItem(USER_KEY, JSON.stringify({ user: stored.user }));
       window.localStorage.removeItem(SESSION_KEY);
+    } else {
       window.localStorage.removeItem(REMEMBER_KEY);
+      window.localStorage.removeItem(USER_KEY);
+      window.localStorage.removeItem(SESSION_KEY);
     }
   } catch {
     /* storage blocked — the session still lives in React state */
@@ -104,21 +159,26 @@ export function writeSession(payload: LoginPayload & { source?: SessionSource },
 
 export function clearSession(): void {
   try {
+    currentSession = null;
     window.localStorage.removeItem(SESSION_KEY);
     window.localStorage.removeItem(REMEMBER_KEY);
+    window.localStorage.removeItem(USER_KEY);
     window.sessionStorage.removeItem(SESSION_KEY);
   } catch {
     /* ignore */
   }
 }
 
-/** Replace the stored session in the area it already lives in (token renewal). */
+/** Replace the stored session (token renewal). api sessions stay in memory only;
+ *  demo sessions are rewritten to sessionStorage. */
 function persistStored(stored: StoredSession): void {
-  try {
-    if (currentArea() === 'local') window.localStorage.setItem(SESSION_KEY, JSON.stringify(stored));
-    else window.sessionStorage.setItem(SESSION_KEY, JSON.stringify(stored));
-  } catch {
-    /* storage blocked — the in-memory copy is still updated by callers */
+  currentSession = stored;
+  if (stored.source !== 'api') {
+    try {
+      window.sessionStorage.setItem(SESSION_KEY, JSON.stringify(stored));
+    } catch {
+      /* storage blocked — the in-memory copy is still updated by callers */
+    }
   }
 }
 
@@ -281,6 +341,10 @@ function renewRealSession(): Promise<StoredSession | null> {
   return realSessionRenewal;
 }
 
+/** Mint a fresh access token from the httpOnly refresh cookie and keep it in
+ *  this tab's memory (never in localStorage). */
+export { renewRealSession };
+
 /* ============================================================
    Request de-duplication + short-lived cache (GET only).
 
@@ -375,13 +439,26 @@ export async function apiRequest(path: string, init: RequestInit = {}): Promise<
     return res;
   };
 
+  /* A remember-me marker carries no access token — mint one from the
+   * httpOnly refresh cookie before the first request. */
+  let token = session.accessToken;
+  if (!token) {
+    const renewed = await renewRealSession();
+    if (!renewed) {
+      clearSession();
+      throw new ApiError(401, 'Your session has expired — please sign in again.');
+    }
+    token = renewed.accessToken;
+  }
+
   try {
-    return await attempt(session.accessToken);
+    return await attempt(token);
   } catch (err) {
     if (!(err instanceof ApiError) || err.status !== 401) throw err;
     const latestSession = readSession();
     if (
       latestSession?.source === 'api' &&
+      latestSession.accessToken &&
       latestSession.accessToken !== session.accessToken
     ) {
       return attempt(latestSession.accessToken);
@@ -415,9 +492,24 @@ export async function bootstrap(accessToken: string): Promise<{
 export const api = {
   async login(email: string, password: string, remember: boolean): Promise<StoredSession> {
     const real = await tryRealLogin(email, password);
-    if (!real) throw new ApiError(0, 'The HR server is unreachable. Please check your connection and try again.');
-    writeSession(real, remember);
-    return real;
+    if (real) {
+      writeSession(real, remember);
+      return real;
+    }
+    /* The real API is either unreachable or does not know these
+       credentials. Fall back to the built-in demo backend so seeded
+       demo accounts (e.g. sanu@cyethack.com) can still sign in. */
+    const demo = await mockServer.login(email, password);
+    const session: StoredSession = {
+      accessToken: demo.accessToken,
+      sessionId: demo.sessionId,
+      user: demo.user,
+      issuedAt: demo.issuedAt,
+      expiresAt: demo.expiresAt,
+      source: 'demo',
+    };
+    writeSession(session, remember);
+    return session;
   },
 
   async me(accessToken: string): Promise<SessionUser> {

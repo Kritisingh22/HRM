@@ -18,7 +18,9 @@ const NAV = {
   HR: FULL,
   MANAGER: [
     'Dashboard', 'Employees', 'Attendance', 'Leave', 'Leave Approvals',
-    'Projects', 'Performance', 'Documents', 'Notice Board', 'Helpdesk', 'Org Chart', 'My Profile'
+    'Projects', 'Performance', 'Documents', 'Notice Board', 'Helpdesk', 'Org Chart', 'My Profile',
+    // Operational pages a manager may open for their own team (scoped server-side):
+    'Team Task Calendar', 'My Tasks', 'Transfer Tickets', 'Offboarding', 'Reports', 'Analytics'
   ],
   EMPLOYEE: [
     'Dashboard', 'Attendance', 'Leave', 'Payroll', 'Projects',

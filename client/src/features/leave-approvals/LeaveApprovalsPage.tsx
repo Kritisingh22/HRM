@@ -1,5 +1,5 @@
 /* ============================================================
-   Leave Approvals — the decision queue for HR and managers.
+   Leave Approvals — the decision queue for HR, Managers, Admins and Super Admins.
 
    Approve or reject pending requests with a note; decisions flow
    straight into the leave calendar and attendance register.
@@ -16,6 +16,10 @@ import { LEAVE_TYPES, requestOn } from '@/lib/attendance';
 import { dateRange, niceDate, stampText, todayISO } from '@/lib/date';
 import type { LeaveRequest } from '@/types';
 
+// role constants for this page
+const HR_PORTAL = 'hr';
+const MANAGER_PORTAL = 'manager';
+
 export function LeaveApprovalsPage() {
   const { data, dispatch, audit, notify } = useApp();
   const { user } = useAuth();
@@ -27,30 +31,69 @@ export function LeaveApprovalsPage() {
   const [approve, setApprove] = useState(true);
   const [note, setNote] = useState('');
 
+  // Helper: get all employee IDs visible to this user based on their role/scope
   const scopeIds = useMemo(() => {
     if (user?.portal === 'manager' && myId) return teamIds(data.employees, myId);
+    // HR sees all employees in their scope; Admin/Super Admin see all
     return null;
   }, [user?.portal, myId, data.employees]);
 
   const inScope = (r: LeaveRequest) => scopeIds === null || scopeIds.has(r.employeeId);
 
-  // Check if the current user is the correct approver based on approvalAuthority
+  // Check if the current user is authorized to decide this request based on
+  // approvalAuthority and user role/portal.
   const canDecideRequest = (r: LeaveRequest) => {
     if (r.status !== 'Pending') return false;
     if (!inScope(r)) return false;
 
-    const isHR = user?.portal === 'hr';
-    const isManager = user?.portal === 'manager';
+    const isHRPortal = user?.portal === HR_PORTAL;
+    const isManagerPortal = user?.portal === MANAGER_PORTAL;
 
-    if (r.approvalAuthority === 'HR') {
-      // Only HR can approve/reject HR-assigned requests
-      return isHR;
-    } else if (r.approvalAuthority === 'Manager') {
-      // Only the assigned manager can approve/reject manager-assigned requests
-      return isManager && r.employee?.manager === myId;
+    // --- Super Admin can decide any pending request ---
+    if (user?.role === 'SUPER_ADMIN') {
+      return true;
     }
+
+    // --- Admin can decide any pending request (except their own, which needs Super Admin) ---
+    if (user?.role === 'ADMIN') {
+      // Prevent admin from approving their own leave
+      if (String(leaveApplicantUserId(r)) === String(user?._id)) return false;
+      return true;
+    }
+
+    // --- HR portal user ---
+    if (isHRPortal) {
+      if (r.approvalAuthority === 'HR') {
+        // Only HR can approve HR-assigned requests
+        return true;
+      } else if (r.approvalAuthority === 'Manager') {
+        // HR can also approve Manager-authorized requests
+        return true;
+      } else if (r.approvalAuthority === 'Admin') {
+        // HR can approve Admin-authorized requests (delegated)
+        return true;
+      }
+      // Super Admin-authorized requests are handled by SUPER_ADMIN role check above
+      return false;
+    }
+
+    // --- Manager portal user ---
+    if (isManagerPortal) {
+      if (r.approvalAuthority === 'Manager') {
+        // Only the assigned manager can approve/reject manager-assigned requests.
+        // inScope() above already confirms the employee is in this manager's team.
+        return true;
+      }
+      // Managers cannot approve HR, Admin or Super Admin authorized requests
+      return false;
+    }
+
+    // Employee portal - no approval rights
     return false;
   };
+
+  // Extract applicantUserId from leave request for self-checks
+  const leaveApplicantUserId = (r: LeaveRequest) => r.applicantUserId || '';
 
   /* Per-employee leave allowances are not stored yet, so the decision
      modal shows what the records prove: approved (non-WFH) days in the
@@ -107,11 +150,16 @@ export function LeaveApprovalsPage() {
   const saveDecision = () => {
     if (!deciding) return;
     const status = approve ? 'Approved' : 'Rejected';
+    // A rejection requires a reason.
+    if (status === 'Rejected' && !note.trim()) {
+      toast('A rejection reason is required.', 'error');
+      return;
+    }
     dispatch({
       type: 'update',
       collection: 'leaveRequests',
       id: deciding.id,
-      patch: { status, managerNote: note, decidedAt: new Date().toISOString() },
+      patch: { status, rejectionReason: note.trim() || undefined, decidedAt: new Date().toISOString() },
     });
     const emp = data.employees.find((e) => e.id === deciding.employeeId);
     audit(`Leave ${status.toLowerCase()}`, deciding.id);
@@ -129,7 +177,13 @@ export function LeaveApprovalsPage() {
           <div>
             <h2>Leave Approvals</h2>
             <div className="sub">
-              {user?.portal === 'manager' ? 'Requests from your reporting line' : 'All pending employee requests'}
+              {user?.portal === 'manager'
+                ? 'Requests from your reporting line'
+                : user?.role === 'ADMIN'
+                ? 'All pending employee requests awaiting approval'
+                : user?.role === 'SUPER_ADMIN'
+                ? 'All pending employee requests (centralized approval)'
+                : 'All pending employee requests'}
             </div>
           </div>
           <div className="tools">
@@ -139,7 +193,7 @@ export function LeaveApprovalsPage() {
         </div>
 
         <StatRow
-          items={[
+          items=[
             { k: 'Pending', v: pending.length, s: 'in your scope' },
             { k: 'Approved', v: data.leaveRequests.filter((r) => r.status === 'Approved' && inScope(r)).length },
             { k: 'Rejected', v: data.leaveRequests.filter((r) => r.status === 'Rejected' && inScope(r)).length },
@@ -149,7 +203,7 @@ export function LeaveApprovalsPage() {
               v: `${pending.length ? Math.round((pending.reduce((s, r) => s + r.days, 0) / pending.length) * 10) / 10 : 0} d`,
               s: 'pending days',
             },
-          ]}
+          ]
         />
 
         <Tabs
@@ -186,6 +240,10 @@ export function LeaveApprovalsPage() {
               <thead>
                 <tr>
                   <th>Employee</th>
+                  <th>Employee ID</th>
+                  <th>Department</th>
+                  <th>Designation</th>
+                  <th>Applicant Role</th>
                   <th>Type</th>
                   <th>Dates</th>
                   <th>Days</th>
@@ -200,10 +258,30 @@ export function LeaveApprovalsPage() {
                 {rowsShown.map((r) => {
                   const emp = data.employees.find((e) => e.id === r.employeeId);
                   const canDecide = r.status === 'Pending' && canDecideRequest(r);
+                  const applicantRole = r.applicantRole || 'Employee';
+                  const applicantUserId = r.applicantUserId || '';
+
                   return (
                     <tr key={r.id}>
                       <td>
                         <EmpCell name={emp?.name ?? r.employeeId} sub={emp?.designation ?? ''} seed={r.employeeId} />
+                      </td>
+                      <td>
+                        {emp?.employeeId ?? r.employeeId}
+                      </td>
+                      <td>
+                        {emp?.department ?? ''}
+                      </td>
+                      <td>
+                        {emp?.designation ?? ''}
+                      </td>
+                      <td>
+                        <span className="chip" style={{ 
+                          background: applicantRole === 'HR' ? 'var(--blue-tint)' : applicantRole === 'Admin' ? 'var(--amber-tint)' : applicantRole === 'Super Admin' ? 'var(--red-tint)' : 'var(--teal-tint)',
+                          color: applicantRole === 'HR' ? 'var(--blue)' : applicantRole === 'Admin' ? 'var(--orange)' : applicantRole === 'Super Admin' ? 'var(--white)' : 'var(--teal)'
+                        }}>
+                          {applicantRole}
+                        </span>
                       </td>
                       <td>
                         {r.type}
@@ -214,9 +292,9 @@ export function LeaveApprovalsPage() {
                       <td style={{ whiteSpace: 'normal', maxWidth: 240 }}>{r.reason || '—'}</td>
                       <td className="num">{niceDate(r.appliedOn)}</td>
                       <td>
-                        <span className="chip" style={{ 
-                          background: r.approvalAuthority === 'HR' ? 'var(--blue-tint)' : 'var(--teal-tint)',
-                          color: r.approvalAuthority === 'HR' ? 'var(--blue)' : 'var(--teal)'
+                        <span className="chip" style={{
+                          background: r.approvalAuthority === 'HR' ? 'var(--blue-tint)' : r.approvalAuthority === 'Admin' ? 'var(--amber-tint)' : r.approvalAuthority === 'Super Admin' ? 'var(--red-tint)' : 'var(--teal-tint)',
+                          color: r.approvalAuthority === 'HR' ? 'var(--blue)' : r.approvalAuthority === 'Admin' ? 'var(--orange)' : r.approvalAuthority === 'Super Admin' ? 'var(--white)' : 'var(--teal)'
                         }}>
                           {r.approvalAuthority}
                         </span>
@@ -277,6 +355,21 @@ export function LeaveApprovalsPage() {
           <div className="detail-grid" style={{ marginBottom: 16 }}>
             <dt>Employee</dt>
             <dd>{data.employees.find((e) => e.id === deciding.employeeId)?.name ?? deciding.employeeId}</dd>
+            <dt>Employee ID</dt>
+            <dd>{data.employees.find((e) => e.id === deciding.employeeId)?.employeeId ?? deciding.employeeId}</dd>
+            <dt>Department</dt>
+            <dd>{data.employees.find((e) => e.id === deciding.employeeId)?.department ?? ''}</dd>
+            <dt>Designation</dt>
+            <dd>{data.employees.find((e) => e.id === deciding.employeeId)?.designation ?? ''}</dd>
+            <dt>Applicant Role</dt>
+            <dd>
+              <span className="chip" style={{
+                background: deciding.applicantRole === 'HR' ? 'var(--blue-tint)' : deciding.applicantRole === 'Admin' ? 'var(--amber-tint)' : deciding.applicantRole === 'Super Admin' ? 'var(--red-tint)' : 'var(--teal-tint)',
+                color: deciding.applicantRole === 'HR' ? 'var(--blue)' : deciding.applicantRole === 'Admin' ? 'var(--orange)' : deciding.applicantRole === 'Super Admin' ? 'var(--white)' : 'var(--teal)'
+              }}>
+                {deciding.applicantRole}
+              </span>
+            </dd>
             <dt>Type</dt>
             <dd>{deciding.type}</dd>
             <dt>Dates</dt>
@@ -290,9 +383,9 @@ export function LeaveApprovalsPage() {
             <dd>{niceDate(deciding.appliedOn)}</dd>
             <dt>Authority</dt>
             <dd>
-              <span className="chip" style={{ 
-                background: deciding.approvalAuthority === 'HR' ? 'var(--blue-tint)' : 'var(--teal-tint)',
-                color: deciding.approvalAuthority === 'HR' ? 'var(--blue)' : 'var(--teal)'
+              <span className="chip" style={{
+                background: deciding.approvalAuthority === 'HR' ? 'var(--blue-tint)' : deciding.approvalAuthority === 'Admin' ? 'var(--amber-tint)' : deciding.approvalAuthority === 'Super Admin' ? 'var(--red-tint)' : 'var(--teal-tint)',
+                color: deciding.approvalAuthority === 'HR' ? 'var(--blue)' : deciding.approvalAuthority === 'Admin' ? 'var(--orange)' : deciding.approvalAuthority === 'Super Admin' ? 'var(--white)' : 'var(--teal)'
               }}>
                 {deciding.approvalAuthority}
               </span>

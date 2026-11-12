@@ -18,7 +18,9 @@ interface SidebarProps {
 export function Sidebar({ rail, onToggleRail, onNavigate }: SidebarProps) {
   const { user } = useAuth();
   if (!user) return null;
-  const groups = navForRole(user.role);
+  /* user.nav is the server-signed allow-list; passing it keeps the sidebar
+     and the route guard (which also uses user.nav) in perfect agreement. */
+  const groups = navForRole(user.role, user?.nav);
 
   return (
     <aside className="sidebar" aria-label="Modules">

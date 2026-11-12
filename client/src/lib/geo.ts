@@ -27,27 +27,82 @@ export function geoSupported(): boolean {
   return typeof navigator !== 'undefined' && 'geolocation' in navigator;
 }
 
+/* ---- cached location for instant check-in ---- */
+
+/** Last successful fix, reused so check-in can fire immediately on click. */
+let cachedFix: { point: GeoPoint; fetchedAt: number } | null = null;
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+/* A cached fix is only reused when it is recent *and* accurate enough to
+   be meaningful for attendance geofencing. */
+const MAX_ACCEPTABLE_ACCURACY_M = 200;
+
+/** Return a cached fix if fresh and accurate enough, else null. */
+export function getCachedFix(): GeoPoint | null {
+  if (!cachedFix) return null;
+  if (Date.now() - cachedFix.fetchedAt > CACHE_TTL_MS) return null;
+  if (cachedFix.point.accuracy > MAX_ACCEPTABLE_ACCURACY_M) return null;
+  return cachedFix.point;
+}
+
+/** Clear the cached fix (e.g. after a denied/failed attempt). */
+export function clearCachedFix(): void {
+  cachedFix = null;
+}
+
+/** Prefetch a location fix in the background so it's ready before the user
+   clicks Check In. Safe to call on mount; failures are silent. */
+export function prefetchLocation(): void {
+  if (!geoSupported()) return;
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      cachedFix = {
+        point: {
+          lat: Number(pos.coords.latitude.toFixed(6)),
+          lng: Number(pos.coords.longitude.toFixed(6)),
+          accuracy: Math.round(pos.coords.accuracy),
+          capturedAt: new Date(pos.timestamp || Date.now()).toISOString(),
+        },
+        fetchedAt: Date.now(),
+      };
+    },
+    () => {
+      /* silent — we'll try again on click */
+    },
+    { enableHighAccuracy: false, maximumAge: 300_000, timeout: 8000 },
+  );
+}
+
 /**
  * Ask the browser for a single position fix. The permission prompt
  * (when the browser shows one) is triggered by this call, which is
  * only ever made from a user action.
+ *
+ * Defaults are tuned for speed: a single shot with an 8-10 second timeout,
+ * low accuracy (network/Wi-Fi based, fast), and a 5-minute maximum cache
+ * age. The caller must not retry automatically — on failure it should
+ * surface a clear retry option so the employee stays in control.
  */
-export function captureLocation(timeoutMs = 9000): Promise<CaptureResult> {
+export function captureLocation(timeoutMs = 8000): Promise<CaptureResult> {
   if (!geoSupported()) {
     return Promise.resolve({ point: null, reason: 'unsupported' });
   }
   return new Promise((resolve) => {
     navigator.geolocation.getCurrentPosition(
-      (pos) =>
-        resolve({
-          reason: 'ok',
+      (pos) => {
+        cachedFix = {
           point: {
             lat: Number(pos.coords.latitude.toFixed(6)),
             lng: Number(pos.coords.longitude.toFixed(6)),
             accuracy: Math.round(pos.coords.accuracy),
             capturedAt: new Date(pos.timestamp || Date.now()).toISOString(),
           },
-        }),
+          fetchedAt: Date.now(),
+        };
+        resolve({
+          reason: 'ok',
+          point: cachedFix.point,
+        });
+      },
       (err) => {
         const reason: CaptureReason =
           err.code === err.PERMISSION_DENIED
@@ -57,8 +112,7 @@ export function captureLocation(timeoutMs = 9000): Promise<CaptureResult> {
               : 'unavailable';
         resolve({ point: null, reason });
       },
-      /* A minute-old fix is fine for "where did this action happen". */
-      { enableHighAccuracy: true, maximumAge: 60_000, timeout: timeoutMs },
+      { enableHighAccuracy: false, maximumAge: 300_000, timeout: timeoutMs },
     );
   });
 }

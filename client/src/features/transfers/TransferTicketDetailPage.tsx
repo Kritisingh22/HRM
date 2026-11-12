@@ -169,7 +169,7 @@ export function TransferTicketDetailPage() {
 
   const userRoleInTicket = ticket ? (
     (() => {
-      const userId = user?._id;
+      const userId = user?.id;
       if (!userId) return null;
       const tid = String(userId);
       if (ticket.currentManager && typeof ticket.currentManager === 'object' && ticket.currentManager.id === tid) return { role: 'MANAGER', type: 'current' };

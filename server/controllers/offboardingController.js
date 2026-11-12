@@ -7,13 +7,22 @@ const ApiError = require('../utils/ApiError');
 const catchAsync = require('../utils/catchAsync');
 const { logAudit } = require('../utils/audit');
 const { calculateLastWorkingDay, validateLastWorkingDay } = require('../utils/noticePeriod');
+const { teamEmployeeIds, managerScope } = require('../utils/teamScope');
 
 const SEES_ALL = ['HR', 'ADMIN', 'SUPER_ADMIN'];
 async function myEmployee(user) { return Employee.findOne({ $or: [{ user: user._id }, { employeeId: user.employeeId }] }); }
 
 exports.list = catchAsync(async (req, res) => {
   let filter = {};
-  if (!SEES_ALL.includes(req.user.role)) { const me = await myEmployee(req.user); filter.employee = me ? me._id : null; }
+  if (SEES_ALL.includes(req.user.role)) {
+    filter = {}; // HR/Admin/Super see everything
+  } else if (req.user.role === 'MANAGER' && managerScope('offboarding') === 'team') {
+    const ids = await teamEmployeeIds(req.user);
+    filter = { employee: { $in: ids } }; // team-scoped: own + direct/indirect reports
+  } else {
+    const me = await myEmployee(req.user);
+    filter.employee = me ? me._id : null; // own
+  }
   const records = await Offboarding.find(filter).populate('employee', 'employeeId fullName department').sort({ createdAt: -1 }).limit(500);
   res.json({ count: records.length, offboarding: records });
 });

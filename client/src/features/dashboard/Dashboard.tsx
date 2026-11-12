@@ -12,9 +12,8 @@ import { useNavigate } from 'react-router-dom';
 import { Icon } from '@/components/ui/Icon';
 import { CheckInCard } from '@/components/attendance/CheckInCard';
 import { EmpCell, Pill, Progress } from '@/components/ui/primitives';
-import { LineChart } from '@/components/charts/LineChart';
-import { DonutChart } from '@/components/charts/DonutChart';
-import { Funnel } from '@/components/charts/Funnel';
+// Chart components are lazy-loaded via dynamic imports below.
+// Inline imports would block the first paint of the Dashboard route.
 import { useApp } from '@/store/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
@@ -39,37 +38,47 @@ const DEPT_COLORS = ['var(--teal)', 'var(--violet)', 'var(--orange)', 'var(--blu
 type RangeKey = 'month' | 'last' | 'd90';
 
 export function DashboardPage() {
-  const { data, dispatch, audit, notify, hydrated } = useApp();
+  /* hydrated is checked BEFORE any body hook so the hook order never
+     changes between renders. When the store is still hydrating after
+     the first paint we show grid-matching skeletons instead of the body,
+     which keeps CLS at ~0.003 and never trips React's rules-of-hooks. */
+  const { hydrated } = useApp();
+  if (!hydrated) return <DashboardSkeleton />;
+  return <DashboardBody />;
+}
+
+/** Grid-matching skeleton placeholders painted while the workspace
+    hydrates after the first paint. Same card spans as the real body so
+    there is no layout shift (CLS stays at ~0.003). */
+function DashboardSkeleton() {
+  return (
+    <div className="grid">
+      <div className="card kpi span3 skeleton"><div className="skeleton pulse-block" /></div>
+      <div className="card kpi span3 skeleton"><div className="skeleton pulse-block" /></div>
+      <div className="card kpi span3 skeleton"><div className="skeleton pulse-block" /></div>
+      <div className="card kpi span3 skeleton"><div className="skeleton pulse-block" /></div>
+      <section className="card span8 attendance-card skeleton">
+        <div className="skeleton line long" /><div className="skeleton line short" />
+      </section>
+      <section className="card span4 dept-card skeleton"><div className="skeleton line long" /></section>
+      <section className="card span7 skeleton"><div className="skeleton line long" /><div className="skeleton line short" /></section>
+      <section className="card span5 skeleton"><div className="skeleton line long" /><div className="skeleton line short" /></section>
+      <section className="card span4 payroll-card skeleton"><div className="skeleton line long" /></section>
+      <section className="card span4 skeleton"><div className="skeleton line long" /></section>
+      <section className="card span4 skeleton"><div className="skeleton line long" /></section>
+      <section className="card span4 skeleton"><div className="skeleton line long" /></section>
+    </div>
+  );
+}
+
+/** Dashboard body — all hooks run unconditionally, in the same order,
+    on every render. Only rendered once hydrated is true. */
+function DashboardBody() {
+  const { data, dispatch, audit, notify } = useApp();
   const { user, canVisitPage } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
   const [range, setRange] = useState<RangeKey>('month');
-
-  /* While the workspace hydrates after the first paint, render skeleton
-     placeholders that match the real card grid so there is no layout
-     shift (CLS stays at ~0.003). The shell is already visible. */
-  if (!hydrated) {
-    return (
-      <div className="grid">
-        <div className="card kpi span3 skeleton"><div className="skeleton pulse-block" /></div>
-        <div className="card kpi span3 skeleton"><div className="skeleton pulse-block" /></div>
-        <div className="card kpi span3 skeleton"><div className="skeleton pulse-block" /></div>
-        <div className="card kpi span3 skeleton"><div className="skeleton pulse-block" /></div>
-        <section className="card span8 attendance-card skeleton">
-          <div className="skeleton line long" /><div className="skeleton line short" />
-        </section>
-        <section className="card span4 dept-card skeleton"><div className="skeleton line long" /></section>
-        <section className="card span7 skeleton"><div className="skeleton line long" /><div className="skeleton line short" /></section>
-        <section className="card span5 skeleton"><div className="skeleton line long" /><div className="skeleton line short" /></section>
-        <section className="card span4 payroll-card skeleton"><div className="skeleton line long" /></section>
-        <section className="card span4 skeleton"><div className="skeleton line long" /></section>
-        <section className="card span4 skeleton"><div className="skeleton line long" /></section>
-        <section className="card span4 skeleton"><div className="skeleton line long" /></section>
-      </div>
-    );
-  }
-
-  const self = user?.portal === 'employee';
   const myId = user?.employeeId ?? '';
 
   /* -------- scoping -------- */
@@ -99,7 +108,39 @@ export function DashboardPage() {
     [data.holidays, data.leaveRequests, data.attendanceOverrides],
   );
 
-  /* -------- attendance series -------- */
+  /* ---------- lazy chart components ---------- */
+
+function LineChartLazy({ labels, series, height, srSummary }: { labels: string[]; series: any; height?: number; srSummary?: string }) {
+  const [LazyComponent] = import dynamic(
+    () => import('@/components/charts/LineChart').then((m) => ({ default: m.LineChart })),
+    {
+      ssr: false,
+    }
+  );
+  return <LazyComponent labels={labels} series={series} height={height} srSummary={srSummary} />;
+}
+
+function DonutChartLazy({ data, size, ring, centerLabel, onSelect, ariaLabel }: any) {
+  const [LazyComponent] = import dynamic(
+    () => import('@/components/charts/DonutChart').then((m) => ({ default: m.DonutChart })),
+    {
+      ssr: false,
+    }
+  );
+  return <LazyComponent data={data} size={size} ring={ring} centerLabel={centerLabel} onSelect={onSelect} ariaLabel={ariaLabel} />;
+}
+
+function FunnelLazy({ stages, onSelect }: any) {
+  const [LazyComponent] = import dynamic(
+    () => import('@/components/charts/Funnel').then((m) => ({ default: m.Funnel })),
+    {
+      ssr: false,
+    }
+  );
+  return <LazyComponent stages={stages} onSelect={onSelect} />;
+}
+
+/* -------- attendance series -------- */
   const seriesByRange = useMemo(() => {
     const allDays = lastWorkingDays(101).slice(0, -1); // drop today (in progress)
     const slices: Record<RangeKey, Date[]> = {

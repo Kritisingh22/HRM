@@ -23,6 +23,8 @@ export interface User {
 export interface SessionUser extends User {
   nav: string[];
   portal: Portal;
+  /** When true the user must set a new password before accessing HRM features. */
+  mustChangePassword?: boolean;
 }
 
 export interface Session {
@@ -71,21 +73,32 @@ export interface SessionActivity {
 
 /* ---------------- People & org ---------------- */
 export type EmployeeStatus = 'Active' | 'Probation' | 'On Leave' | 'Resigned' | 'Terminated';
+export type AccountStatus = 'active' | 'inactive' | 'suspended' | 'pending-activation';
 export type EmploymentType = 'Full-time' | 'Part-time' | 'Contract' | 'Intern';
 
 export interface Employee {
   id: string;
   name: string;
+  firstName?: string;
+  lastName?: string;
   email: string;
+  personalEmail?: string;
   phone: string;
-  gender: 'Male' | 'Female' | 'Other';
+  gender: 'Male' | 'Female' | 'Other' | 'Prefer not to say';
+  dateOfBirth?: string;
   dob: string;
   dept: string;
+  departmentId?: string;
   designation: string;
+  designationId?: string;
   manager: string | null;
+  reportingManagerId?: string;
   location: string;
+  workLocation?: 'office' | 'onsite';
+  workMode?: 'On-site' | 'Hybrid' | 'Remote' | 'Work from Home';
   employmentType: EmploymentType;
   joining: string;
+  joiningDate?: string;
   status: EmployeeStatus;
   probation: boolean;
   experience: string;
@@ -94,7 +107,14 @@ export interface Employee {
   grade: string;
   bloodGroup?: string;
   emergency?: string;
+  emergencyContact?: string;
   address?: string;
+  userId?: string;
+  createdBy?: string;
+  /** Linked login-account facts (server sessions only). Never includes secrets. */
+  accountStatus?: AccountStatus;
+  mustChangePassword?: boolean;
+  role?: string;
 }
 
 export interface Department {
@@ -389,6 +409,8 @@ export interface DocumentRecord {
   size?: number;
   /** `missing` when the stored bytes are gone; `deleted` for archived records */
   uploadStatus?: 'active' | 'missing' | 'deleted';
+  /** Public reference (DOC-YYYY-NNNNNN) — download by reference instead of by record id. */
+  referenceId?: string;
 }
 
 export interface Announcement {
@@ -526,12 +548,12 @@ export interface LeaveRequest {
   status: LeaveStatus;
   managerNote: string;
   /** Who has authority to approve this request: 'Manager' or 'HR' */
-  approvalAuthority: 'Manager' | 'HR';
+  approvalAuthority: 'Manager' | 'HR' | 'Admin' | 'Super Admin';
   /** ISO date-time of the final decision (approve / reject / cancel), when decided */
   decidedAt?: string | null;
 }
 
-export type AttendanceStatus = 'present' | 'absent' | 'halfday' | 'wfh' | 'leave';
+export type AttendanceStatus = 'present' | 'absent' | 'halfday' | 'half-day' | 'wfh' | 'leave' | 'outside-location';
 
 export interface AttendanceRecord {
   status: AttendanceStatus;
@@ -543,6 +565,116 @@ export interface AttendanceRecord {
   lateBy?: string;
   earlyOut?: string;
   overtime?: string;
+  /* Real-session fields, optional so the demo record type stays compatible. */
+  workingHoursMinutes?: number;
+  geofence?: { inRange: boolean; distanceMeters: number };
+  location?: {
+    lat: number;
+    lng: number;
+    verificationStatus?: 'verified' | 'failed' | 'skipped';
+  };
+}
+
+/* ---------------- Mandatory attendance (server-backed) ---------------- */
+
+/** Payload for POST /api/attendance/check-in */
+export interface AttendanceCheckInPayload {
+  consentGiven: boolean;
+  lat: number;
+  lng: number;
+  accuracy?: number;
+  /** Browser/device local timestamp at capture (ISO). Never authoritative. */
+  clientTimestamp?: string;
+  /** Browser timezone, e.g. 'Asia/Kolkata'. Server defaults to Asia/Kolkata. */
+  timezone?: string;
+}
+
+/** One heartbeat-derived session segment. */
+export interface AttendanceSession {
+  start: string;
+  end: string | null;
+  state: 'active' | 'paused';
+  reason: string;
+}
+
+/** One pause/resume/lifecycle event. */
+export interface AttendanceEvent {
+  type: 'pause' | 'resume' | 'check-in' | 'check-out' | 'offline';
+  reason: string;
+  at: string;
+  details?: Record<string, unknown>;
+}
+
+/** Geofence + session configuration (HR-managed). */
+export interface AttendanceSettings {
+  _id?: string;
+  officeLat: number | null;
+  officeLng: number | null;
+  radiusMeters: number;
+  workStart: string;
+  workEnd: string;
+  minActiveHours: number;
+  blockOutsideLocation: boolean;
+  idleMinutes: number;
+  heartbeatIntervalSeconds: number;
+  sessionTimeoutSeconds: number;
+  updatedBy?: string;
+  updatedAt?: string;
+}
+
+/** Server row for /api/attendance/me and /api/attendance list. */
+export interface AttendanceRow {
+  id: string;
+  employee: string;
+  user?: string;
+  employeeName?: string;
+  date: string;
+  timezone?: string;
+  status: AttendanceStatus;
+  checkIn?: string;
+  checkInType?: string;
+  lateBy?: string;
+  checkOut?: string;
+  checkOutType?: string;
+  workingHours?: string;
+  checkInDetail?: {
+    lat: number;
+    lng: number;
+    accuracy?: number;
+    ip: string;
+    device: string;
+    capturedAt: string;
+  };
+  checkOutDetail?: {
+    lat?: number;
+    lng?: number;
+    accuracy?: number;
+    ip: string;
+    device: string;
+    capturedAt: string;
+  };
+  location?: {
+    lat: number;
+    lng: number;
+    verificationStatus?: 'verified' | 'failed' | 'skipped';
+  };
+  geofence?: { inRange: boolean; distanceMeters: number };
+  activeSeconds: number;
+  pausedSeconds: number;
+  workingHoursMinutes?: number;
+  lastHeartbeatAt?: string;
+  serverTimestamp?: string;
+  clientTimestamp?: string;
+  consentGiven: boolean;
+  sessions?: AttendanceSession[];
+}
+
+/** Response from POST /api/attendance/heartbeat. */
+export interface AttendanceHeartbeatResponse {
+  attendance: AttendanceRow;
+  activeSeconds: number;
+  pausedSeconds: number;
+  status: AttendanceStatus;
 }
 
 export interface Holiday {
@@ -617,6 +749,14 @@ export interface CalendarEvent {
   month: string;
   title: string;
   detail: string;
+}
+
+/** One day-cell calendar item: a holiday or a task (team-tasks calendar). */
+export interface CalendarItem {
+  date: string;
+  kind: 'holiday' | 'task';
+  name?: string;
+  task?: TeamTask;
 }
 
 export interface FunnelStage {

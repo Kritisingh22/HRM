@@ -111,7 +111,9 @@ export function mapEmployee(e: Raw): Employee {
     gender: e.gender === 'Female' ? 'Female' : e.gender === 'Male' ? 'Male' : 'Other',
     dob: '',
     dept: e.department || '',
+    departmentId: e.departmentId || undefined,
     designation: e.designation || '',
+    designationId: e.designationId || undefined,
     manager: e.manager || null,
     location: e.location || '',
     employmentType: ['Full-time', 'Part-time', 'Contract', 'Intern'].includes(e.employmentType)
@@ -126,6 +128,10 @@ export function mapEmployee(e: Raw): Employee {
     bloodGroup: e.bloodGroup || undefined,
     emergency: e.emergencyContact || undefined,
     address: e.address || undefined,
+    userId: e.userId || undefined,
+    accountStatus: e.accountStatus || undefined,
+    mustChangePassword: e.mustChangePassword === true,
+    role: e.role || undefined,
   };
 }
 
@@ -157,6 +163,28 @@ export function deriveDesignations(employees: Employee[], departments: Departmen
     });
   }
   return Array.from(seen.values());
+}
+
+/** Map a raw department document from the server API. */
+export function mapDepartment(d: Raw): Department {
+  return {
+    id: String(d._id || d.id || d.departmentId || ''),
+    name: d.name || '',
+    head: d.headUserId || d.head || null,
+    budget: d.budget || '',
+    active: d.isActive !== false,
+  };
+}
+
+/** Map a raw designation document from the server API. */
+export function mapDesignation(d: Raw): Designation {
+  return {
+    id: String(d._id || d.id || ''),
+    title: d.name || d.title || '',
+    deptId: String(d.departmentId || d.department || ''),
+    min: d.min || '',
+    max: d.max || '',
+  };
 }
 
 /* ---------------- leave ---------------- */
@@ -484,6 +512,7 @@ export function mapDocument(d: Raw): DocumentRecord {
     size: typeof d.size === 'number' ? d.size : undefined,
     uploadStatus:
       d.uploadStatus === 'missing' || d.uploadStatus === 'deleted' ? d.uploadStatus : 'active',
+    referenceId: typeof d.referenceId === 'string' && d.referenceId ? d.referenceId : undefined,
   };
 }
 

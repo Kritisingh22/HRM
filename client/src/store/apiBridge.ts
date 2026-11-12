@@ -99,12 +99,35 @@ function memberObjIds(ids: string[] | undefined): string[] {
 
 /* ---------------- fetch: one patch per module ---------------- */
 
+interface EmployeesResponse {
+  employees: Raw[];
+  departments?: Raw[];
+  designations?: Raw[];
+}
+
 async function fetchEmployeesPatch(): Promise<Partial<AppData>> {
-  const body = await apiGet<{ employees: Raw[] }>('/api/employees');
+  const body = await apiGet<EmployeesResponse>('/api/employees');
   rawEmployees = body.employees || [];
   const employees = rawEmployees.map(M.mapEmployee);
-  const departments = M.deriveDepartments(employees);
-  return { employees, departments, designations: M.deriveDesignations(employees, departments) };
+  // Fallback: derive departments/designations from employees when the
+  // server doesn't provide them (e.g., demo mode).
+  const departments = body.departments?.length
+    ? body.departments.map(M.mapDepartment)
+    : M.deriveDepartments(employees);
+  const designations = body.designations?.length
+    ? body.designations.map(M.mapDesignation)
+    : M.deriveDesignations(employees, departments);
+  return { employees, departments, designations };
+}
+
+async function fetchDepartmentsPatch(): Promise<Partial<AppData>> {
+  const body = await apiGet<{ departments: Raw[] }>('/api/departments');
+  return { departments: (body.departments || []).map(M.mapDepartment) };
+}
+
+async function fetchDesignationsPatch(): Promise<Partial<AppData>> {
+  const body = await apiGet<{ designations: Raw[] }>('/api/designations');
+  return { designations: (body.designations || []).map(M.mapDesignation) };
 }
 
 async function fetchLeavesPatch(): Promise<Partial<AppData>> {
@@ -263,6 +286,8 @@ async function fetchTeamTasksPatch(): Promise<Partial<AppData>> {
 
 type RefreshKey =
   | 'employees'
+  | 'departments'
+  | 'designations'
   | 'leaves'
   | 'attendance'
   | 'payroll'
@@ -282,6 +307,8 @@ type RefreshKey =
 
 const FETCHERS: Record<RefreshKey, () => Promise<Partial<AppData>>> = {
   employees: fetchEmployeesPatch,
+  departments: fetchDepartmentsPatch,
+  designations: fetchDesignationsPatch,
   leaves: fetchLeavesPatch,
   attendance: fetchAttendancePatch,
   payroll: fetchPayrollPatch,
@@ -344,6 +371,8 @@ function keysForRole(): RefreshKey[] {
   const role = user?.role;
   const keys: RefreshKey[] = [
     'employees',
+    'departments',
+    'designations',
     'leaves',
     'attendance',
     'payroll',
@@ -510,7 +539,7 @@ const HANDLED: Record<string, RefreshKey[]> = {
 const NO_API_COLLECTIONS = new Set(['interviews', 'offers', 'onboarding']);
 
 /** Collections that are browser-local configuration (the server has no API). */
-const LOCAL_CONFIG_COLLECTIONS = new Set(['departments', 'designations']);
+const LOCAL_CONFIG_COLLECTIONS = new Set<string>([]);
 
 const UNSUPPORTED_MESSAGES: Array<{
   match: (action: AppAction) => boolean;
@@ -616,7 +645,9 @@ const EMPLOYEE_API_FIELDS = new Set([
   'phone',
   'gender',
   'department',
+  'departmentId',
   'designation',
+  'designationId',
   'manager',
   'employmentType',
   'workMode',
@@ -651,7 +682,9 @@ function employeeCreateToApi(e: Employee): Raw {
     phone: e.phone || undefined,
     gender: e.gender || undefined,
     department: e.dept || undefined,
+    departmentId: e.departmentId || undefined,
     designation: e.designation || undefined,
+    designationId: e.designationId || undefined,
     manager: e.manager || undefined,
     employmentType: e.employmentType || undefined,
     location: e.location || undefined,

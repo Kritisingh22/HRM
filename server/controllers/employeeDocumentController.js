@@ -1,35 +1,39 @@
 'use strict';
 const crypto = require('crypto');
 const mongoose = require('mongoose');
-const EmployeeDocument = require('../models/EmployeeDocument');
+const Document = require('../models/Document');
 const Employee = require('../models/Employee');
-const { putObject, getObjectStream, removeObject, safeKey } = require('../services/storage');
+const { putObject, getObjectStream, removeObject, getSignedDownloadUrl } = require('../services/storage');
 const ApiError = require('../utils/ApiError');
 const catchAsync = require('../utils/catchAsync');
 const { logAudit } = require('../utils/audit');
 const { userHasPermission } = require('../utils/permissions');
 const { teamEmployeeIds } = require('../utils/teamScope');
 const { contentDisposition } = require('../utils/contentDisposition');
+const cfg = require('../config/env');
 
 // Categories kept even after "deletion" (archived metadata, bytes retained).
-const RETAIN_CATEGORIES = new Set(['payslip', 'contract', 'id_proof', 'certificate', 'hr_manual', 'onsite_manual', 'policy']);
+const RETAIN_CATEGORIES = new Set(['payslip', 'Payslip', 'contract', 'Contract', 'id_proof', 'ID Proof', 'certificate', 'Certificate', 'hr_manual', 'HR Manual', 'onsite_manual', 'policy', 'Policy']);
 
 async function myEmployee(user) {
   return Employee.findOne({ $or: [{ user: user._id }, { employeeId: user.employeeId }] }).select('_id');
 }
 
-function getEmployeeId(document) {
-  return document.employee && document.employee._id ? document.employee._id : document.employee;
+/** Coerce a possibly-populated mongoose doc to its id string. */
+function idOf(v) {
+  if (v == null) return v;
+  if (typeof v === 'object' && v._id) return String(v._id);
+  return String(v);
 }
 
 async function canAccessDocument(user, document) {
   // The uploader can always access their own record.
-  if (String(document.uploadedBy) === String(user._id)) return true;
+  if (document.uploadedBy && idOf(document.uploadedBy) === idOf(user._id)) return true;
 
-  const empId = getEmployeeId(document);
+  const empId = document.employee || document.owner;
   // The employee the record is about always reaches their own document.
   const me = await myEmployee(user);
-  if (me && empId && String(me._id) === String(empId)) return true;
+  if (me && empId && idOf(empId) === idOf(me._id)) return true;
 
   if (['ADMIN', 'SUPER_ADMIN'].includes(user.role)) return true;
 
@@ -42,7 +46,7 @@ async function canAccessDocument(user, document) {
     if (document.visibility === 'company') return userHasPermission(user, 'documents:read');
     if (document.visibility === 'team' || document.visibility === 'private') {
       const ids = await teamEmployeeIds(user);
-      return ids.some((id) => String(id) === String(empId));
+      return ids.some((id) => idOf(id) === idOf(empId));
     }
     return false;
   }
@@ -50,7 +54,7 @@ async function canAccessDocument(user, document) {
   if (document.visibility === 'company') return userHasPermission(user, 'documents:read');
   if (document.visibility === 'team' && user.role === 'MANAGER') {
     const ids = await teamEmployeeIds(user);
-    return ids.some((id) => String(id) === String(empId));
+    return ids.some((id) => idOf(id) === idOf(empId));
   }
   return false;
 }
@@ -61,7 +65,7 @@ exports.list = catchAsync(async (req, res) => {
   }
 
   const { employeeId, category, verified } = req.query;
-  const filter = { uploadStatus: { $ne: 'deleted' } };
+  const filter = { uploadStatus: { $ne: 'deleted' }, scope: 'personal' };
 
   if (employeeId) {
     // Check if user can view this employee's documents
@@ -98,26 +102,27 @@ exports.list = catchAsync(async (req, res) => {
   const skip = (page - 1) * limit;
 
   const [documents, total] = await Promise.all([
-    EmployeeDocument.find(filter)
+    Document.find(filter)
       .populate('employee', 'employeeId fullName department designation')
       .populate('uploadedBy', 'fullName email')
       .populate('verifiedBy', 'fullName email')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit),
-    EmployeeDocument.countDocuments(filter),
+    Document.countDocuments(filter),
   ]);
 
   res.json({ documents, total, page, pages: Math.ceil(total / limit) });
 });
 
 exports.getOne = catchAsync(async (req, res) => {
-  const document = await EmployeeDocument.findById(req.params.id)
+  const document = await Document.findById(req.params.id)
     .populate('employee', 'employeeId fullName department designation user')
     .populate('uploadedBy', 'fullName email')
     .populate('verifiedBy', 'fullName email');
 
   if (!document || document.uploadStatus === 'deleted') throw ApiError.notFound('Document not found.');
+  if (document.scope !== 'personal') throw ApiError.notFound('Document not found.');
 
   if (!(await canAccessDocument(req.user, document))) {
     throw ApiError.forbidden('You do not have permission to view this document.');
@@ -160,7 +165,7 @@ exports.upload = catchAsync(async (req, res) => {
   const checksum = crypto.createHash('sha256').update(buffer).digest('hex');
 
   // Duplicate protection for the same employee + category.
-  const dupe = await EmployeeDocument.findOne({
+  const dupe = await Document.findOne({
     employee: employeeId,
     category: docCategory,
     checksum,
@@ -182,12 +187,15 @@ exports.upload = catchAsync(async (req, res) => {
 
   let document;
   try {
-    document = await EmployeeDocument.create({
+    document = await Document.create({
       _id: docId,
+      title: file.originalname,
       employee: employeeId,
+      owner: employeeId,
+      scope: 'personal',
       type: type || 'Document',
       category: docCategory,
-      fileKey: put.key,
+      storageKey: put.key,
       storageProvider: put.provider,
       driveFileId: put.driveFileId || undefined,
       driveFolderId: put.folderId || undefined,
@@ -195,10 +203,10 @@ exports.upload = catchAsync(async (req, res) => {
       retention: RETAIN_CATEGORIES.has(docCategory) ? 'retain' : 'standard',
       originalName: file.originalname,
       mimeType: file.mimetype,
-      fileSize: put.size,
+      size: put.size,
       uploadedBy: req.user._id,
       uploaderRole: req.user.role,
-      visibility: visibility || (req.user.role === 'EMPLOYEE' ? 'private' : 'team'),
+      visibility: visibility || 'private',
     });
   } catch (e) {
     // Clean up the stored bytes so no orphan is left behind.
@@ -208,7 +216,7 @@ exports.upload = catchAsync(async (req, res) => {
       console.error('[employee-documents] orphan cleanup failed for', put.driveFileId || put.key, cleanupErr.message);
       logAudit(req, {
         action: 'document.upload.orphan',
-        targetType: 'EmployeeDocument',
+        targetType: 'Document',
         targetId: docId,
         description: `Metadata save failed and storage cleanup also failed (${put.provider}); needs reconciliation.`,
       });
@@ -219,7 +227,7 @@ exports.upload = catchAsync(async (req, res) => {
 
   logAudit(req, {
     action: 'document.upload',
-    targetType: 'EmployeeDocument',
+    targetType: 'Document',
     targetId: document._id,
     description: `Uploaded document ${file.originalname} for employee ${employeeId} via ${put.provider}`,
   });
@@ -228,21 +236,22 @@ exports.upload = catchAsync(async (req, res) => {
 });
 
 exports.download = catchAsync(async (req, res) => {
-  const document = await EmployeeDocument.findById(req.params.id)
+  const document = await Document.findById(req.params.id)
     .populate('employee', 'employeeId fullName');
 
   if (!document || document.uploadStatus === 'deleted') throw ApiError.notFound('Document not found.');
+  if (document.scope !== 'personal') throw ApiError.notFound('Document not found.');
 
   if (!(await canAccessDocument(req.user, document))) {
     throw ApiError.forbidden('You do not have permission to download this document.');
   }
 
-  const provider = document.storageProvider || 'local';
+  const provider = document.storageProvider || 'cloudflare-r2';
   let result;
   try {
-    result = await getObjectStream({ provider, key: document.fileKey });
+    result = await getObjectStream({ provider, key: document.storageKey });
   } catch (e) {
-    if (provider === 'google-drive' && e instanceof ApiError && e.statusCode === 404) {
+    if (e instanceof ApiError && e.statusCode === 404) {
       document.uploadStatus = 'missing';
       await document.save().catch(() => {});
     }
@@ -250,7 +259,7 @@ exports.download = catchAsync(async (req, res) => {
   }
 
   res.setHeader('Content-Type', document.mimeType || 'application/octet-stream');
-  if (document.fileSize) res.setHeader('Content-Length', String(document.fileSize));
+  if (document.size) res.setHeader('Content-Length', String(document.size));
   res.setHeader('Content-Disposition', contentDisposition(document.originalName, req.query.inline !== '1'));
   result.stream.on('error', (err) => {
     console.error('[employee-documents] stream failed:', err.message);
@@ -260,8 +269,9 @@ exports.download = catchAsync(async (req, res) => {
 });
 
 exports.update = catchAsync(async (req, res) => {
-  const document = await EmployeeDocument.findById(req.params.id);
+  const document = await Document.findById(req.params.id);
   if (!document || document.uploadStatus === 'deleted') throw ApiError.notFound('Document not found.');
+  if (document.scope !== 'personal') throw ApiError.notFound('Document not found.');
 
   // Check if user can modify this document
   const canModify = userHasPermission(req.user, 'documents:write') || String(document.uploadedBy) === String(req.user._id);
@@ -285,12 +295,12 @@ exports.update = catchAsync(async (req, res) => {
 
   logAudit(req, {
     action: 'document.update',
-    targetType: 'EmployeeDocument',
+    targetType: 'Document',
     targetId: document._id,
-    description: `Updated document ${document.type} for employee ${getEmployeeId(document)}`,
+    description: `Updated document ${document.type} for employee ${document.employee || document.owner}`,
   });
 
-  const populated = await EmployeeDocument.findById(document._id)
+  const populated = await Document.findById(document._id)
     .populate('employee', 'employeeId fullName department designation')
     .populate('uploadedBy', 'fullName email')
     .populate('verifiedBy', 'fullName email');
@@ -303,8 +313,9 @@ exports.verify = catchAsync(async (req, res) => {
     throw ApiError.forbidden('You do not have permission to verify documents.');
   }
 
-  const document = await EmployeeDocument.findById(req.params.id);
+  const document = await Document.findById(req.params.id);
   if (!document || document.uploadStatus === 'deleted') throw ApiError.notFound('Document not found.');
+  if (document.scope !== 'personal') throw ApiError.notFound('Document not found.');
 
   document.isVerified = true;
   document.verifiedBy = req.user._id;
@@ -313,28 +324,29 @@ exports.verify = catchAsync(async (req, res) => {
 
   logAudit(req, {
     action: 'document.verify',
-    targetType: 'EmployeeDocument',
+    targetType: 'Document',
     targetId: document._id,
-    description: `Verified document ${document.type} for employee ${getEmployeeId(document)}`,
+    description: `Verified document ${document.type} for employee ${document.employee || document.owner}`,
   });
 
   res.json({ message: 'Document verified successfully.' });
 });
 
 exports.delete = catchAsync(async (req, res) => {
-  const document = await EmployeeDocument.findById(req.params.id);
+  const document = await Document.findById(req.params.id);
   if (!document || document.uploadStatus === 'deleted') throw ApiError.notFound('Document not found.');
+  if (document.scope !== 'personal') throw ApiError.notFound('Document not found.');
 
   const canDelete = userHasPermission(req.user, 'documents:delete') || String(document.uploadedBy) === String(req.user._id);
   if (!canDelete) throw ApiError.forbidden('You do not have permission to delete this document.');
 
   // Retained categories (payroll/HR records) keep their bytes; everything else
-  // is moved to the provider trash (recoverable) — never hard-deleted here.
+  // is removed from storage (recoverable via provider trash where supported) — never hard-deleted here.
   const retain = document.retention === 'retain' || RETAIN_CATEGORIES.has(document.category);
   let storageAction = 'retained';
   if (!retain) {
     try {
-      const r = await removeObject({ provider: document.storageProvider || 'local', key: document.fileKey });
+      const r = await removeObject({ provider: document.storageProvider || 'cloudflare-r2', key: document.storageKey });
       storageAction = r.mode === 'absent' ? 'already-absent' : r.mode === 'trashed' ? 'trashed' : 'deleted';
     } catch (e) {
       storageAction = 'failed';
@@ -348,25 +360,28 @@ exports.delete = catchAsync(async (req, res) => {
 
   logAudit(req, {
     action: 'document.delete',
-    targetType: 'EmployeeDocument',
+    targetType: 'Document',
     targetId: document._id,
-    description: `Archived document ${document.type} for employee ${getEmployeeId(document)}; storage: ${storageAction}`,
+    description: `Archived document ${document.type} for employee ${document.employee || document.owner}; storage: ${storageAction}`,
   });
 
   res.json({ ok: true, archived: true, storageAction, message: 'Document deleted.' });
 });
 
 exports.getSignedUrl = catchAsync(async (req, res) => {
-  const document = await EmployeeDocument.findById(req.params.id);
+  const document = await Document.findById(req.params.id);
   if (!document || document.uploadStatus === 'deleted') throw ApiError.notFound('Document not found.');
+  if (document.scope !== 'personal') throw ApiError.notFound('Document not found.');
 
   if (!(await canAccessDocument(req.user, document))) {
     throw ApiError.forbidden('You do not have permission to access this document.');
   }
 
-  if ((document.storageProvider || 'local') === 'google-drive') {
-    // Drive files are never linked directly — hand back the authorised stream.
-    return res.json({ url: `/api/employee-documents/${document._id}/download`, provider: 'google-drive' });
+  // R2 objects are private — hand back a short-lived signed URL.
+  const provider = document.storageProvider || 'cloudflare-r2';
+  if (provider !== 'cloudflare-r2') {
+    throw ApiError.forbidden('This document is stored with a legacy provider and cannot be accessed.');
   }
-  return res.json({ url: `/uploads/${safeKey(document.fileKey)}`, provider: 'local' });
+  const url = await getSignedDownloadUrl({ key: document.storageKey });
+  return res.json({ url, provider: 'cloudflare-r2', expiresIn: cfg.R2_SIGNED_URL_EXPIRY || 300 });
 });

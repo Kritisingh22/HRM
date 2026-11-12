@@ -7,7 +7,10 @@
   --hover-border: #34456b;
   --text: #e6edf7;
   --text-2: #94a3b8;
-  --muted: #64748b;
+  /* AA contrast on dark bg (#0f172a): #64748b was only 3.75:1 for small text;
+     #778899 is 4.90:1. Kept in the same slate family so the muted look is
+     unchanged. */
+  --muted: #778899;
   --teal: #509888;
   --teal-bright: #7fd4c1;
   --teal-tint: rgba(80, 152, 136, 0.15);
@@ -42,7 +45,10 @@ body.theme-light {
   --hover-border: #cbd5e1;
   --text: #0f1b2d;
   --text-2: #516074;
-  --muted: #8a98ab;
+  /* AA contrast on light bg (#eef2f7): #8a98ab was only 2.61:1 for small text;
+     #5e6b78 is 4.85:1. Still lighter than --text-2 (#516074, 5.70:1) so the
+     muted/text hierarchy is unchanged. */
+  --muted: #5e6b78;
   --teal-tint: rgba(80, 152, 136, 0.14);
   --green-tint: rgba(22, 163, 74, 0.14);
   --amber-tint: rgba(217, 119, 6, 0.16);

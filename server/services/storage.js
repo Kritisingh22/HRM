@@ -1,24 +1,30 @@
 /* Storage service — provider-aware object storage for document bytes.
  *
  * MongoDB only ever stores metadata; the bytes live behind this seam:
- *   - 'google-drive' : private folder in Google Drive via services/googleDrive.js
- *   - 'local'        : <cwd>/uploads on disk (legacy default, kept for existing
- *                      records and for running without any cloud credentials)
+ *   - 'local'         : <cwd>/uploads on disk (dev / tests — never served directly;
+ *                        all downloads stream through the authenticated controllers)
+ *   - 'google-drive'  : private Google Drive folder via services/googleDrive.js
+ *   - 'cloudflare-r2' : private Cloudflare R2 bucket via services/r2Storage.js
  *
- * Selection: DOCUMENT_STORAGE=local|google-drive, or automatic (Drive when it is
- * fully configured, otherwise local). Every record remembers its provider, so
- * pre-existing local files keep working after Drive is enabled — there is no
- * migration step and nothing is ever bulk-moved or bulk-deleted.
+ * Selection: DOCUMENT_STORAGE=local|google-drive|cloudflare-r2, or automatic
+ * (R2 when fully configured, else Google Drive when fully configured, else
+ * local disk). Every record remembers its provider, so pre-existing files keep
+ * working when the provider changes — there is no bulk migration step here;
+ * see scripts/migrate-uploads-to-r2.js for moving local uploads into R2.
  *
  * All providers expose the same four operations:
  *   putObject({key, buffer, contentType, originalName, appProperties})
  *   getObjectStream({provider, key})      → { stream }
  *   objectExists({provider, key})         → boolean
- *   removeObject({provider, key})         → { removed, mode: 'deleted'|'trashed'|'absent' }
+ *   removeObject({provider, key})         → { removed, mode }
  *
- * Tests may install a fake Drive adapter through __test.setDriveAdapter() — this
- * exercises OUR orchestration only; live Drive behavior is covered separately by
- * tests/documents-live.test.js against the real API.
+ * Downloads are served through short-lived signed URLs (R2) or by streaming
+ * through this controller (local / Drive) — no permanent or public links are
+ * ever exposed, and raw paths are never sent to clients.
+ *
+ * Tests may install a fake Drive adapter through __test.setDriveAdapter() —
+ * this exercises OUR orchestration only; live Drive behavior is covered
+ * separately by tests/documents-live.test.js against the real API.
  */
 'use strict';
 
@@ -27,6 +33,7 @@ const path = require('path');
 const crypto = require('crypto');
 const cfg = require('../config/env');
 const ApiError = require('../utils/ApiError');
+const r2 = require('./r2Storage');
 
 const UPLOAD_DIR = path.join(__dirname, '..', 'uploads');
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -69,10 +76,17 @@ function driveConfigured() {
   }
 }
 
+function r2Configured() {
+  return r2.r2Configured();
+}
+
 function activeProvider() {
   if (cfg.DOCUMENT_STORAGE === 'google-drive') return 'google-drive';
+  if (cfg.DOCUMENT_STORAGE === 'cloudflare-r2') return 'cloudflare-r2';
   if (cfg.DOCUMENT_STORAGE === 'local') return 'local';
-  return driveConfigured() ? 'google-drive' : 'local';
+  if (r2Configured()) return 'cloudflare-r2';
+  if (driveConfigured()) return 'google-drive';
+  return 'local';
 }
 
 const __test = {
@@ -106,14 +120,11 @@ async function putObject({ key, buffer, contentType, originalName, appProperties
       parentId: cfg.GOOGLE_DRIVE_FOLDER_ID,
       appProperties: { managedBy: 'cyethack-hrm', ...(appProperties || {}) },
     });
-    return {
-      provider,
-      key: file.id,
-      driveFileId: file.id,
-      folderId: cfg.GOOGLE_DRIVE_FOLDER_ID,
-      size: buffer.length,
-      checksum,
-    };
+    return { provider, key: file.id, driveFileId: file.id, folderId: cfg.GOOGLE_DRIVE_FOLDER_ID, size: buffer.length, checksum };
+  }
+
+  if (provider === 'cloudflare-r2') {
+    return r2.putObject({ key, buffer, contentType, originalName, appProperties });
   }
 
   const stored = safeKey(key);
@@ -127,8 +138,10 @@ async function putObject({ key, buffer, contentType, originalName, appProperties
 async function getObjectStream({ provider, key }) {
   if (provider === 'google-drive') {
     if (!driveConfigured()) throw new ApiError(503, 'Document storage is not configured on the server.');
-    const stream = await driveModule().getFileStream(key);
-    return { stream };
+    return { stream: await driveModule().getFileStream(key) };
+  }
+  if (provider === 'cloudflare-r2') {
+    return r2.getObjectStream({ provider, key });
   }
   const full = filePath(key);
   if (!fs.existsSync(full)) throw ApiError.notFound('File is missing on the server.');
@@ -141,13 +154,16 @@ async function objectExists({ provider, key }) {
     if (!driveConfigured()) throw new ApiError(503, 'Document storage is not configured on the server.');
     return driveModule().fileExists(key);
   }
+  if (provider === 'cloudflare-r2') {
+    return r2.objectExists({ provider, key });
+  }
   return fs.existsSync(filePath(key));
 }
 
 /** Delete/trash a stored object. Never throws for an already-absent file. */
 async function removeObject({ provider, key }) {
   if (provider === 'google-drive') {
-    if (!driveConfigured()) throw new ApiError(503, 'Document storage is not configured on the server.');
+    if (!driveConfigured()) return { removed: false, mode: 'absent' };
     try {
       await driveModule().trashFile(key);
       return { removed: true, mode: 'trashed' };
@@ -156,10 +172,18 @@ async function removeObject({ provider, key }) {
       throw e;
     }
   }
+  if (provider === 'cloudflare-r2') {
+    return r2.removeObject({ provider, key });
+  }
   const full = filePath(key);
   const existed = fs.existsSync(full);
   fs.rmSync(full, { force: true });
   return { removed: existed, mode: existed ? 'deleted' : 'absent' };
+}
+
+/** Generate a short-lived signed URL for authorized download/preview (R2 only). */
+async function getSignedDownloadUrl({ key, expiresIn }) {
+  return r2.getSignedDownloadUrl({ key, expiresIn });
 }
 
 module.exports = {
@@ -167,9 +191,11 @@ module.exports = {
   safeKey,
   activeProvider,
   driveConfigured,
+  r2Configured,
   putObject,
   getObjectStream,
   objectExists,
   removeObject,
+  getSignedDownloadUrl,
   __test,
 };

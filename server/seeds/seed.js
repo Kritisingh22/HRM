@@ -17,6 +17,8 @@ const Document = require("../models/Document");
 const Notice = require("../models/Notice");
 const Ticket = require("../models/Ticket");
 const Offboarding = require("../models/Offboarding");
+const AttendanceSettings = require("../models/AttendanceSettings");
+const AttendanceEvent = require("../models/AttendanceEvent");
 
 // dev login accounts (email → role). employeeId links them to an Employee row.
 // Passwords are generated as: first 4 alphabetic chars of first name + employeeId
@@ -299,6 +301,8 @@ async function seedDatabase() {
     Notice.deleteMany({}),
     Ticket.deleteMany({}),
     Offboarding.deleteMany({}),
+    AttendanceSettings.deleteMany({}),
+    AttendanceEvent.deleteMany({}),
   ]);
 
   // employees first
@@ -392,6 +396,88 @@ async function seedDatabase() {
       date: "2026-09-10",
       status: "wfh",
       checkIn: "09:30 AM",
+    },
+  ]);
+
+  // attendance settings (geofence + session config) — HR configures this
+  await AttendanceSettings.create({
+    _id: 'singleton',
+    officeLat: 28.6139,
+    officeLng: 77.2090,
+    radiusMeters: 200,
+    workStart: '09:00',
+    workEnd: '18:00',
+    minActiveHours: 8,
+    blockOutsideLocation: true,
+    idleMinutes: 5,
+    heartbeatIntervalSeconds: 30,
+    sessionTimeoutSeconds: 90,
+    updatedBy: userDocs.HR._id,
+    updatedAt: new Date(),
+  });
+
+  // richer sample attendance for yesterday / day before (with sessions + geofence)
+  // NOTE: deliberately NOT "today" so the self-service check-in test starts clean.
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  const dayBefore = new Date(Date.now() - 172800000).toISOString().slice(0, 10);
+
+  await Attendance.create([
+    {
+      employee: empDocs["CY0525RS109"]._id,
+      date: yesterday,
+      status: 'present',
+      checkIn: '09:05',
+      checkInDetail: {
+        lat: 28.6139,
+        lng: 77.209,
+        accuracy: 12,
+        ip: '10.0.0.5',
+        device: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+        capturedAt: new Date(`${yesterday}T09:05:00Z`),
+      },
+      geofence: { inRange: true, distanceMeters: 15 },
+      consentGiven: true,
+      consentAt: new Date(`${yesterday}T09:05:00Z`),
+      sessions: [
+        { start: new Date(`${yesterday}T09:05:00Z`), end: new Date(`${yesterday}T12:00:00Z`), state: 'active', reason: 'check-in' },
+        { start: new Date(`${yesterday}T12:00:00Z`), end: new Date(`${yesterday}T13:00:00Z`), state: 'paused', reason: 'idle' },
+        { start: new Date(`${yesterday}T13:00:00Z`), end: new Date(`${yesterday}T17:50:00Z`), state: 'active', reason: 'resume' },
+      ],
+      activeSeconds: 17100, // 4h 45m
+      pausedSeconds: 3600, // 1h
+      lastHeartbeatAt: new Date(`${yesterday}T17:50:00Z`),
+    },
+    {
+      employee: empDocs["CY0226AR110"]._id,
+      date: dayBefore,
+      status: 'outside-location',
+      checkIn: '09:20',
+      checkInDetail: {
+        lat: 28.62,
+        lng: 77.22,
+        accuracy: 15,
+        ip: '10.0.0.8',
+        device: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+        capturedAt: new Date(`${dayBefore}T09:20:00Z`),
+      },
+      geofence: { inRange: false, distanceMeters: 450 },
+      consentGiven: true,
+      consentAt: new Date(`${dayBefore}T09:20:00Z`),
+      sessions: [
+        { start: new Date(`${dayBefore}T09:20:00Z`), end: new Date(`${dayBefore}T17:30:00Z`), state: 'active', reason: 'check-in' },
+      ],
+      activeSeconds: 29400, // 8h 10m
+      pausedSeconds: 0,
+      checkOut: '17:30',
+      checkOutDetail: {
+        lat: 28.62,
+        lng: 77.22,
+        accuracy: 15,
+        ip: '10.0.0.8',
+        device: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+        capturedAt: new Date(`${dayBefore}T17:30:00Z`),
+      },
+      lastHeartbeatAt: new Date(`${dayBefore}T17:30:00Z`),
     },
   ]);
 

@@ -1,0 +1,11 @@
+Cyethack HR API + portal listening on 0.0.0.0:5000  (development)
+MongoDB connected: ac-sehzk9p-shard-00-00.jqbnuni.mongodb.net/test
+[Scheduler] Daily report reminder job scheduled: 0 * * * * (Asia/Kolkata)
+[Scheduler] Daily report overdue job scheduled: 0 0 * * * (Asia/Kolkata)
+[Scheduler] Access-grant expiry job scheduled: */15 * * * * (Asia/Kolkata)
+[Scheduler] Weekly attendance summary job scheduled: 30 0 * * 1 (Asia/Kolkata)
+[Scheduler] Task due today reminders job scheduled: 0 9 * * * (Asia/Kolkata)
+[Scheduler] Task due tomorrow reminders job scheduled: 0 9 * * * (Asia/Kolkata)
+[Scheduler] Task overdue reminders job scheduled: 0 10 * * * (Asia/Kolkata)
+[Scheduler] All jobs started
+MongoDB connected; background scheduler started.
