@@ -134,6 +134,29 @@ exports.list = catchAsync(async (req, res) => {
   res.json({ count: leaves.length, leaves });
 });
 
+/* GET /api/leaves/balance — the caller's OWN leave balance for the current year.
+ * Entitlements are a company policy (override with LEAVE_ENTITLEMENT_JSON in .env,
+ * e.g. {"Casual Leave":10,"Sick Leave":8,"Earned Leave":18}). Unpaid leave is uncapped.
+ * Approved days count as used; Pending days are reserved; both reduce remaining. */
+exports.balance = catchAsync(async (req, res) => {
+  const me = await myEmployee(req.user);
+  if (!me) return res.json({ year: new Date().getFullYear(), balances: [] });
+  const year = new Date().getFullYear();
+  const rows = await Leave.aggregate([
+    { $match: { employee: me._id, status: { $in: ["Approved", "Pending"] }, from: { $gte: new Date(`${year}-01-01`), $lte: new Date(`${year}-12-31T23:59:59Z`) } } },
+    { $group: { _id: { type: "$type", status: "$status" }, days: { $sum: "$days" } } },
+  ]);
+  const ent = entitlement();
+  const types = ["Casual Leave", "Sick Leave", "Earned Leave", "Unpaid Leave"];
+  const balances = types.map((type) => {
+    const used = (rows.find((r) => r._id.type === type && r._id.status === "Approved") || {}).days || 0;
+    const pending = (rows.find((r) => r._id.type === type && r._id.status === "Pending") || {}).days || 0;
+    const total = ent[type] === undefined ? null : ent[type];
+    return { type, total, used, pending, remaining: total === null ? null : Math.max(0, total - used - pending) };
+  });
+  res.json({ year, balances });
+});
+
 /* GET /api/leaves/:id — leave request details (object-level scoped).
  * Returns 403 when the record exists but the caller is out of scope. */
 exports.getOne = catchAsync(async (req, res) => {
@@ -719,4 +742,27 @@ exports.management = catchAsync(async (req, res) => {
     .limit(500);
 
   res.json({ count: leaves.length, leaves });
+});
+
+/* GET /api/leaves/balance — the caller's OWN leave balance for the current year.
+ * Entitlements are a company policy (override with LEAVE_ENTITLEMENT_JSON in .env,
+ * e.g. {"Casual Leave":10,"Sick Leave":8,"Earned Leave":18}). Unpaid leave is uncapped.
+ * Approved days count as used; Pending days are reserved; both reduce remaining. */
+exports.balance = catchAsync(async (req, res) => {
+  const me = await myEmployee(req.user);
+  if (!me) return res.json({ year: new Date().getFullYear(), balances: [] });
+  const year = new Date().getFullYear();
+  const rows = await Leave.aggregate([
+    { $match: { employee: me._id, status: { $in: ["Approved", "Pending"] }, from: { $gte: new Date(`${year}-01-01`), $lte: new Date(`${year}-12-31T23:59:59Z`) } } },
+    { $group: { _id: { type: "$type", status: "$status" }, days: { $sum: "$days" } } },
+  ]);
+  const ent = entitlement();
+  const types = ["Casual Leave", "Sick Leave", "Earned Leave", "Unpaid Leave"];
+  const balances = types.map((type) => {
+    const used = (rows.find((r) => r._id.type === type && r._id.status === "Approved") || {}).days || 0;
+    const pending = (rows.find((r) => r._id.type === type && r._id.status === "Pending") || {}).days || 0;
+    const total = ent[type] === undefined ? null : ent[type];
+    return { type, total, used, pending, remaining: total === null ? null : Math.max(0, total - used - pending) };
+  });
+  res.json({ year, balances });
 });
