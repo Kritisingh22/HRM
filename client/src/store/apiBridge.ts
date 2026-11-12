@@ -99,8 +99,14 @@ function memberObjIds(ids: string[] | undefined): string[] {
 
 /* ---------------- fetch: one patch per module ---------------- */
 
+interface EmployeesResponse {
+  employees: Raw[];
+  departments?: Raw[];
+  designations?: Raw[];
+}
+
 async function fetchEmployeesPatch(): Promise<Partial<AppData>> {
-  const body = await apiGet<{ employees: Raw[] }>('/api/employees');
+  const body = await apiGet<EmployeesResponse>('/api/employees');
   rawEmployees = body.employees || [];
   const employees = rawEmployees.map(M.mapEmployee);
   // Fallback: derive departments/designations from employees when the
@@ -280,6 +286,8 @@ async function fetchTeamTasksPatch(): Promise<Partial<AppData>> {
 
 type RefreshKey =
   | 'employees'
+  | 'departments'
+  | 'designations'
   | 'leaves'
   | 'attendance'
   | 'payroll'

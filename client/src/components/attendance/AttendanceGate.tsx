@@ -38,6 +38,14 @@ export function AttendanceGate({
   const [geoDenied, setGeoDenied] = useState(false);
   const [locating, setLocating] = useState(false);
 
+  // Modal close handler — clicking (×), pressing Escape, or clicking the
+  // backdrop does NOT perform check-in or create attendance records.
+  // The mandatory check-in requirement remains enforced; the modal stays
+  // displayed until the user completes check-in.
+  const handleModalClose = () => {
+    // no-op — does not call doCheckIn(), does not create records
+  };
+
   const browserTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
   const doCheckIn = useCallback(async () => {
@@ -118,7 +126,7 @@ export function AttendanceGate({
   return (
     <Modal
       title="Mandatory check-in"
-      onClose={() => {}}
+      onClose={handleModalClose}
       large
       className="attendance-gate"
     >

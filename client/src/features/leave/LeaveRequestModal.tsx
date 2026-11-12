@@ -42,7 +42,8 @@ export function LeaveRequestModal({
 
   /* Decision rights mirror the backend policy: HR decides HR-authorized requests,
      a manager only their own reporting line for manager-authorized requests,
-     and nobody their own request. The queue itself re-checks the transition on save. */
+     and nobody their own request. The queue itself re-checks the transition on save.
+     Admin and Super Admin can also decide requests in the centralized queue. */
   const inManagerScope = Boolean(
     user?.portal === 'manager' && myId && teamIds(data.employees, myId).has(request.employeeId),
   );
@@ -50,7 +51,9 @@ export function LeaveRequestModal({
     !isOwner &&
     request.status === 'Pending' &&
     ((request.approvalAuthority === 'HR' && user?.portal === 'hr') ||
-      (request.approvalAuthority === 'Manager' && inManagerScope));
+      (request.approvalAuthority === 'Manager' && inManagerScope) ||
+      (request.approvalAuthority === 'Admin' && user?.role === 'ADMIN') ||
+      (request.approvalAuthority === 'Super Admin' && user?.role === 'SUPER_ADMIN'));
 
   return (
     <Modal

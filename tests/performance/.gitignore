@@ -1,0 +1,3 @@
+/data/test-users.json
+/results/*
+!/results/.gitkeep

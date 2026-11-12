@@ -8,8 +8,8 @@ import { Icon } from '@/components/ui/Icon';
 import { avatarColor, initials, statusClass } from '@/lib/format';
 
 /* ---------------- Status pill ---------------- */
-export function Pill({ status }: { status: string }) {
-  return <span className={`pill-status ${statusClass(status)}`}>{status}</span>;
+export function Pill({ status, children }: { status: string; children?: ReactNode }) {
+  return <span className={`pill-status ${statusClass(status)}`}>{children ?? status}</span>;
 }
 
 /* ---------------- Avatar ---------------- */
