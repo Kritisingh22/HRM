@@ -3,14 +3,17 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Cyethack HR Portal - Secure employee management, payroll, leave, attendance, and HR analytics." />
-    <!-- Private HR portal — intentionally hidden from search engines. -->
-    <meta name="robots" content="noindex, nofollow" />
+    <meta name="description" content="Cyethack HR Portal — sign in to the employee management, payroll, leave and attendance portal. HR, Manager and Employee roles." />
+    <!-- The public login page is indexable (no robots meta here). Authenticated HRM routes
+         render this same shell; AppShell injects <meta name="robots" content="noindex,
+         nofollow"> for signed-in sessions so confidential employee/payroll data stays out
+         of search indexes. robots.txt allows only /login and disallows everything else. -->
     <title>Cyethack HR Portal</title>
+    <link rel="canonical" href="https://hrm-1-0prk.onrender.com/" />
     <style>
       /* Critical shell — inlined so the first paint shows the login card skeleton
          instead of a blank white screen while the main bundle loads. */
-      :root{--bg:#0f172a;--surface:#172238;--border:#243352;--text:#e6edf7;--text-2:#94a3b8;--muted:#64748b;--teal:#509888;--radius:12px}
+      :root{--bg:#0f172a;--surface:#172238;--border:#243352;--text:#e6edf7;--text-2:#94a3b8;--muted:#a5b1c4;--teal:#509888;--radius:12px}
       *{box-sizing:border-box;margin:0;padding:0}
       html,body,#root{height:100%;width:100%}
       body{background:var(--bg);color:var(--text);font-family:"IBM Plex Sans","IBM Plex Sans FB",system-ui,-apple-system,"Segoe UI",Arial,sans-serif;font-size:14px;line-height:1.4;margin:0}
@@ -31,7 +34,7 @@
   <body>
     <div id="root">
       <!-- Static shell painted by HTML before the JS bundle loads; replaced by React on mount. -->
-      <div class="auth-shell">
+      <main class="auth-shell" role="main" aria-label="Sign in">
         <div class="auth-card">
           <div class="auth-brand">
             <svg class="auth-mark" viewBox="0 0 24 24" aria-hidden="true">
@@ -46,7 +49,7 @@
           <div class="auth-sub">Use one of the demo accounts below to explore each role.</div>
           <div class="auth-hint">Session lasts 12 hours</div>
         </div>
-      </div>
+      </main>
     </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

@@ -6,13 +6,52 @@
    .btn-primary, .auth-btn, .org-node .av, .skip-link). --teal
    (#509888) is kept for borders, bars and accents so the look
    stays the same. White on #3a7a6b ≈ 5.3:1 (≥ 4.5:1).
+
+   --muted on dark was #64748b/#778899: only ≈3.6:1 on #0f172a
+   for small text (.auth-hint, .nav-label, .field-hint, .notif
+   time) — fails AA (4.5:1). #a5b1c4 ≈ 6.1:1 on dark, still
+   reads as muted next to --text-2 (#94a3b8, ≈5.5:1) and
+   --text (#e6edf7, ≈14:1), so the hierarchy is unchanged.
+
+   Error text: var(--red) #ef4444 ≈ 3.6:1 on dark at 12px.
+   #fba3a3 ≈ 6.8:1 — errors stay clearly red but readable.
+   Badge count: white on #ef4444 ≈ 4.0:1 at 10px; #dc2626 ≈ 5.0:1.
+
+   Light theme: teal-bright (#7fd4c1) focus outline and logo text
+   on white ≈ 1.6:1 — fails. #1d6f42 ≈ 6.5:1 on white/light and
+   keeps the teal brand hue.
    ============================================================ */
 
 :root {
   --teal-strong: #3a7a6b;
+  --muted: #a5b1c4;
 }
 body.theme-light {
   --teal-strong: #3a7a6b;
+  --teal-bright: #1d6f42;
+  /* --muted #5e6b78 on #eef2f7 ≈ 5.2:1 — already passes, keep it. */
+}
+
+/* Error text: lighter red (#fba3a3 ≈ 9.2:1) so 12px error text passes
+   4.5:1 on dark; light theme needs a darker red (#b91c1c ≈ 5.8:1 on
+   #eef2f7) for the same reason. */
+.field.invalid .err,
+.auth-error {
+  color: #fba3a3;
+}
+body.theme-light .field.invalid .err,
+body.theme-light .auth-error {
+  color: #b91c1c;
+}
+
+/* Badge count: darker badge background so white 10px text passes 4.5:1. */
+.badge-dot {
+  background: #dc2626;
+}
+
+/* Light theme focus outline: ≥ 3:1 against adjacent backgrounds. */
+body.theme-light :focus-visible {
+  outline-color: #1d6f42;
 }
 
 /* Sidebar group labels: --muted (#64748b) on the dark sidebar is
