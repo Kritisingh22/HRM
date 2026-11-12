@@ -12,9 +12,8 @@ import { useNavigate } from 'react-router-dom';
 import { Icon } from '@/components/ui/Icon';
 import { CheckInCard } from '@/components/attendance/CheckInCard';
 import { EmpCell, Pill, Progress } from '@/components/ui/primitives';
-import { LineChart } from '@/components/charts/LineChart';
-import { DonutChart } from '@/components/charts/DonutChart';
-import { Funnel } from '@/components/charts/Funnel';
+// Chart components are lazy-loaded via dynamic imports below.
+// Inline imports would block the first paint of the Dashboard route.
 import { useApp } from '@/store/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
@@ -109,7 +108,39 @@ function DashboardBody() {
     [data.holidays, data.leaveRequests, data.attendanceOverrides],
   );
 
-  /* -------- attendance series -------- */
+  /* ---------- lazy chart components ---------- */
+
+function LineChartLazy({ labels, series, height, srSummary }: { labels: string[]; series: any; height?: number; srSummary?: string }) {
+  const [LazyComponent] = import dynamic(
+    () => import('@/components/charts/LineChart').then((m) => ({ default: m.LineChart })),
+    {
+      ssr: false,
+    }
+  );
+  return <LazyComponent labels={labels} series={series} height={height} srSummary={srSummary} />;
+}
+
+function DonutChartLazy({ data, size, ring, centerLabel, onSelect, ariaLabel }: any) {
+  const [LazyComponent] = import dynamic(
+    () => import('@/components/charts/DonutChart').then((m) => ({ default: m.DonutChart })),
+    {
+      ssr: false,
+    }
+  );
+  return <LazyComponent data={data} size={size} ring={ring} centerLabel={centerLabel} onSelect={onSelect} ariaLabel={ariaLabel} />;
+}
+
+function FunnelLazy({ stages, onSelect }: any) {
+  const [LazyComponent] = import dynamic(
+    () => import('@/components/charts/Funnel').then((m) => ({ default: m.Funnel })),
+    {
+      ssr: false,
+    }
+  );
+  return <LazyComponent stages={stages} onSelect={onSelect} />;
+}
+
+/* -------- attendance series -------- */
   const seriesByRange = useMemo(() => {
     const allDays = lastWorkingDays(101).slice(0, -1); // drop today (in progress)
     const slices: Record<RangeKey, Date[]> = {
