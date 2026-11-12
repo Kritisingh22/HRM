@@ -507,7 +507,8 @@ async function seedDemoData() {
       
       const leave = await Leave.create({
         employee: emp._id,
-        requestedBy: requester?._id,
+        applicantUserId: requester?._id || (emp.user || undefined),
+        applicantRole: requester?.role || "EMPLOYEE",
         type: lr.type,
         from: new Date(lr.from),
         to: new Date(lr.to),

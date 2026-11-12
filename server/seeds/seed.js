@@ -344,7 +344,8 @@ async function seedDatabase() {
   await Leave.create([
     {
       employee: empDocs["CY0525RS109"]._id,
-      requestedBy: userDocs.MANAGER._id,
+      applicantUserId: userDocs.MANAGER._id,
+      applicantRole: "MANAGER",
       type: "Casual Leave",
       from: "2026-10-20",
       to: "2026-10-21",
@@ -354,7 +355,8 @@ async function seedDatabase() {
     },
     {
       employee: empDocs["CY0525RS109"]._id,
-      requestedBy: userDocs.EMPLOYEE._id,
+      applicantUserId: userDocs.EMPLOYEE._id,
+      applicantRole: "EMPLOYEE",
       type: "Sick Leave",
       from: "2026-10-22",
       to: "2026-10-22",
@@ -364,6 +366,8 @@ async function seedDatabase() {
     },
     {
       employee: empDocs["CY0226AR110"]._id,
+      applicantUserId: userDocs["CY0226AR110"]._id,
+      applicantRole: "EMPLOYEE",
       type: "Earned Leave",
       from: "2026-09-28",
       to: "2026-09-30",
@@ -373,7 +377,8 @@ async function seedDatabase() {
     },
     {
       employee: empDocs["CY0226AR110"]._id,
-      requestedBy: userDocs.EMPLOYEE._id,
+      applicantUserId: userDocs.EMPLOYEE._id,
+      applicantRole: "EMPLOYEE",
       type: "Casual Leave",
       from: "2026-11-01",
       to: "2026-11-02",

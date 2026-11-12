@@ -368,7 +368,8 @@ async function createSampleData(empDocs, userDocs) {
   const leaveRequests = [
     {
       employee: empDocs["CY0525RS109"]._id,
-      requestedBy: managerUser._id,
+      applicantUserId: managerUser._id,
+      applicantRole: "MANAGER",
       type: "Casual Leave",
       from: "2026-10-20",
       to: "2026-10-21",
@@ -378,7 +379,8 @@ async function createSampleData(empDocs, userDocs) {
     },
     {
       employee: empDocs["CY0525RS109"]._id,
-      requestedBy: employeeUser._id,
+      applicantUserId: employeeUser._id,
+      applicantRole: "EMPLOYEE",
       type: "Sick Leave",
       from: "2026-10-22",
       to: "2026-10-22",
@@ -388,6 +390,8 @@ async function createSampleData(empDocs, userDocs) {
     },
     {
       employee: empDocs["CY0226AR110"]._id,
+      applicantUserId: employeeUser._id,
+      applicantRole: "EMPLOYEE",
       type: "Earned Leave",
       from: "2026-09-28",
       to: "2026-09-30",

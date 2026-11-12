@@ -193,7 +193,7 @@ export function LeaveApprovalsPage() {
         </div>
 
         <StatRow
-          items=[
+          items={[
             { k: 'Pending', v: pending.length, s: 'in your scope' },
             { k: 'Approved', v: data.leaveRequests.filter((r) => r.status === 'Approved' && inScope(r)).length },
             { k: 'Rejected', v: data.leaveRequests.filter((r) => r.status === 'Rejected' && inScope(r)).length },
@@ -203,7 +203,7 @@ export function LeaveApprovalsPage() {
               v: `${pending.length ? Math.round((pending.reduce((s, r) => s + r.days, 0) / pending.length) * 10) / 10 : 0} d`,
               s: 'pending days',
             },
-          ]
+          ]}
         />
 
         <Tabs
