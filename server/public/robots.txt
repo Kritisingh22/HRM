@@ -1,8 +1,12 @@
-# Cyethack HR Portal - Private internal application
-# Intentionally blocked from indexing: this is an internal HR login portal.
-# Consistent with <meta name="robots" content="noindex, nofollow"> in index.html.
+# Cyethack HR Portal - Public pages only
 
+# The public login page (/login) may be indexed. The authenticated HRM app
+# renders from the same index.html shell; every signed-in route opts out of
+# indexing via a <meta name="robots" content="noindex, nofollow"> injected by
+# AppShell, so confidential employee / payroll data stays out of search indexes.
 User-agent: *
+Allow: /login
 Disallow: /
 
-# No sitemap for private application
+# Sitemap location
+Sitemap: https://hrm-1-0prk.onrender.com/sitemap.xml

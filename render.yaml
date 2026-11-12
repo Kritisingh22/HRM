@@ -22,7 +22,10 @@ services:
         generateValue: true
         sync: false
       - key: FRONTEND_URL
-        value: https://cyethack-hrm-portal.onrender.com
+        # Must match the live service origin exactly (CORS compares the full
+        # origin including scheme + host). The deployed service is at
+        # https://hrm-1-0prk.onrender.com — keep this in sync with it.
+        value: https://hrm-1-0prk.onrender.com
       - key: FRONTEND_DIST
         value: server/public
       - key: MAX_FAILED_LOGINS

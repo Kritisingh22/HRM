@@ -169,6 +169,20 @@ export function AppShell() {
     contentRef.current?.scrollTo({ top: 0 });
   }, [location.pathname]);
 
+  /* AppShell only renders for signed-in sessions, so every authenticated HRM
+     route must stay out of search indexes. The static shell (login page) has
+     no robots meta and is the one public, indexable entry point; robots.txt
+     allows only /login and disallows everything else. */
+  useEffect(() => {
+    const meta = document.createElement('meta');
+    meta.name = 'robots';
+    meta.content = 'noindex, nofollow';
+    document.head.appendChild(meta);
+    return () => {
+      document.head.removeChild(meta);
+    };
+  }, []);
+
   return (
     <div className="app">
       <a className="skip-link" href="#content">
