@@ -53,7 +53,7 @@ export function Topbar({ page, onOpenDrawer }: TopbarProps) {
   /* The running working-time counter ticks once a second. The anchor
      is the server clock from the activity payload, so the number
      never depends on when the tab was (re)opened. */
-  const sessionActive = activity?.session.status === 'Active';
+  const sessionActive = activity ? activity.session.status === 'Active' : false;
   useEffect(() => {
     if (!sessionActive) return;
     setNowTick(Date.now());

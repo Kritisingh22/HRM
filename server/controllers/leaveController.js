@@ -23,6 +23,28 @@ const MANAGER_ROLES = ["MANAGER"];
 const ALL_APPROVER_ROLES = ["MANAGER", "HR", "ADMIN", "SUPER_ADMIN"];
 
 /*
+ * Leave entitlements by type — company policy. Override with
+ * LEAVE_ENTITLEMENT_JSON env var, e.g. {"Casual Leave":10,"Sick Leave":8,"Earned Leave":18}.
+ * Unpaid leave is uncapped (null).
+ */
+function entitlement() {
+  let defaults = { "Casual Leave": 10, "Sick Leave": 8, "Earned Leave": 18 };
+  try {
+    const env = process.env.LEAVE_ENTITLEMENT_JSON;
+    if (env) {
+      const parsed = JSON.parse(env);
+      if (parsed && typeof parsed === "object") {
+        defaults = { ...defaults, ...parsed };
+      }
+    }
+  } catch {
+    /* ignore malformed JSON — fall back to defaults */
+  }
+  defaults["Unpaid Leave"] = null;
+  return defaults;
+}
+
+/*
  * Return the Employee record linked to the authenticated user.
  * Looks up by user _id or by the user's employeeId string.
  */

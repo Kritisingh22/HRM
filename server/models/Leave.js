@@ -5,7 +5,7 @@ const leaveSchema = new mongoose.Schema(
   {
     employee: { type: mongoose.Schema.Types.ObjectId, ref: 'Employee', required: true, index: true },
     applicantUserId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
-    applicantRole: { type: String, enum: ['Employee', 'HR', 'Manager', 'Admin', 'Super Admin'], required: true, index: true },
+    applicantRole: { type: String, enum: ['EMPLOYEE', 'HR', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'], required: true, index: true },
     type: { type: String, enum: ['Casual Leave', 'Sick Leave', 'Earned Leave', 'Unpaid Leave'], required: true, index: true },
     from: { type: Date, required: true },
     to: { type: Date, required: true },

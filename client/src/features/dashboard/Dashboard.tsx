@@ -7,7 +7,7 @@
    Self view (Employee): personal attendance, balances, requests
    and the notice board.
    ============================================================ */
-import { useMemo, useState, type ReactNode } from 'react';
+import { lazy, useMemo, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Icon } from '@/components/ui/Icon';
 import { CheckInCard } from '@/components/attendance/CheckInCard';
@@ -80,6 +80,7 @@ function DashboardBody() {
   const navigate = useNavigate();
   const [range, setRange] = useState<RangeKey>('month');
   const myId = user?.employeeId ?? '';
+  const self = user?.portal === 'employee';
 
   /* -------- scoping -------- */
   const onRoll = useMemo(
@@ -110,35 +111,9 @@ function DashboardBody() {
 
   /* ---------- lazy chart components ---------- */
 
-function LineChartLazy({ labels, series, height, srSummary }: { labels: string[]; series: any; height?: number; srSummary?: string }) {
-  const [LazyComponent] = import dynamic(
-    () => import('@/components/charts/LineChart').then((m) => ({ default: m.LineChart })),
-    {
-      ssr: false,
-    }
-  );
-  return <LazyComponent labels={labels} series={series} height={height} srSummary={srSummary} />;
-}
-
-function DonutChartLazy({ data, size, ring, centerLabel, onSelect, ariaLabel }: any) {
-  const [LazyComponent] = import dynamic(
-    () => import('@/components/charts/DonutChart').then((m) => ({ default: m.DonutChart })),
-    {
-      ssr: false,
-    }
-  );
-  return <LazyComponent data={data} size={size} ring={ring} centerLabel={centerLabel} onSelect={onSelect} ariaLabel={ariaLabel} />;
-}
-
-function FunnelLazy({ stages, onSelect }: any) {
-  const [LazyComponent] = import dynamic(
-    () => import('@/components/charts/Funnel').then((m) => ({ default: m.Funnel })),
-    {
-      ssr: false,
-    }
-  );
-  return <LazyComponent stages={stages} onSelect={onSelect} />;
-}
+const LineChartLazy = lazy(() => import('@/components/charts/LineChart').then((m) => ({ default: m.LineChart })));
+const DonutChartLazy = lazy(() => import('@/components/charts/DonutChart').then((m) => ({ default: m.DonutChart })));
+const FunnelLazy = lazy(() => import('@/components/charts/Funnel').then((m) => ({ default: m.Funnel })));
 
 /* -------- attendance series -------- */
   const seriesByRange = useMemo(() => {
@@ -382,7 +357,7 @@ function FunnelLazy({ stages, onSelect }: any) {
             Work from home
           </span>
         </div>
-        <LineChart
+        <LineChartLazy
           labels={chartLabels}
           series={[
             { name: 'Present', color: 'var(--teal)', values: chart.present },
@@ -402,7 +377,7 @@ function FunnelLazy({ stages, onSelect }: any) {
             <div className="sub">Open a slice to filter the directory</div>
           </div>
         </div>
-        <DonutChart
+        <DonutChartLazy
           data={deptData}
           centerLabel={self ? 'Team' : 'Employees'}
           onSelect={(d) =>
@@ -523,7 +498,7 @@ function FunnelLazy({ stages, onSelect }: any) {
               <div className="sub">Applied → joined conversion</div>
             </div>
           </div>
-          <Funnel
+          <FunnelLazy
             stages={data.funnel}
             onSelect={() => canVisitPage('Recruitment') && navigate(PAGE_PATH.Recruitment)}
           />
