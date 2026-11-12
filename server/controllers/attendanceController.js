@@ -181,14 +181,15 @@ exports.me = catchAsync(async (req, res) => {
 
 /* ---- POST /api/attendance/check-in — mandatory check-in ---- */
 exports.checkIn = catchAsync(async (req, res) => {
-  // Run independent lookups in parallel: employee, today's attendance, settings.
-  const [me, rec, settings] = await Promise.all([
-    myEmployee(req.user),
-    Attendance.findOne({ employee: req.user._id, date: serverDateStr() }).lean(),
+  // The attendance row is keyed by Employee._id (ref 'Employee'), NOT by the
+  // authenticated User._id — resolve the employee first, then lookup today's row.
+  const me = await myEmployee(req.user);
+  if (!me) throw ApiError.badRequest('No employee record is linked to your account.');
+
+  const [rec, settings] = await Promise.all([
+    Attendance.findOne({ employee: me._id, date: serverDateStr() }).lean(),
     getCachedSettings(),
   ]);
-
-  if (!me) throw ApiError.badRequest('No employee record is linked to your account.');
   if (rec && rec.checkIn) {
     throw ApiError.conflict('You have already checked in today.');
   }

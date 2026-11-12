@@ -3,7 +3,7 @@
    ============================================================ */
 import { useEffect, useState } from 'react';
 import { ResourceView } from '@/components/ui/ResourceView';
-import { EmpCell, Pill } from '@/components/ui/primitives';
+import { EmpCell, Pill, type DetailRow } from '@/components/ui/primitives';
 import { useAuth } from '@/context/AuthContext';
 import { niceDate } from '@/lib/date';
 import type { TransferTicket, TransferTicketStatus } from '@/types';
@@ -122,7 +122,7 @@ export function EmployeeTransferStatusPage() {
               rowId={(t) => t.id}
               columns={ticketColumns}
               search={(t) => `${t.ticketNumber} ${t.currentManagerEmployeeId} ${t.targetManagerEmployeeId}`}
-              detail={(t) => [
+              detail={(t): DetailRow[] => [
                 'Transfer Request',
                 ['Ticket Number', t.ticketNumber],
                 ['Current Manager', typeof t.currentManager === 'object' ? `${t.currentManager.fullName} (${t.currentManager.employeeId})` : t.currentManagerEmployeeId],
@@ -137,8 +137,8 @@ export function EmployeeTransferStatusPage() {
                 ['Requested By', typeof t.requestedBy === 'object' ? `${t.requestedBy.fullName} (${t.requestedBy.employeeId})` : t.requestedBy as string],
                 ['Created', niceDate(t.createdAt)],
                 ['Updated', niceDate(t.updatedAt)],
-                ...(t.rejectionReason ? [['Rejection Reason', t.rejectionReason]] : []),
-                ...(t.cancellationReason ? [['Cancellation Reason', t.cancellationReason]] : []),
+                ...(t.rejectionReason ? [['Rejection Reason', t.rejectionReason] as DetailRow] : []),
+                ...(t.cancellationReason ? [['Cancellation Reason', t.cancellationReason] as DetailRow] : []),
               ]}
               emptyText="No transfer requests found."
               emptyIcon="arrowRightLeft"

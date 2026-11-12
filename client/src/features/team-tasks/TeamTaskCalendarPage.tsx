@@ -83,8 +83,8 @@ export function TeamTaskCalendarPage() {
       id: `TASK-${Date.now()}`,
       title: values.title,
       description: values.description || '',
-      status: values.status || 'To Do',
-      priority: values.priority || 'Medium',
+      status: (values.status || 'To Do') as TeamTask['status'],
+      priority: (values.priority || 'Medium') as TeamTask['priority'],
       startDate: values.startDate || '',
       dueDate: values.dueDate,
       assignedTo: values.assignedTo ? values.assignedTo.split(',').map(s => s.trim()) : [],
@@ -92,6 +92,12 @@ export function TeamTaskCalendarPage() {
       project: values.projectId || '',
       tags: values.tags ? values.tags.split(',').map(s => s.trim()) : [],
       estimatedHours: Number(values.estimatedHours || 0),
+      actualHours: 0,
+      reminders: [],
+      history: [],
+      completedAt: null,
+      deletedAt: null,
+      deletedBy: null,
       createdBy: user?.employeeId ?? '',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -187,7 +193,8 @@ export function TeamTaskCalendarPage() {
     return items.sort((a, b) => a.date.localeCompare(b.date));
   }, [data.teamTasks, data.holidays, cursor, view]);
 
-  const eventsOn = (iso: string) => events.filter(e => e.kind === 'task' && e.date === iso);
+  const eventsOn = (iso: string) =>
+    events.filter((e): e is Extract<CalendarItem, { kind: 'task' }> => e.kind === 'task' && e.date === iso);
 
   const cells = useMemo(() => {
     const { year, month } = cursor;
@@ -200,7 +207,7 @@ export function TeamTaskCalendarPage() {
       const weekend = isWeekendISO(iso);
       const holiday = data.holidays.find(h => h.date === iso);
       const dayTasks = eventsOn(iso);
-      out.push({ iso, day, weekend, holidayName: holiday?.name ?? null, tasks: dayTasks.map(e => e.task) });
+      out.push({ iso, day, weekend, holidayName: holiday?.name ?? null, tasks: dayTasks.map(e => e.task).filter((t): t is TeamTask => !!t) });
     }
     return out;
   }, [cursor, data.holidays, data.teamTasks]);
@@ -269,7 +276,7 @@ export function TeamTaskCalendarPage() {
       startDate: task.startDate || '',
       dueDate: task.dueDate,
       assignedTo: task.assignedTo.join(', '),
-      projectId: task.projectId || '',
+      projectId: task.project || '',
       tags: task.tags.join(', '),
       estimatedHours: String(task.estimatedHours || ''),
     });
@@ -341,7 +348,7 @@ export function TeamTaskCalendarPage() {
       {Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)).map(iso => {
         const d = parseISO(iso);
         const weekend = isWeekendISO(iso);
-        const dayTasks = events.filter(e => e.kind === 'task' && e.date === iso);
+        const dayTasks = events.filter((e): e is Extract<CalendarItem, { kind: 'task' }> => e.kind === 'task' && e.date === iso);
         return (
           <div className={['cal-week-col', weekend ? 'weekend' : '', iso === todayISO() ? 'today' : ''].filter(Boolean).join(' ')} key={iso}>
             <button className="cal-week-head" onClick={() => setDayIso(iso)} type="button" aria-label={`Day details for ${niceDate(iso)}`}>
@@ -453,7 +460,7 @@ export function TeamTaskCalendarPage() {
 
       {/* Create Task Modal */}
       {creating && (
-        <Modal open onClose={handleCloseCreate} title="Create New Task" size="lg">
+        <Modal onClose={handleCloseCreate} title="Create New Task" large>
           <form onSubmit={e => { e.preventDefault(); createTask(formValues); }} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div className="field">
               <label>Title *</label>
@@ -531,7 +538,7 @@ export function TeamTaskCalendarPage() {
 
       {/* Edit Task Modal */}
       {editing && (
-        <Modal open onClose={handleCloseEdit} title={`Edit Task: ${editing.title}`} size="lg">
+        <Modal onClose={handleCloseEdit} title={`Edit Task: ${editing.title}`} large>
           <form onSubmit={e => { e.preventDefault(); saveEdit(); }} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div className="field">
               <label>Title *</label>
@@ -609,7 +616,7 @@ export function TeamTaskCalendarPage() {
 
       {/* Task Detail Modal */}
       {openTask && (
-        <Modal open onClose={handleCloseTask} title={openTask.title} size="lg">
+        <Modal onClose={handleCloseTask} title={openTask.title} large>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
               <span className={`pill`} style={{ background: TASK_STATUS_COLORS[openTask.status] }}>{openTask.status}</span>
@@ -720,7 +727,7 @@ export function TeamTaskCalendarPage() {
 
       {/* Day Details Modal */}
       {dayIso && (
-        <Modal open onClose={handleCloseDay} title={`Tasks for ${niceDate(dayIso)}`} size="md">
+        <Modal onClose={handleCloseDay} title={`Tasks for ${niceDate(dayIso)}`} large>
           <div>
             {eventsOn(dayIso).length === 0 ? (
               <p style={{ color: 'var(--muted)', textAlign: 'center', padding: 24 }}>No tasks on this day.</p>
@@ -733,7 +740,7 @@ export function TeamTaskCalendarPage() {
                       <div style={{ flex: 1 }}>
                         <strong>{e.task.title}</strong>
                         <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                          {e.task.assignedTo.map(id => {
+                          {e.task.assignedTo.map((id: string) => {
                             const emp = data.employees.find(emp => emp.id === id);
                             return emp?.name || id;
                           }).join(', ')} · {e.task.priority}

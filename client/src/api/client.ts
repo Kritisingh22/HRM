@@ -15,7 +15,7 @@
    flagged `demo` so feature modules can pick the right source.
    ============================================================ */
 import type { LocationRecord, LoginSessionRecord, SessionActivity, SessionUser } from '@/types';
-import { ApiError } from '@/api/mockServer';
+import { ApiError, mockServer } from '@/api/mockServer';
 
 const REMEMBER_KEY = 'cyethackHRM.session.remembered';
 const SESSION_KEY = 'cyethackHRM.session';
@@ -492,9 +492,24 @@ export async function bootstrap(accessToken: string): Promise<{
 export const api = {
   async login(email: string, password: string, remember: boolean): Promise<StoredSession> {
     const real = await tryRealLogin(email, password);
-    if (!real) throw new ApiError(0, 'The HR server is unreachable. Please check your connection and try again.');
-    writeSession(real, remember);
-    return real;
+    if (real) {
+      writeSession(real, remember);
+      return real;
+    }
+    /* The real API is either unreachable or does not know these
+       credentials. Fall back to the built-in demo backend so seeded
+       demo accounts (e.g. sanu@cyethack.com) can still sign in. */
+    const demo = await mockServer.login(email, password);
+    const session: StoredSession = {
+      accessToken: demo.accessToken,
+      sessionId: demo.sessionId,
+      user: demo.user,
+      issuedAt: demo.issuedAt,
+      expiresAt: demo.expiresAt,
+      source: 'demo',
+    };
+    writeSession(session, remember);
+    return session;
   },
 
   async me(accessToken: string): Promise<SessionUser> {

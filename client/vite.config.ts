@@ -36,10 +36,12 @@ export default defineConfig({
     react(),
     /* Remove CSS that no page uses (esp. the login page, which uses a
        small fraction of app.css). Runs in production builds only. */
-    htmlPurge({
+    // vite-plugin-purgecss's plugin typing predates Vite's PluginOption shape;
+    // the plugin works correctly at build time — cast to satisfy tsc.
+    (htmlPurge({
       safelist: DYNAMIC_CLASS_SAFELIST,
       /* PurgeCSS scans HTML + JS output for class names. */
-    }),
+    }) as unknown as import('vite').PluginOption),
   ],
   resolve: {
     alias: {

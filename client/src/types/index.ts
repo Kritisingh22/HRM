@@ -548,7 +548,7 @@ export interface LeaveRequest {
   status: LeaveStatus;
   managerNote: string;
   /** Who has authority to approve this request: 'Manager' or 'HR' */
-  approvalAuthority: 'Manager' | 'HR';
+  approvalAuthority: 'Manager' | 'HR' | 'Admin' | 'Super Admin';
   /** ISO date-time of the final decision (approve / reject / cancel), when decided */
   decidedAt?: string | null;
 }
@@ -749,6 +749,14 @@ export interface CalendarEvent {
   month: string;
   title: string;
   detail: string;
+}
+
+/** One day-cell calendar item: a holiday or a task (team-tasks calendar). */
+export interface CalendarItem {
+  date: string;
+  kind: 'holiday' | 'task';
+  name?: string;
+  task?: TeamTask;
 }
 
 export interface FunnelStage {

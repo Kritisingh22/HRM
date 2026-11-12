@@ -12,8 +12,8 @@ import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
 import { useNavigate } from 'react-router-dom';
 import { niceDate, dateRange } from '@/lib/date';
-import type { TransferTicket, TransferTicketStatus } from '@/types';
-import { listTransferTickets, getTransferTicket, approveTransferTicket, rejectTransferTicket, cancelTransferTicket, getDiscoverableEmployees, getAvailableTargets } from '@/api/transferTickets';
+import type { TransferTicket, TransferTicketStatus, DiscoverableEmployee, TransferTarget } from '@/types';
+import { listTransferTickets, getTransferTicket, approveTransferTicket, rejectTransferTicket, cancelTransferTicket, createTransferTicket, getDiscoverableEmployees, getAvailableTargets } from '@/api/transferTickets';
 
 type TabKey = 'my-requests' | 'awaiting-approval' | 'all';
 
@@ -38,6 +38,7 @@ export function TransferTicketsPage() {
   const [tickets, setTickets] = useState<TransferTicket[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showCreateModal, setShowCreateModal] = useState(false);
 
   // Fetch tickets on mount and tab change
   useEffect(() => {
@@ -199,66 +200,78 @@ export function TransferTicketsPage() {
   };
 
   return (
-    <div className="grid">
-      <section className="card span12">
-        <div className="card-head">
-          <div>
-            <h2>Employee Transfer Requests</h2>
-            <div className="sub">Create and manage employee transfer requests between teams</div>
-          </div>
-          <button className="btn btn-primary" onClick={() => setShowCreateModal(true)}>
-            <Icon name="plus" size={16} /> New Transfer Request
-          </button>
-        </div>
-
-        <Tabs tabs={tabs} active={tab} onChange={setTab} />
-
-        {error && (
-          <div className="card" style={{ marginTop: 16, borderColor: 'var(--color-danger)', background: 'var(--color-danger-bg)' }}>
-            <Icon name="alertTriangle" size={16} style={{ color: 'var(--color-danger)' }} />
-            <span style={{ marginLeft: 8 }}>{error}</span>
-          </div>
-        )}
-
-        <div style={{ marginTop: 14 }}>
-          {loading ? (
-            <div className="empty-state" style={{ padding: 48 }}>
-              <Icon name="loader" size={32} className="spin" />
-              <p>Loading transfer tickets…</p>
+    <>
+      <div className="grid">
+        <section className="card span12">
+          <div className="card-head">
+            <div>
+              <h2>Employee Transfer Requests</h2>
+              <div className="sub">Create and manage employee transfer requests between teams</div>
             </div>
-          ) : (
-            <ResourceView
-              rows={tickets}
-              rowId={(t) => t.id}
-              columns={ticketColumns}
-              search={(t) => `${t.ticketNumber} ${typeof t.employee === 'object' ? t.employee.fullName : ''} ${t.currentManagerEmployeeId} ${t.targetManagerEmployeeId}`}
-              filters={tab !== 'awaiting-approval' ? [statusFilterDef] : []}
-              actions={ticketActions}
-              onAction={handleAction}
-              detail={(t) => [
-                'Transfer Request',
-                ['Ticket Number', t.ticketNumber],
-                ['Employee', typeof t.employee === 'object' ? `${t.employee.fullName} (${t.employee.employeeId})` : t.employee as string],
-                ['Current Manager', typeof t.currentManager === 'object' ? `${t.currentManager.fullName} (${t.currentManager.employeeId})` : t.currentManagerEmployeeId],
-                ['Target Manager', typeof t.targetManager === 'object' ? `${t.targetManager.fullName} (${t.targetManager.employeeId})` : t.targetManagerEmployeeId],
-                ['Current HR', typeof t.currentHr === 'object' ? `${t.currentHr.fullName} (${t.currentHr.employeeId})` : t.currentHrEmployeeId],
-                ['Target HR', typeof t.targetHr === 'object' ? `${t.targetHr.fullName} (${t.targetHr.employeeId})` : t.targetHrEmployeeId],
-                ['Reason', t.reason],
-                ['Business Justification', t.businessJustification || '—'],
-                ['Requested Effective Date', niceDate(t.requestedEffectiveDate)],
-                ['Status', <Pill status={STATUS_COLORS[t.status] as any}>{t.status}</Pill>],
-                ['Current Step', t.currentStep],
-                ['Requested By', typeof t.requestedBy === 'object' ? `${t.requestedBy.fullName} (${t.requestedBy.employeeId})` : t.requestedBy as string],
-                ['Created', niceDate(t.createdAt)],
-                ['Updated', niceDate(t.updatedAt)],
-              ]}
-              emptyText="No transfer tickets found."
-              emptyIcon="arrowRightLeft"
-            />
+            <button className="btn btn-primary" onClick={() => setShowCreateModal(true)}>
+              <Icon name="plus" size={16} /> New Transfer Request
+            </button>
+          </div>
+
+          <Tabs tabs={tabs} active={tab} onChange={(key: string) => setTab(key as TabKey)} />
+
+          {error && (
+            <div className="card" style={{ marginTop: 16, borderColor: 'var(--color-danger)', background: 'var(--color-danger-bg)' }}>
+              <Icon name="alertTriangle" size={16} style={{ color: 'var(--color-danger)' }} />
+              <span style={{ marginLeft: 8 }}>{error}</span>
+            </div>
           )}
-        </div>
-      </section>
-    </div>
+
+          <div style={{ marginTop: 14 }}>
+            {loading ? (
+              <div className="empty-state" style={{ padding: 48 }}>
+                <Icon name="loader" size={32} className="spin" />
+                <p>Loading transfer tickets…</p>
+              </div>
+            ) : (
+              <ResourceView
+                rows={tickets}
+                rowId={(t) => t.id}
+                columns={ticketColumns}
+                search={(t) => `${t.ticketNumber} ${typeof t.employee === 'object' ? t.employee.fullName : ''} ${t.currentManagerEmployeeId} ${t.targetManagerEmployeeId}`}
+                filters={tab !== 'awaiting-approval' ? [statusFilterDef] : []}
+                actions={ticketActions}
+                onAction={handleAction}
+                detail={(t) => [
+                  'Transfer Request',
+                  ['Ticket Number', t.ticketNumber],
+                  ['Employee', typeof t.employee === 'object' ? `${t.employee.fullName} (${t.employee.employeeId})` : t.employee as string],
+                  ['Current Manager', typeof t.currentManager === 'object' ? `${t.currentManager.fullName} (${t.currentManager.employeeId})` : t.currentManagerEmployeeId],
+                  ['Target Manager', typeof t.targetManager === 'object' ? `${t.targetManager.fullName} (${t.targetManager.employeeId})` : t.targetManagerEmployeeId],
+                  ['Current HR', typeof t.currentHr === 'object' ? `${t.currentHr.fullName} (${t.currentHr.employeeId})` : t.currentHrEmployeeId],
+                  ['Target HR', typeof t.targetHr === 'object' ? `${t.targetHr.fullName} (${t.targetHr.employeeId})` : t.targetHrEmployeeId],
+                  ['Reason', t.reason],
+                  ['Business Justification', t.businessJustification || '—'],
+                  ['Requested Effective Date', niceDate(t.requestedEffectiveDate)],
+                  ['Status', <Pill status={STATUS_COLORS[t.status] as any}>{t.status}</Pill>],
+                  ['Current Step', t.currentStep],
+                  ['Requested By', typeof t.requestedBy === 'object' ? `${t.requestedBy.fullName} (${t.requestedBy.employeeId})` : t.requestedBy as string],
+                  ['Created', niceDate(t.createdAt)],
+                  ['Updated', niceDate(t.updatedAt)],
+                ]}
+                emptyText="No transfer tickets found."
+                emptyIcon="arrowRightLeft"
+              />
+            )}
+          </div>
+        </section>
+      </div>
+
+      <CreateTransferRequestModal
+        isOpen={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        onSuccess={() => {
+          setShowCreateModal(false);
+          setTickets([]);
+          // refetch will be triggered by the tab/refresh logic
+        }}
+      />
+    </>
   );
 }
 
@@ -469,22 +482,4 @@ function CreateTransferRequestModal({ isOpen, onClose, onSuccess }: { isOpen: bo
   );
 }
 
-// We need to hook the modal into the main component
-// This is a simplified approach - in reality we'd use a proper modal state
-function TransferTicketsPageWithModal() {
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [refreshKey, setRefreshKey] = useState(0);
-
-  return (
-    <>
-      <TransferTicketsPage />
-      <CreateTransferRequestModal
-        isOpen={showCreateModal}
-        onClose={() => setShowCreateModal(false)}
-        onSuccess={() => setRefreshKey(k => k + 1)}
-      />
-    </>
-  );
-}
-
-export default TransferTicketsPageWithModal;
+export default TransferTicketsPage;

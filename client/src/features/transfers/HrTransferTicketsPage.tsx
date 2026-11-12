@@ -176,7 +176,7 @@ export function HrTransferTicketsPage() {
           </div>
         </div>
 
-        <Tabs tabs={tabs} active={tab} onChange={setTab} />
+        <Tabs tabs={tabs} active={tab} onChange={(key: string) => setTab(key as TabKey)} />
 
         {error && (
           <div className="card" style={{ marginTop: 16, borderColor: 'var(--color-danger)', background: 'var(--color-danger-bg)' }}>

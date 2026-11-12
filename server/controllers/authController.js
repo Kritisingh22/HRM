@@ -138,6 +138,26 @@ async function closeActiveSession(user) {
   return session;
 }
 
+/* Response-safe user projection that works on both full Mongoose documents
+ * and the lean plain objects attached by authenticate() (lean docs have no
+ * `toSafeJSON`). Never leaks passwordHash or lockout internals. */
+function safeUserJson(user) {
+  if (user && typeof user.toSafeJSON === 'function') return user.toSafeJSON();
+  return {
+    id: user._id,
+    employeeId: user.employeeId,
+    name: user.fullName,
+    email: user.email,
+    role: user.role,
+    department: user.department,
+    designation: user.designation,
+    status: user.status,
+    accountStatus: user.accountStatus,
+    mustChangePassword: user.mustChangePassword,
+    permissions: user.permissions || [],
+  };
+}
+
 function sendSession(res, user, rawRefresh) {
   res.cookie(cfg.COOKIE_NAME, rawRefresh, refreshCookieOptions());
   // Merge role permissions with user-specific permissions (user perms ADD to role perms)
@@ -147,7 +167,7 @@ function sendSession(res, user, rawRefresh) {
   return {
     accessToken: signAccessToken(user),
     expiresIn: cfg.ACCESS_TOKEN_EXPIRES_IN,
-    user: { ...user.toSafeJSON(), permissions: allPerms, nav: navFor(user.role), portal: portalFor(user.role) }
+    user: { ...safeUserJson(user), permissions: allPerms, nav: navFor(user.role), portal: portalFor(user.role) }
   };
 }
 
@@ -173,12 +193,19 @@ exports.login = catchAsync(async (req, res) => {
 
   if (!user || !passwordOk) {
     if (user) {
+      // Record the failed attempt, but never let a broken record (e.g. a
+      // legacy row missing its password hash) convert a generic 401 into a
+      // 500/400 that would reveal the account exists.
       user.failedLoginAttempts += 1;
       if (user.failedLoginAttempts >= cfg.MAX_FAILED_LOGINS) {
         user.accountLockedUntil = new Date(Date.now() + cfg.ACCOUNT_LOCK_MINUTES * 60000);
         user.failedLoginAttempts = 0;
       }
-      await user.save();
+      try {
+        await user.save();
+      } catch (saveErr) {
+        console.error('[login] failed-attempt save failed:', saveErr.message);
+      }
     }
     throw ApiError.unauthorized('Invalid email or password.'); // generic — no enumeration
   }
@@ -254,7 +281,7 @@ exports.me = catchAsync(async (req, res) => {
   const rolePerms = permissionsFor(req.user.role);
   const userPerms = req.user.permissions || [];
   const allPerms = [...new Set([...rolePerms, ...userPerms])];
-  res.json({ user: { ...req.user.toSafeJSON(), permissions: allPerms, nav: navFor(req.user.role), portal: portalFor(req.user.role) } });
+  res.json({ user: { ...safeUserJson(req.user), permissions: allPerms, nav: navFor(req.user.role), portal: portalFor(req.user.role) } });
 });
 
 /* POST /api/auth/change-password — the logged-in user changes their own password.

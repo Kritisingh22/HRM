@@ -23,7 +23,9 @@ module.exports = catchAsync(async (req, res, next) => {
     throw ApiError.unauthorized('Invalid access token.');
   }
 
-  const user = await User.findById(payload.sub).select('_id employeeId role status').lean();
+  const user = await User.findById(payload.sub)
+    .select('_id employeeId fullName email role status department designation accountStatus mustChangePassword permissions')
+    .lean();
   if (!user) throw ApiError.unauthorized('User no longer exists.');
   if (user.status !== 'active') throw ApiError.forbidden('This account is not active.');
 
