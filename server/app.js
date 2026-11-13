@@ -9,6 +9,7 @@ const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const fs = require('fs');
 const cfg = require('./config/env');
+const { isDBReady, getDBError } = require('./config/database');
 const apiRoutes = require('./routes');
 const { notFound, errorHandler } = require('./middleware/errorHandler');
 const { apiLimiter } = require('./middleware/rateLimiter');
@@ -43,6 +44,28 @@ app.use(compression());
 // so it never touches the database or the API rate limiter.
 app.get('/health', (_req, res) => {
   res.type('json').status(200).send(JSON.stringify({ status: 'ok', time: new Date().toISOString() }));
+});
+
+// ---- /health?deep=1 — readiness check with DB ping ----
+// Returns 200 when MongoDB is connected, 503 otherwise.
+// Used by orchestrators (Kubernetes, Render) to decide whether to send traffic.
+app.get('/health/deep', (_req, res) => {
+  if (isDBReady()) {
+    res.type('json').status(200).send(JSON.stringify({ status: 'ok', db: 'connected', time: new Date().toISOString() }));
+  } else {
+    const err = getDBError();
+    res.type('json').status(503).send(JSON.stringify({ status: 'degraded', db: 'disconnected', error: err ? err.message : 'connecting', time: new Date().toISOString() }));
+  }
+});
+
+// ---- /health/ready — alias for /health?deep=1 ----
+app.get('/health/ready', (_req, res) => {
+  if (isDBReady()) {
+    res.type('json').status(200).send(JSON.stringify({ status: 'ok', db: 'connected', time: new Date().toISOString() }));
+  } else {
+    const err = getDBError();
+    res.type('json').status(503).send(JSON.stringify({ status: 'degraded', db: 'disconnected', error: err ? err.message : 'connecting', time: new Date().toISOString() }));
+  }
 });
 
 // ---- Security headers ----

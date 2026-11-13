@@ -33,6 +33,9 @@ LIGHTHOUSE_QA_FIX_REPORT.md
 test_*.pdf
 *.test.pdf
 test_payslip.pdf
+debug-leave.js
+server/debug-leave.js
+check-paths.js
 .DS_Store
 Thumbs.db
 .vscode/
