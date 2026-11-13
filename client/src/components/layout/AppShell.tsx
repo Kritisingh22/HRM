@@ -12,6 +12,7 @@ import { Icon } from '@/components/ui/Icon';
 import { useAuth } from '@/context/AuthContext';
 import { PATH_PAGE, pageLabel } from '@/data/nav';
 import { AttendanceGate } from '@/components/attendance/AttendanceGate';
+import { ActiveTimeTracker } from '@/components/attendance/ActiveTimeTracker';
 
 const RAIL_KEY = 'cyethackHRM.rail';
 
@@ -192,6 +193,10 @@ export function AppShell() {
           hasOpenSession={hasOpenSession}
           onCheckInComplete={() => void fetchAttendanceState()}
         />
+      ) : null}
+      {/* Active time tracker — sends heartbeats while checked in. */}
+      {user && status === 'authenticated' && checkedInToday && hasOpenSession ? (
+        <ActiveTimeTracker />
       ) : null}
     </div>
   );

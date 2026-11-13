@@ -11,6 +11,14 @@
  * the server clock in Asia/Kolkata (company reporting timezone). The browser
  * timestamp is stored only as clientTimestamp and is never treated as
  * authoritative. serverTimestamp is the authoritative clock.
+ *
+ * New fields (see plan items 2f):
+ *  - checkInLocation: lat/lng/accuracy from the check-in fix, plus geofence distance/inRange.
+ *  - checkOutLocation: lat/lng/accuracy from the check-out fix, plus geofence distance/inRange.
+ *  - locationStatus: 'verified'/'outside'/'unknown' — stable status from the check-in fix.
+ *  - lastState: the most recent heartbeat state ('active'|'paused') for quick lookup.
+ *  - checkInAt: alias for the date+time the employee checked in (same as checkIn HH:mm).
+ *  - checkOutAt: alias for the date+time the employee checked out (same as checkOut HH:mm).
  */
 const mongoose = require('mongoose');
 
@@ -70,6 +78,32 @@ const attendanceSchema = new mongoose.Schema(
     activeSeconds: { type: Number, default: 0, min: 0 },
     pausedSeconds: { type: Number, default: 0, min: 0 },
     lastHeartbeatAt: { type: Date },
+    lastState: { type: String, enum: ['active', 'paused', 'checked-in', 'checked-out'] },
+
+    // ---- check-in/out location metadata ----
+    checkInLocation: {
+      lat: Number,
+      lng: Number,
+      accuracy: Number,
+      distanceMeters: Number,
+      inRange: Boolean,
+    },
+    checkOutLocation: {
+      lat: Number,
+      lng: Number,
+      accuracy: Number,
+      distanceMeters: Number,
+      inRange: Boolean,
+    },
+    locationStatus: {
+      type: String,
+      enum: ['verified', 'outside', 'unknown'],
+      default: 'unknown',
+    },
+
+    // ---- check-in/out timestamps (aliases for the HH:mm fields) ----
+    checkInAt: { type: String }, // HH:mm
+    checkOutAt: { type: String }, // HH:mm
 
     // ---- sessions (heartbeat-derived segments) ----
     sessions: [

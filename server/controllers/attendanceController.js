@@ -4,20 +4,20 @@
  *
  * Security principles (all enforced server-side):
  *  • The employee identity ALWAYS comes from the verified JWT (req.user),
- *    never from the request body.
+   *    never from the request body.
  *  • Check-in/check-out timestamps and the attendance DATE are minted by the
- *    server clock in Asia/Kolkata (company reporting timezone). The browser
- *    timestamp is stored only as clientTimestamp and is never authoritative;
- *    serverTimestamp is authoritative.
+   *    server clock in Asia/Kolkata (company reporting timezone). The browser
+   *    timestamp is stored only as clientTimestamp and is never authoritative;
+   *    serverTimestamp is authoritative.
  *  • Geofence (Haversine) is computed server-side from lat/lng sent by the
- *    client; the client cannot influence whether it is "in range".
+   *    client; the client cannot influence whether it is "in range".
  *  • activeSeconds / pausedSeconds are computed from heartbeat sessions;
- *    the client is never trusted for the final duration.
+   *    the client is never trusted for the final duration.
  *  • Row-level scoping: employees see only themselves, managers their team,
- *    HR their assigned employees, admins everything.
+   *    HR their assigned employees, admins everything.
  *  • One row per employee per day is enforced by a unique DB index; concurrent
- *    check-in attempts are resolved atomically (the duplicate-key error is
- *    converted to a 409, never a silent duplicate row).
+   *    check-in attempts are resolved atomically (the duplicate-key error is
+   *    converted to a 409, never a silent duplicate row).
  */
 'use strict';
 
@@ -32,18 +32,19 @@ const { userHasPermission } = require('../utils/permissions');
 const { logAudit } = require('../utils/audit');
 const { SEES_ALL, teamEmployeeIds } = require('../utils/teamScope');
 const { checkGeofence } = require('../utils/geofence');
+const { formatTime, formatDate } = require('../utils/attendanceTime');
 
-/* ---- Asia/Kolkata company clock --------------------------------------- */
-/* Asia/Kolkata = UTC+5:30, no daylight saving. We compute the attendance
-   date and the check-in/check-out times in this timezone so records land
-   under the correct calendar day regardless of where the server runs
-   (Render free tier typically runs in UTC). */
+/* ---- Company time zone config --------------------------------------- */
+const cfg = require('../config/env');
+/* Asia/Kolkata offset in ms; can be overridden via cfg.TIMEZONE_OFFSET_MS. */
 const KOLKATA_OFFSET_MS = (5 * 60 + 30) * 60 * 1000;
-function kolkataNow() {
-  return new Date(Date.now() + KOLKATA_OFFSET_MS);
-}
+
+/* Fallback functions when formatTime/formatDate are not imported (backward compat). */
 function pad2(n) {
   return String(n).padStart(2, '0');
+}
+function kolkataNow() {
+  return new Date(Date.now() + KOLKATA_OFFSET_MS);
 }
 function serverNow() {
   return kolkataNow();

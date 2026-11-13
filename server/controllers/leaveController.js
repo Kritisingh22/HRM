@@ -685,6 +685,76 @@ async function notifyEmployeeOfDecision(leave, action) {
   }
 }
 
+/* GET /api/leaves/balance — caller's own leave balance (used/vacation/sick days remaining).
+   * Query: ?type=Vacation|Sick|Unpaid (default: all types)
+   * Returns: { used, pending, remaining } per type or aggregated.
+   */
+exports.balance = catchAsync(async (req, res) => {
+  if (
+    !userHasPermission(req.user, "leaves:read_own") &&
+    !userHasPermission(req.user, "leaves:read")
+  ) {
+    throw ApiError.forbidden("You do not have permission to view leave balance.");
+  }
+
+  const me = await myEmployee(req.user);
+  if (!me) throw ApiError.badRequest("No employee record linked to your account.");
+
+  const year = new Date().getFullYear();
+  const type = req.query.type || 'all';
+
+  let filter = {
+    employee: me._id,
+    status: { $in: ["Approved", "Pending"] },
+    from: { $gte: new Date(`${year}-01-01`), $lte: new Date(`${year}-12-31T23:59:59Z`) },
+  };
+
+  if (type !== 'all') {
+    filter.type = type;
+  }
+
+  const rows = await Leave.aggregate([
+    { $match: filter },
+    { $group: {
+        _id: "$type",
+        used: { $sum: { $cond: [{ $eq: ["$status", "Approved"] }, "$days", 0] } },
+        pending: { $sum: { $cond: [{ $eq: ["$status", "Pending"] }, "$days", 0] } },
+      }},
+  ]);
+
+  const result = {};
+  if (type === 'all') {
+    // Include all leave types that exist in the system
+    const allTypes = ['Casual Leave', 'Sick Leave', 'Paid Leave', 'Unpaid Leave', 'Earned Leave', 'Comp-Off', 'Bereavement Leave', 'Maternity/Paternity Leave'];
+    for (const t of allTypes) {
+      const row = rows.find((r) => r._id === t);
+      result[t] = {
+        used: row ? row.used : 0,
+        pending: row ? row.pending : 0,
+        remaining: (row ? row.used : 0) + (row ? row.pending : 0), // will be adjusted from entitlement
+      };
+    }
+    // Add entitlement info
+    const entitlement = entitlementForEmployee(me);
+    for (const [t, val] of Object.entries(result)) {
+      val.entitled = entitlement[t] || 0;
+      val.remaining = entitlement[t] - (val.used + val.pending) || 0;
+    }
+  } else {
+    const row = rows.find((r) => r._id === type);
+    result[type] = {
+      used: row ? row.used : 0,
+      pending: row ? row.pending : 0,
+      remaining: 0, // to be filled from entitlement
+    };
+    const entitlement = entitlementForEmployee(me);
+    result[type].entitled = entitlement[type] || 0;
+    result[type].remaining = (entitlement[type] || 0) - (row ? row.used + row.pending : 0) || 0;
+  }
+
+  res.json({ balance: result });
+});
+
 /* GET /api/leaves/management — leave management records for HR/Admin/Super Admin.
  * Returns employee and HR leave records with full details including approval
  * status, approver details, and remarks. */

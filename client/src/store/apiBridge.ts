@@ -27,6 +27,7 @@ import {
   mutationInFlight,
   pushToast,
 } from '@/store/mutationGate';
+import { getCachedFix } from '@/lib/geo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Raw = Record<string, any>;
@@ -1089,11 +1090,23 @@ async function runOverride(key: string, record: AttendanceRecord): Promise<void>
   if (!empId || !user?.employeeId || empId !== user.employeeId) {
     throw new Error('Only your own attendance can be recorded from this portal.');
   }
+  // Include cached location fix so the server has geo data for geofence checks
+  const cached = getCachedFix();
+  if (!cached) throw new Error('No cached location fix available for check-in/check-out.');
+  const { lat, lng, accuracy } = cached;
+
   if (record.checkOut) {
-    await apiSend('POST', '/api/attendance/check-out');
+    await apiSend('POST', '/api/attendance/check-out', {
+      lat,
+      lng,
+      accuracy,
+    });
   } else {
     await apiSend('POST', '/api/attendance/check-in', {
       status: record.status === 'wfh' ? 'wfh' : 'present',
+      lat,
+      lng,
+      accuracy,
     });
   }
 }

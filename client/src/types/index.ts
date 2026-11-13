@@ -573,6 +573,9 @@ export interface AttendanceRecord {
     lng: number;
     verificationStatus?: 'verified' | 'failed' | 'skipped';
   };
+  /* Server-computed active time (seconds) and location verification status. */
+  activeTime?: number; // active seconds from heartbeats
+  locationStatus?: 'verified' | 'outside' | 'unknown'; // stable status from check-in fix
 }
 
 /* ---------------- Mandatory attendance (server-backed) ---------------- */

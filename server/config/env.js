@@ -83,6 +83,11 @@ const cfg = {
   UPLOAD_RATE_MAX: parseInt(process.env.UPLOAD_RATE_MAX || '30', 10),
   UPLOAD_RATE_WINDOW_MIN: parseInt(process.env.UPLOAD_RATE_WINDOW_MIN || '15', 10),
 
+  // Company reporting time zone. All attendance dates and HH:mm times are
+  // minted in this timezone so records land under the correct calendar day
+  // regardless of where the server runs (Render free tier typically runs in UTC).
+  TIMEZONE: process.env.TIMEZONE || 'Asia/Kolkata',
+
   // When true, the payslip PDF is also archived to Cloudflare R2 the moment HR
   // processes it. Off by default — POST /api/payroll/:id/payslip/archive always
   // works on demand. Archiving never changes the payroll record itself.

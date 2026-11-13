@@ -117,6 +117,45 @@ export function captureLocation(timeoutMs = 8000): Promise<CaptureResult> {
   });
 }
 
+/* quickLocation — fastest possible fix, using cache first.
+   Returns immediately with cached fix if available,
+   otherwise requests a new position with a short timeout.
+   Result is cached for 5 minutes so subsequent calls are instant. */
+export function quickLocation(maxWaitMs = 2500): Promise<GeoPoint | null> {
+  // 1. Try cached fix first (no UI wait)
+  const cached = getCachedFix();
+  if (cached) return Promise.resolve(cached);
+
+  // 2. Request a new fix with tuned-for-speed defaults
+  return new Promise((resolve) => {
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const point: GeoPoint = {
+          lat: Number(pos.coords.latitude.toFixed(6)),
+          lng: Number(pos.coords.longitude.toFixed(6)),
+          accuracy: Math.round(pos.coords.accuracy),
+          capturedAt: new Date(pos.timestamp || Date.now()).toISOString(),
+        };
+        // Cache it for 5 minutes so the next call is instant
+        cachedFix = {
+          point,
+          fetchedAt: Date.now(),
+        };
+        resolve(point);
+      },
+      () => {
+        /* silent — caller can retry or surface a manual-entry option */
+        resolve(null);
+      },
+      {
+        enableHighAccuracy: false,
+        timeout: maxWaitMs,
+        maximumAge: 300_000,
+      },
+    );
+  });
+}
+
 /* ---------------- display helpers ---------------- */
 
 export const GEO_KIND_LABELS: Record<GeoActivityKind, string> = {

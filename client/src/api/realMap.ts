@@ -237,6 +237,9 @@ export function mapAttendanceRecord(raw: Raw): { key: string; record: Attendance
   if (outMin !== null && outMin < 1080) record.earlyOut = `${1080 - outMin} min`;
   if (outMin !== null && outMin > 1125) record.overtime = `${outMin - 1125} min`;
   if (raw.status === 'leave' && raw.note) record.leaveType = String(raw.note);
+  // Server-computed fields from the mandatory attendance model
+  record.activeTime = raw.activeSeconds ?? undefined;
+  record.locationStatus = raw.locationStatus as 'verified' | 'outside' | 'unknown' || undefined;
   return { key: `${empId}|${raw.date}`, record };
 }
 

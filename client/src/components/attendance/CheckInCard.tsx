@@ -28,7 +28,7 @@ import {
 } from '@/api/attendance';
 import {
   accuracyText,
-  captureLocation,
+  quickLocation,
   coordText,
   GEO_KIND_LABELS,
   getCachedFix,
@@ -97,26 +97,28 @@ export function CheckInCard() {
   };
 
   /* ---- check-in ----------------------------------------------------- */
+  // Prefetch a location fix on mount so it's ready when the user clicks Check In.
+  useEffect(() => {
+    prefetchLocation();
+  }, []);
+
   const handleCheckIn = useCallback(async () => {
     if (busy || onLeave) return;
     setBusy('in');
     setLocating(true);
     setNote('');
 
-    /* 1. cached fix first (instant); otherwise one fast geolocation shot. */
-    let point: GeoPoint | null = getCachedFix();
-    let reason: CaptureReason = 'ok';
-    if (!point) {
-      const res = await captureLocation(8000);
-      point = res.point;
-      reason = res.reason;
-    }
+    /* Use quickLocation: cached fix first, then a short timeout shot.
+       quickLocation internally calls getCachedFix() and then navigator.geolocation
+       with timeout 2500ms and caches the result for 5 minutes. */
+    const point = await quickLocation(2500);
+    const reason: CaptureReason = point ? 'ok' : 'timeout';
 
     /* Location is mandatory for real sessions — never bypass or fake it. */
     if (!point) {
       setLocating(false);
       setBusy(null);
-      setNote("Location is required for check-in. Allow geolocation in your browser and retry.");
+      setNote("Location could not be determined. Allow geolocation and retry.");
       toast('Location required for check-in', 'error');
       return;
     }
@@ -178,20 +180,19 @@ export function CheckInCard() {
   }, [api, busy, onLeave, key, empId, user, today, browserTimezone, record, inRange, locationVerified, fetchAttendanceState]);
 
   /* ---- check-out ---------------------------------------------------- */
+  // Prefetch a location fix on mount so it's ready when the user clicks Check Out.
+  useEffect(() => {
+    prefetchLocation();
+  }, []);
+
   const handleCheckOut = useCallback(async () => {
     if (busy || !checkedIn) return;
     setBusy('out');
     setLocating(true);
     setNote('');
 
-    /* Check-out location is optional on the server; send it when we have it. */
-    let point: GeoPoint | null = getCachedFix();
-    let reason: CaptureReason = 'ok';
-    if (!point) {
-      const res = await captureLocation(8000);
-      point = res.point;
-      reason = res.reason;
-    }
+    /* Use quickLocation: cached fix first, then a short timeout shot. */
+    const point = await quickLocation(2500);
 
     if (!api) {
       /* ---- demo path: local override only --------------------------- */
@@ -209,7 +210,7 @@ export function CheckInCard() {
         point ? `Checked out at ${time} — location recorded.` : `Checked out at ${time}.`,
         'success',
       );
-      noteFor(reason);
+      noteFor('ok');
       setBusy(null);
       return;
     }
