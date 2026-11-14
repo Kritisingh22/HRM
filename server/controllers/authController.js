@@ -80,12 +80,40 @@ function readGpsFromBody(body) {
 // Opens a new LoginSession row and (best-effort) notifies the employee's
 // assigned HR/manager. loginAt/duration are always server time — never
 // anything supplied by the client.
+//
+// Idempotent: if the user already has an Active session, reuse it instead
+// of creating a new row — prevents one document per request under request
+// storms.
 async function startLoginSession(user, req) {
   const employee = await Employee.findOne({
     $or: [{ user: user._id }, { employeeId: user.employeeId }],
   });
 
-  const session = await LoginSession.create({
+  // Reuse an existing Active session instead of creating a duplicate row.
+  let session = await LoginSession.findOne({ user: user._id, status: 'Active' }).sort({ loginAt: -1 });
+  if (session) {
+    // Refresh last-seen only at most once per minute to avoid write storms.
+    const now = new Date();
+    const lastSeen = session.lastSeenAt || session.loginAt;
+    if (now.getTime() - lastSeen.getTime() > 60_000) {
+      session.lastSeenAt = now;
+      session.ip = req.ip;
+      session.userAgent = req.headers['user-agent'];
+      await session.save();
+    }
+    if (employee) {
+      await notifyByEmployee(employee, {
+        type: 'Employee Login',
+        title: `${employee.fullName} logged in`,
+        message: `${employee.fullName} (${employee.employeeId}) logged in at ${session.loginAt.toLocaleString('en-IN')}.`,
+        relatedEntity: { type: 'Other', id: session._id },
+        metadata: { employeeId: employee.employeeId, sessionId: session._id },
+      });
+    }
+    return session;
+  }
+
+  session = await LoginSession.create({
     user: user._id,
     employeeId: user.employeeId || (employee && employee.employeeId),
     role: user.role,

@@ -16,7 +16,7 @@
        597 KiB main bundle never has to parse code for pages the
        user never visits.
    ============================================================ */
-import { Suspense, lazy, type ReactNode } from 'react';
+import { Suspense, type ReactNode } from 'react';
 import { Link, Navigate, Outlet, Route, Routes } from 'react-router-dom';
 import { AppShell } from '@/components/layout/AppShell';
 import { EmptyState } from '@/components/ui/primitives';
@@ -67,65 +67,81 @@ function RouteSkeleton() {
 
 /* ---------- lazy route components ---------- */
 
-/* Login is imported eagerly above; everything below is lazy. */
-const DashboardPage = lazy(() =>
+/* Login is imported eagerly above; everything below is lazy. Each lazy
+   import is wrapped with lazyWithRetry so a transient chunk-load failure
+   is retried once before surfacing to the ErrorBoundary. */
+import { lazyWithRetry } from '@/lib/lazyWithRetry';
+
+const DashboardPage = lazyWithRetry(() =>
   import('@/features/dashboard/Dashboard').then((m) => ({ default: m.DashboardPage })),
 );
-const EmployeesPage = lazy(() =>
+const EmployeesPage = lazyWithRetry(() =>
   import('@/features/employees/EmployeesPage').then((m) => ({ default: m.EmployeesPage })),
 );
-const AttendancePage = lazy(() =>
+const AttendancePage = lazyWithRetry(() =>
   import('@/features/attendance/AttendancePage').then((m) => ({ default: m.AttendancePage })),
 );
-const LeavePage = lazy(() => import('@/features/leave/LeavePage').then((m) => ({ default: m.LeavePage })));
-const PayrollPage = lazy(() => import('@/features/payroll/PayrollPage').then((m) => ({ default: m.PayrollPage })));
-const RecruitmentPage = lazy(() =>
+const LeavePage = lazyWithRetry(() =>
+  import('@/features/leave/LeavePage').then((m) => ({ default: m.LeavePage })),
+);
+const PayrollPage = lazyWithRetry(() =>
+  import('@/features/payroll/PayrollPage').then((m) => ({ default: m.PayrollPage })),
+);
+const RecruitmentPage = lazyWithRetry(() =>
   import('@/features/recruitment/RecruitmentPage').then((m) => ({ default: m.RecruitmentPage })),
 );
-const PerformancePage = lazy(() =>
+const PerformancePage = lazyWithRetry(() =>
   import('@/features/performance/PerformancePage').then((m) => ({ default: m.PerformancePage })),
 );
-const ProjectsPage = lazy(() =>
+const ProjectsPage = lazyWithRetry(() =>
   import('@/features/projects/ProjectsPage').then((m) => ({ default: m.ProjectsPage })),
 );
-const DocumentsPage = lazy(() =>
+const DocumentsPage = lazyWithRetry(() =>
   import('@/features/documents/DocumentsPage').then((m) => ({ default: m.DocumentsPage })),
 );
-const ReportsPage = lazy(() => import('@/features/reports/ReportsPage').then((m) => ({ default: m.ReportsPage })));
-const AnalyticsPage = lazy(() =>
+const ReportsPage = lazyWithRetry(() =>
+  import('@/features/reports/ReportsPage').then((m) => ({ default: m.ReportsPage })),
+);
+const AnalyticsPage = lazyWithRetry(() =>
   import('@/features/analytics/AnalyticsPage').then((m) => ({ default: m.AnalyticsPage })),
 );
-const SettingsPage = lazy(() => import('@/features/settings/SettingsPage').then((m) => ({ default: m.SettingsPage })));
-const ProfilePage = lazy(() => import('@/features/profile/ProfilePage').then((m) => ({ default: m.ProfilePage })));
-const NoticeBoardPage = lazy(() =>
+const SettingsPage = lazyWithRetry(() =>
+  import('@/features/settings/SettingsPage').then((m) => ({ default: m.SettingsPage })),
+);
+const ProfilePage = lazyWithRetry(() =>
+  import('@/features/profile/ProfilePage').then((m) => ({ default: m.ProfilePage })),
+);
+const NoticeBoardPage = lazyWithRetry(() =>
   import('@/features/notice/NoticeBoardPage').then((m) => ({ default: m.NoticeBoardPage })),
 );
-const HelpdeskPage = lazy(() =>
+const HelpdeskPage = lazyWithRetry(() =>
   import('@/features/helpdesk/HelpdeskPage').then((m) => ({ default: m.HelpdeskPage })),
 );
-const LeaveApprovalsPage = lazy(() =>
+const LeaveApprovalsPage = lazyWithRetry(() =>
   import('@/features/leave-approvals/LeaveApprovalsPage').then((m) => ({ default: m.LeaveApprovalsPage })),
 );
-const OrgChartPage = lazy(() => import('@/features/org/OrgChartPage').then((m) => ({ default: m.OrgChartPage })));
-const OffboardingPage = lazy(() =>
+const OrgChartPage = lazyWithRetry(() =>
+  import('@/features/org/OrgChartPage').then((m) => ({ default: m.OrgChartPage })),
+);
+const OffboardingPage = lazyWithRetry(() =>
   import('@/features/offboarding/OffboardingPage').then((m) => ({ default: m.OffboardingPage })),
 );
-const TransferTicketsPage = lazy(() =>
+const TransferTicketsPage = lazyWithRetry(() =>
   import('@/features/transfers/TransferTicketsPage').then((m) => ({ default: m.TransferTicketsPage })),
 );
-const HrTransferTicketsPage = lazy(() =>
+const HrTransferTicketsPage = lazyWithRetry(() =>
   import('@/features/transfers/HrTransferTicketsPage').then((m) => ({ default: m.HrTransferTicketsPage })),
 );
-const EmployeeTransferStatusPage = lazy(() =>
+const EmployeeTransferStatusPage = lazyWithRetry(() =>
   import('@/features/transfers/EmployeeTransferStatusPage').then((m) => ({ default: m.EmployeeTransferStatusPage })),
 );
-const TransferTicketDetailPage = lazy(() =>
+const TransferTicketDetailPage = lazyWithRetry(() =>
   import('@/features/transfers/TransferTicketDetailPage').then((m) => ({ default: m.TransferTicketDetailPage })),
 );
-const TeamTaskCalendarPage = lazy(() =>
+const TeamTaskCalendarPage = lazyWithRetry(() =>
   import('@/features/team-tasks/TeamTaskCalendarPage').then((m) => ({ default: m.TeamTaskCalendarPage })),
 );
-const TodoPage = lazy(() =>
+const TodoPage = lazyWithRetry(() =>
   import('@/features/todo/TodoPage').then((m) => ({ default: m.TodoPage })),
 );
 

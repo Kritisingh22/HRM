@@ -1,23 +1,17 @@
 /* ============================================================
-   AttendanceGate — mandatory check-in gate.
-
-   Shown after login (all roles) until the user has checked in
-   for the day. Blocks the whole portal behind a modal.
-
-   Location is captured only when the employee clicks Check In:
-   a cached fix is used instantly when available, otherwise a single
-   geolocation attempt with an 8-second timeout. Location is
-   mandatory — the backend rejects check-in without it — so on
-   denial/timeout we show a clear message and a Retry button; we
-   never silently bypass location validation and never leave the
-   button loading indefinitely.
+   Attendance Gate — check-in optional, not mandatory.
+   
+   Shown once per login session as a non-blocking overlay.
+   The user may close it (×), press Esc, or click the backdrop.
+   After dismissal it will not appear again for this session.
+   The user can check in anytime from the dashboard CheckInCard.
    ============================================================ */
 import { useCallback, useEffect, useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { Icon } from '@/components/ui/Icon';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
-import { checkIn, attendanceErrorMessage } from '@/api/attendance';
+import { checkIn, checkOut, attendanceErrorMessage } from '@/api/attendance';
 import { captureLocation, getCachedFix, type CaptureReason } from '@/lib/geo';
 import { todayISO } from '@/lib/date';
 
@@ -37,14 +31,54 @@ export function AttendanceGate({
   const [error, setError] = useState('');
   const [geoDenied, setGeoDenied] = useState(false);
   const [locating, setLocating] = useState(false);
+  const [showGate, setShowGate] = useState(true);
+  const [consentGiven, setConsentGiven] = useState(false);
+
+  // Once dismissed, never show again in this session (sessionStorage guard).
+  useEffect(() => {
+    try {
+      const key = 'cyethackHRM.attendanceGateDismissed';
+      const previously = sessionStorage.getItem(key);
+      if (previously) setShowGate(false);
+    } catch (_) {
+      // sessionStorage may not be available (incognito, some tests); fall back
+      // to showing the gate once.
+    }
+  }, []);
+
+  // Persist dismissal so it doesn't re-appear in the same session.
+  const markDismissed = useCallback(() => {
+    try {
+      sessionStorage.setItem('cyethackHRM.attendanceGateDismissed', '1');
+    } catch (_) {}
+  }, []);
+
+  // Track last focused element before modal open for focus return on close.
+  const [lastFocus, setLastFocus] = useState<string | null>(null);
+  useEffect(() => {
+    if (showGate) {
+      setLastFocus(document.activeElement?.id ?? null);
+    }
+  }, [showGate]);
 
   // Modal close handler — clicking (×), pressing Escape, or clicking the
-  // backdrop does NOT perform check-in or create attendance records.
-  // The mandatory check-in requirement remains enforced; the modal stays
-  // displayed until the user completes check-in.
-  const handleModalClose = () => {
-    // no-op — does not call doCheckIn(), does not create records
-  };
+  // backdrop dismisses the gate. After close, focus returns to the element
+  // that had focus before the gate opened. sessionStorage dismissal flag
+  // prevents re-appearance in the same session.
+  const handleModalClose = useCallback(() => {
+    markDismissed();
+    onCheckInComplete();
+  }, [markDismissed, onCheckInComplete]);
+
+  // Trap focus while the modal is open; return focus on close.
+  useEffect(() => {
+    if (!showGate) {
+      // Restore focus to the element that had focus before the modal opened.
+      const element = lastFocus ? document.getElementById(lastFocus) : null;
+      if (element) { element.focus(); }
+      setLastFocus(null);
+    }
+  }, [showGate]);
 
   const browserTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
@@ -59,6 +93,8 @@ export function AttendanceGate({
       setGeoDenied(true);
       setBusy(false);
       setLocating(false);
+      setError('Location permission is required to check in.');
+      toast('Location permission required', 'error');
       return;
     }
 
@@ -77,15 +113,14 @@ export function AttendanceGate({
       if (!res.point) {
         setLocating(false);
         setBusy(false);
-        const hint =
-          res.reason === 'denied'
-            ? 'Location permission was denied. Enable it in your browser (site settings → Location → Allow) and retry.'
-            : res.reason === 'timeout'
-              ? 'Location timed out. Make sure location is enabled and you have a clear view of the sky / Wi-Fi, then retry.'
-              : 'Location is unavailable on this device.';
+        const hint = res.reason === 'denied'
+          ? 'Location permission was denied. Enable it in your browser (site settings → Location → Allow) and retry.'
+          : res.reason === 'timeout'
+            ? 'Location timed out. Make sure location is enabled and you have a clear view of the sky / Wi-Fi, then retry.'
+            : 'Location is unavailable on this device.';
         setGeoDenied(true);
         setError(hint);
-        toast(res.reason === 'denied' ? 'Location permission required' : 'Could not obtain location', 'error');
+        toast(hint, 'error');
         return;
       }
       lat = res.point.lat;
@@ -95,7 +130,7 @@ export function AttendanceGate({
 
     try {
       await checkIn({
-        consentGiven: true,
+        consentGiven,
         lat: lat!,
         lng: lng!,
         accuracy: accuracy!,
@@ -116,77 +151,93 @@ export function AttendanceGate({
     setLocating(false);
     setBusy(false);
     onCheckInComplete();
-  }, [busy, browserTimezone, onCheckInComplete]);
+  }, [busy, consentGiven, browserTimezone, onCheckInComplete]);
 
-  if (checkedInToday) {
+  if (!showGate || checkedInToday) {
     onCheckInComplete();
     return null;
   }
 
   return (
     <Modal
-      title="Mandatory check-in"
+      title="Check in"
       onClose={handleModalClose}
       large
       className="attendance-gate"
+      aria-modal="true"
+      aria-labelledby="gate-title"
     >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 460, margin: '0 auto' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Icon name="userCheck" size={24} style={{ color: '#2563eb' }} />
-          <h2 style={{ margin: 0, fontSize: 18 }}>Check in before using the portal</h2>
-        </div>
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 16,
+          maxWidth: 460,
+          margin: '0 auto',
+        }}
+      >
+        <h2 id="gate-title" style={{ margin: 0, fontSize: 18 }}>
+          Check in before using the portal
+        </h2>
 
-        <div style={{ fontSize: 14.5, color: 'var(--text-2)', lineHeight: 1.6 }}>
-          <p>
-            Attendance is mandatory. Before you can access the HR portal you must
-            check in today ({todayISO()}). We record:
-          </p>
-          <ul style={{ margin: 8, paddingLeft: 20, color: 'var(--text-2)' }}>
-            <li>Check-in time (server clock) and your location at check-in</li>
-            <li>Tab visibility / focus while the portal is open (active vs paused time)</li>
-            <li>IP address and user agent</li>
-          </ul>
-          <p style={{ marginTop: 10 }}>
-            Nothing is tracked in the background — only this tab’s visibility and
-            location at check-in / check-out are recorded.
-          </p>
-        </div>
+        <p style={{ fontSize: 14.5, color: 'var(--text-2)', lineHeight: 1.6 }}>
+          Attendance is recorded when you check in. We record:
+        </p>
+        <ul style={{ margin: 8, paddingLeft: 20, color: 'var(--text-2)' }}>
+          <li>Check-in time (server clock) and your location at check-in</li>
+          <li>Tab visibility / focus while the portal is open (active vs paused time)</li>
+          <li>IP address and user agent</li>
+        </ul>
+        <p style={{ marginTop: 10 }}>
+          Nothing is tracked in the background — only this tab's visibility and
+          location at check-in / check-out are recorded.
+        </p>
 
-        {/* Consent */}
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginTop: 8 }}>
+        {/* Consent — real controlled checkbox; disabled until ticked */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: 10,
+            marginTop: 8,
+          }}
+        >
           <input
             id="att-consent"
             type="checkbox"
-            defaultChecked
-            readOnly
+            checked={consentGiven}
+            onChange={(e) => setConsentGiven(e.target.checked)}
+            disabled={busy}
             style={{ accentColor: '#2563eb' }}
           />
           <label
             htmlFor="att-consent"
-            style={{ fontSize: 13.5, color: 'var(--text-2)', cursor: 'pointer', userSelect: 'none' }}
+            style={{
+              fontSize: 13.5,
+              color: 'var(--text-2)',
+              cursor: consentGiven ? 'pointer' : 'default',
+              userSelect: 'none',
+            }}
           >
-            I consent to the above being recorded for today’s attendance.
+            I consent to the above being recorded for today's attendance.
           </label>
         </div>
 
+        {/* Errors only — location denied, network, 409 already checked in.
+              Uses theme tokens --red / --red-tint, no hardcoded light colors. */}
         {(geoDenied || error) && (
-          <div style={{ padding: 12, background: '#fef3f2', border: '1px solid #ef4444', borderRadius: 8, fontSize: 13, color: '#b91c1c' }}>
+          <div
+            style={{
+              padding: 12,
+              background: 'var(--red-tint)',
+              border: '1px solid var(--red)',
+              borderRadius: 8,
+              fontSize: 13,
+              color: 'var(--red)',
+            }}
+          >
             <Icon name="alertCircle" size={16} style={{ marginRight: 8 }} />
             {error || 'Location permission was denied or unavailable. Attendance is NOT marked.'}
-            <button
-              onClick={() => {
-                setGeoDenied(false);
-                setError('');
-                setBusy(false);
-                setLocating(false);
-                void doCheckIn();
-              }}
-              className="btn btn-outline btn-sm"
-              type="button"
-              style={{ marginLeft: 10 }}
-            >
-              Retry
-            </button>
           </div>
         )}
 
@@ -194,15 +245,29 @@ export function AttendanceGate({
           <button
             className="btn btn-primary"
             onClick={doCheckIn}
-            disabled={busy}
+            disabled={busy || !consentGiven}
             type="button"
           >
             {busy ? (locating ? 'Locating…' : 'Checking in…') : 'Check in now'}
           </button>
+          <button
+            onClick={handleModalClose}
+            className="btn btn-outline"
+            style={{ marginLeft: 8 }}
+            type="button"
+          >
+            Not now
+          </button>
         </div>
 
-        <p style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 10 }}>
-          The portal stays blocked until check-in is complete. Location can be
+        <p
+          style={{
+            fontSize: 12.5,
+            color: 'var(--muted)',
+            marginTop: 10,
+          }}
+        >
+          The portal is fully usable without checking in. Location can be
           spoofed by a determined user — treat geolocation as a signal, not proof
           of presence.
         </p>

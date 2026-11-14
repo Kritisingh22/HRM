@@ -92,8 +92,11 @@ export function LeaveApprovalsPage() {
     return false;
   };
 
-  // Extract applicantUserId from leave request for self-checks
-  const leaveApplicantUserId = (r: LeaveRequest) => r.applicantUserId || '';
+  // Extract applicantUserId from leave request for self-checks.
+  // `applicantUserId` is not part of the shared LeaveRequest type, so read it
+  // through a partial cast when present in the request payload.
+  const leaveApplicantUserId = (r: LeaveRequest) => (r as Partial<{ applicantUserId?: string }>).applicantUserId || '';
+  const applicantRoleFor = (r: LeaveRequest) => (r as Partial<{ applicantRole?: string }>).applicantRole || 'Employee';
 
   /* Per-employee leave allowances are not stored yet, so the decision
      modal shows what the records prove: approved (non-WFH) days in the
@@ -180,10 +183,10 @@ export function LeaveApprovalsPage() {
               {user?.portal === 'manager'
                 ? 'Requests from your reporting line'
                 : user?.role === 'ADMIN'
-                ? 'All pending employee requests awaiting approval'
-                : user?.role === 'SUPER_ADMIN'
-                ? 'All pending employee requests (centralized approval)'
-                : 'All pending employee requests'}
+                  ? 'All pending employee requests awaiting approval'
+                  : user?.role === 'SUPER_ADMIN'
+                    ? 'All pending employee requests (centralized approval)'
+                    : 'All pending employee requests'}
             </div>
           </div>
           <div className="tools">
@@ -193,7 +196,7 @@ export function LeaveApprovalsPage() {
         </div>
 
         <StatRow
-          items=[
+          items={[
             { k: 'Pending', v: pending.length, s: 'in your scope' },
             { k: 'Approved', v: data.leaveRequests.filter((r) => r.status === 'Approved' && inScope(r)).length },
             { k: 'Rejected', v: data.leaveRequests.filter((r) => r.status === 'Rejected' && inScope(r)).length },
@@ -203,7 +206,7 @@ export function LeaveApprovalsPage() {
               v: `${pending.length ? Math.round((pending.reduce((s, r) => s + r.days, 0) / pending.length) * 10) / 10 : 0} d`,
               s: 'pending days',
             },
-          ]
+          ]}
         />
 
         <Tabs
@@ -258,8 +261,7 @@ export function LeaveApprovalsPage() {
                 {rowsShown.map((r) => {
                   const emp = data.employees.find((e) => e.id === r.employeeId);
                   const canDecide = r.status === 'Pending' && canDecideRequest(r);
-                  const applicantRole = r.applicantRole || 'Employee';
-                  const applicantUserId = r.applicantUserId || '';
+                  const applicantRole = applicantRoleFor(r);
 
                   return (
                     <tr key={r.id}>
@@ -276,7 +278,7 @@ export function LeaveApprovalsPage() {
                         {emp?.designation ?? ''}
                       </td>
                       <td>
-                        <span className="chip" style={{ 
+                        <span className="chip" style={{
                           background: applicantRole === 'HR' ? 'var(--blue-tint)' : applicantRole === 'Admin' ? 'var(--amber-tint)' : applicantRole === 'Super Admin' ? 'var(--red-tint)' : 'var(--teal-tint)',
                           color: applicantRole === 'HR' ? 'var(--blue)' : applicantRole === 'Admin' ? 'var(--orange)' : applicantRole === 'Super Admin' ? 'var(--white)' : 'var(--teal)'
                         }}>
@@ -337,85 +339,88 @@ export function LeaveApprovalsPage() {
         </div>
       </section>
 
-      {deciding ? (
-        <Modal
-          title={approve ? `Approve ${deciding.id}` : `Reject ${deciding.id}`}
-          onClose={() => setDeciding(null)}
-          footer={
-            <>
-              <button className="btn btn-ghost" onClick={() => setDeciding(null)} type="button">
-                Cancel
-              </button>
-              <button className={approve ? 'btn btn-primary' : 'btn btn-danger-outline'} onClick={saveDecision} type="button">
-                {approve ? 'Approve request' : 'Reject request'}
-              </button>
-            </>
-          }
-        >
-          <div className="detail-grid" style={{ marginBottom: 16 }}>
-            <dt>Employee</dt>
-            <dd>{data.employees.find((e) => e.id === deciding.employeeId)?.name ?? deciding.employeeId}</dd>
-            <dt>Employee ID</dt>
-            <dd>{data.employees.find((e) => e.id === deciding.employeeId)?.employeeId ?? deciding.employeeId}</dd>
-            <dt>Department</dt>
-            <dd>{data.employees.find((e) => e.id === deciding.employeeId)?.department ?? ''}</dd>
-            <dt>Designation</dt>
-            <dd>{data.employees.find((e) => e.id === deciding.employeeId)?.designation ?? ''}</dd>
-            <dt>Applicant Role</dt>
-            <dd>
-              <span className="chip" style={{
-                background: deciding.applicantRole === 'HR' ? 'var(--blue-tint)' : deciding.applicantRole === 'Admin' ? 'var(--amber-tint)' : deciding.applicantRole === 'Super Admin' ? 'var(--red-tint)' : 'var(--teal-tint)',
-                color: deciding.applicantRole === 'HR' ? 'var(--blue)' : deciding.applicantRole === 'Admin' ? 'var(--orange)' : deciding.applicantRole === 'Super Admin' ? 'var(--white)' : 'var(--teal)'
-              }}>
-                {deciding.applicantRole}
-              </span>
-            </dd>
-            <dt>Type</dt>
-            <dd>{deciding.type}</dd>
-            <dt>Dates</dt>
-            <dd>
-              {niceDate(deciding.from)}
-              {deciding.to !== deciding.from ? ` – ${niceDate(deciding.to)}` : ''} · {deciding.days} day{deciding.days === 1 ? '' : 's'}
-            </dd>
-            <dt>Reason</dt>
-            <dd>{deciding.reason || '—'}</dd>
-            <dt>Applied on</dt>
-            <dd>{niceDate(deciding.appliedOn)}</dd>
-            <dt>Authority</dt>
-            <dd>
-              <span className="chip" style={{
-                background: deciding.approvalAuthority === 'HR' ? 'var(--blue-tint)' : deciding.approvalAuthority === 'Admin' ? 'var(--amber-tint)' : deciding.approvalAuthority === 'Super Admin' ? 'var(--red-tint)' : 'var(--teal-tint)',
-                color: deciding.approvalAuthority === 'HR' ? 'var(--blue)' : deciding.approvalAuthority === 'Admin' ? 'var(--orange)' : deciding.approvalAuthority === 'Super Admin' ? 'var(--white)' : 'var(--teal)'
-              }}>
-                {deciding.approvalAuthority}
-              </span>
-            </dd>
-            <dt>On approved leave</dt>
-            <dd>{approvedDaysThisYear(deciding.employeeId)} day(s) this year, from records</dd>
-          </div>
-          <div className="info-note" style={{ marginBottom: 14 }}>
-            {deciding.type === 'Work From Home'
-              ? 'WFH approvals do not count against the leave balance.'
-              : requestOn(data.leaveRequests, deciding.employeeId, deciding.from)?.id === deciding.id
-                ? 'This request covers the selected dates on the employee’s calendar.'
-                : 'Check overlap with existing approved leave before deciding.'}
-          </div>
-          <div className="field">
-            <label htmlFor="lv-note">{approve ? 'Note (optional)' : 'Reason for rejection'}</label>
-            <textarea
-              id="lv-note"
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder={approve ? 'e.g. Approved — handover to Karan' : 'e.g. Release week — please reschedule'}
-            />
-          </div>
-          {!approve ? (
-            <div className="info-note">
-              <Icon name="alertTriangle" size={14} /> A rejection lets the employee re-apply for different dates.
+      {deciding ? (() => {
+        const decidingApplicantRole = applicantRoleFor(deciding);
+        return (
+          <Modal
+            title={approve ? `Approve ${deciding.id}` : `Reject ${deciding.id}`}
+            onClose={() => setDeciding(null)}
+            footer={
+              <>
+                <button className="btn btn-ghost" onClick={() => setDeciding(null)} type="button">
+                  Cancel
+                </button>
+                <button className={approve ? 'btn btn-primary' : 'btn btn-danger-outline'} onClick={saveDecision} type="button">
+                  {approve ? 'Approve request' : 'Reject request'}
+                </button>
+              </>
+            }
+          >
+            <div className="detail-grid" style={{ marginBottom: 16 }}>
+              <dt>Employee</dt>
+              <dd>{data.employees.find((e) => e.id === deciding.employeeId)?.name ?? deciding.employeeId}</dd>
+              <dt>Employee ID</dt>
+              <dd>{data.employees.find((e) => e.id === deciding.employeeId)?.employeeId ?? deciding.employeeId}</dd>
+              <dt>Department</dt>
+              <dd>{data.employees.find((e) => e.id === deciding.employeeId)?.department ?? ''}</dd>
+              <dt>Designation</dt>
+              <dd>{data.employees.find((e) => e.id === deciding.employeeId)?.designation ?? ''}</dd>
+              <dt>Applicant Role</dt>
+              <dd>
+                <span className="chip" style={{
+                  background: decidingApplicantRole === 'HR' ? 'var(--blue-tint)' : decidingApplicantRole === 'Admin' ? 'var(--amber-tint)' : decidingApplicantRole === 'Super Admin' ? 'var(--red-tint)' : 'var(--teal-tint)',
+                  color: decidingApplicantRole === 'HR' ? 'var(--blue)' : decidingApplicantRole === 'Admin' ? 'var(--orange)' : decidingApplicantRole === 'Super Admin' ? 'var(--white)' : 'var(--teal)'
+                }}>
+                  {decidingApplicantRole}
+                </span>
+              </dd>
+              <dt>Type</dt>
+              <dd>{deciding.type}</dd>
+              <dt>Dates</dt>
+              <dd>
+                {niceDate(deciding.from)}
+                {deciding.to !== deciding.from ? ` – ${niceDate(deciding.to)}` : ''} · {deciding.days} day{deciding.days === 1 ? '' : 's'}
+              </dd>
+              <dt>Reason</dt>
+              <dd>{deciding.reason || '—'}</dd>
+              <dt>Applied on</dt>
+              <dd>{niceDate(deciding.appliedOn)}</dd>
+              <dt>Authority</dt>
+              <dd>
+                <span className="chip" style={{
+                  background: deciding.approvalAuthority === 'HR' ? 'var(--blue-tint)' : deciding.approvalAuthority === 'Admin' ? 'var(--amber-tint)' : deciding.approvalAuthority === 'Super Admin' ? 'var(--red-tint)' : 'var(--teal-tint)',
+                  color: deciding.approvalAuthority === 'HR' ? 'var(--blue)' : deciding.approvalAuthority === 'Admin' ? 'var(--orange)' : deciding.approvalAuthority === 'Super Admin' ? 'var(--white)' : 'var(--teal)'
+                }}>
+                  {deciding.approvalAuthority}
+                </span>
+              </dd>
+              <dt>On approved leave</dt>
+              <dd>{approvedDaysThisYear(deciding.employeeId)} day(s) this year, from records</dd>
             </div>
-          ) : null}
-        </Modal>
-      ) : null}
+            <div className="info-note" style={{ marginBottom: 14 }}>
+              {deciding.type === 'Work From Home'
+                ? 'WFH approvals do not count against the leave balance.'
+                : requestOn(data.leaveRequests, deciding.employeeId, deciding.from)?.id === deciding.id
+                  ? 'This request covers the selected dates on the employee’s calendar.'
+                  : 'Check overlap with existing approved leave before deciding.'}
+            </div>
+            <div className="field">
+              <label htmlFor="lv-note">{approve ? 'Note (optional)' : 'Reason for rejection'}</label>
+              <textarea
+                id="lv-note"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder={approve ? 'e.g. Approved — handover to Karan' : 'e.g. Release week — please reschedule'}
+              />
+            </div>
+            {!approve ? (
+              <div className="info-note">
+                <Icon name="alertTriangle" size={14} /> A rejection lets the employee re-apply for different dates.
+              </div>
+            ) : null}
+          </Modal>
+        );
+      })() : null}
     </div>
   );
 }

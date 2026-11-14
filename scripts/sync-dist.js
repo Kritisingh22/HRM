@@ -55,8 +55,18 @@ function main() {
   }
   if (fs.existsSync(assetsDir)) removeMaps(assetsDir);
 
+  // 4b. Inject a build-version meta tag into index.html so the client can
+  //     detect a new deploy and invalidate the chunk-recovery guard.
+  const buildVersion = String(Date.now());
+  let indexHtml = fs.readFileSync(serverIndex, 'utf8');
+  if (!indexHtml.includes('name="build-version"')) {
+    const meta = `<meta name="build-version" content="${buildVersion}" />`;
+    indexHtml = indexHtml.replace('</head>', `${meta}\n</head>`);
+    fs.writeFileSync(serverIndex, indexHtml, 'utf8');
+  }
+
   // 5. Verify every /assets/... reference in index.html exists on disk.
-  const indexHtml = fs.readFileSync(serverIndex, 'utf8');
+  indexHtml = fs.readFileSync(serverIndex, 'utf8');
   const assetRefs = [...indexHtml.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)].map((m) => m[1]);
   const missing = [];
   for (const ref of assetRefs) {

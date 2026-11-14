@@ -14,11 +14,12 @@ import { ResourceView, type FieldDef } from '@/components/ui/ResourceView';
 import { Modal } from '@/components/ui/Modal';
 import { Pill, Progress, Tabs } from '@/components/ui/primitives';
 import { Icon } from '@/components/ui/Icon';
+import { useNavigate } from 'react-router-dom';
 import { useApp } from '@/store/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
 import { useDrill } from '@/lib/useDrill';
-import { isApiSession } from '@/api/client';
+import { isApiSession, SessionRequiredError } from '@/api/client';
 import { downloadBlob, documentErrorMessage, fetchDocumentBlob, openDocument } from '@/api/documents';
 import { officialUploadDocument, officialVerifyDocument } from '@/store/apiBridge';
 import { niceDate } from '@/lib/date';
@@ -456,8 +457,9 @@ function UploadDocumentModal({
 
 export function DocumentsPage() {
   const { data, dispatch, audit, nextId } = useApp();
-  const { canManage, user } = useAuth();
+  const { canManage, user, logout } = useAuth();
   const { toast } = useToast();
+  const navigate = useNavigate();
   const { query: seedQuery, clear } = useDrill();
   const [drill, setDrill] = useState(seedQuery);
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -631,6 +633,18 @@ export function DocumentsPage() {
         toast(`"${d.name}" verified.`, 'success');
       }
     } catch (err) {
+      if (err instanceof SessionRequiredError) {
+        /* No usable API session: stash the exact message (missing session /
+           demo account) so the login page can surface it, clear the shell
+           state, and send the user to login. */
+        try {
+          sessionStorage.setItem('cyethackHRM.loginMessage', err.message);
+        } catch { /* sessionStorage blocked — the redirect still happens */ }
+        toast(err.message, 'error');
+        await logout();
+        navigate('/login', { replace: true });
+        return;
+      }
       toast(documentErrorMessage(err), 'error');
     }
   };

@@ -1,11 +1,12 @@
 services:
   - type: web
     name: cyethack-hrm-portal
-    env: node
+    env: docker
     region: oregon
     branch: main
-    buildCommand: npm --prefix server ci
-    startCommand: npm --prefix server start
+    # Docker deployment: uses the Dockerfile at the repo root
+    # Docker context directory: / (repo root)
+    # Dockerfile path: /Dockerfile
     envVars:
       - key: NODE_ENV
         value: production
@@ -24,7 +25,7 @@ services:
       - key: FRONTEND_URL
         value: https://cyethack-hrm-portal.onrender.com
       - key: FRONTEND_DIST
-        value: server/public
+        value: /app/client-dist
       - key: MAX_FAILED_LOGINS
         value: 5
       - key: ACCOUNT_LOCK_MINUTES
@@ -48,5 +49,7 @@ services:
         value: ""
       - key: R2_REGION
         value: auto
+      - key: VITE_API_URL
+        value: https://cyethack-hrm-portal.onrender.com
     healthCheckPath: /health
     autoDeploy: true

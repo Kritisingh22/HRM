@@ -25,6 +25,23 @@ const USER_KEY = 'cyethackHRM.user';
 /** Which backend issued a stored session. */
 export type SessionSource = 'api' | 'demo';
 
+/**
+ * Thrown by apiRequest when the caller has no usable API session:
+ *   · 'missing' — there is no session in this tab/storage at all
+ *     (clearSession() has run). The page shows the message and sends the
+ *     user to the login route.
+ *   · 'demo' — a session exists, but it was issued by the demo backend,
+ *     which cannot serve official server documents.
+ */
+export class SessionRequiredError extends ApiError {
+  readonly kind: 'missing' | 'demo';
+  constructor(kind: 'missing' | 'demo', message: string) {
+    super(kind === 'missing' ? 401 : 403, message);
+    this.kind = kind;
+    this.name = 'SessionRequiredError';
+  }
+}
+
 export interface LoginPayload {
   accessToken: string;
   sessionId: string;
@@ -78,7 +95,20 @@ function parseStored(raw: string): StoredSession | null {
 /** The current session: in-memory api session wins this tab, then sessionStorage
  *  (demo), then a localStorage remember-me marker. For api sessions the marker
  *  holds only the user profile (USER_KEY) — never the access token — so the
- *  durable session is the httpOnly refresh cookie, not localStorage. */
+ *  durable session is the httpOnly refresh cookie, not localStorage.
+ *
+ *  Cross-tab / new-window survival:
+ *    · A new tab starts with empty `currentSession` and empty sessionStorage.
+ *    · If "Remember me" was checked at login, localStorage holds
+ *      `cyethackHRM.session.remembered=1` + `cyethackHRM.user` (profile only).
+ *      `readSession()` rebuilds a session from that marker with an empty
+ *      accessToken; `apiRequest()` then mints a fresh token from the httpOnly
+ *      refresh cookie before the first request. If the cookie is valid, the
+ *      session survives; if the cookie is gone/expired, the request redirects
+ *      to /login.
+ *    · Without "Remember me", a new tab has no recoverable session — the user
+ *      must sign in again.
+ */
 export function readSession(): StoredSession | null {
   if (currentSession) return currentSession;
   try {
@@ -121,7 +151,17 @@ export function readSession(): StoredSession | null {
 /** Persist a session: api sessions keep the token in memory only (never
  *  localStorage); demo sessions live in sessionStorage. A remember-me api
  *  session stores a marker + profile in localStorage — the token itself is
- *  re-minted from the httpOnly refresh cookie. */
+ *  re-minted from the httpOnly refresh cookie.
+ *
+ *  Cross-tab / new-window survival:
+ *    · `remember=true`  → localStorage marker + profile; survives new tabs
+ *      (token refreshed from httpOnly cookie on first use).
+ *    · `remember=false` → no durable marker; new tab has no session, user
+ *      must sign in again.
+ *    · Demo sessions always live in sessionStorage (or localStorage if
+ *      remember=true) — they are per-tab/per-device and cannot access
+ *      official server documents.
+ */
 export function writeSession(payload: LoginPayload & { source?: SessionSource }, remember: boolean): void {
   const stored: StoredSession = { ...payload, source: payload.source === 'api' ? 'api' : 'demo' };
   currentSession = stored;
@@ -415,13 +455,32 @@ async function getCached(path: string, init: RequestInit): Promise<Response> {
  * via the httpOnly refresh cookie and throws `ApiError` carrying the
  * server's safe message on failure.
  *
+ * Throws `SessionRequiredError` when there is no usable API session — the
+ * page layer turns this into a toast and a redirect to /login:
+ *   · 'missing' — no session at all ("Please sign in to continue.").
+ *   · 'demo' — demo session only ("… Sign in with your real work account
+ *     to open official documents.").
+ *
  * GET requests are de-duplicated and short-lived cached; mutations
  * invalidate the cache.
  */
 export async function apiRequest(path: string, init: RequestInit = {}): Promise<Response> {
   const session = readSession();
-  if (!session || session.source !== 'api') {
-    throw new ApiError(401, 'Sign in with your work account to open official documents.');
+  if (!session) {
+    /* No session in this tab/storage at all — drop any stale state so the
+       next boot starts clean. The page layer turns this into a toast and a
+       redirect to /login. */
+    clearSession();
+    throw new SessionRequiredError('missing', 'Please sign in to continue.');
+  }
+  if (session.source !== 'api') {
+    /* Demo sessions keep the local register, but official server documents
+       (payslip PDFs, etc.) are behind the real HRM API — a real work
+       account is required. */
+    throw new SessionRequiredError(
+      'demo',
+      'You are using a demo account. Sign in with your real work account to open official documents.',
+    );
   }
 
   const attempt = async (token: string): Promise<Response> => {

@@ -81,6 +81,7 @@ function DashboardBody() {
   const navigate = useNavigate();
   const [range, setRange] = useState<RangeKey>('month');
   const myId = user?.employeeId ?? '';
+  const self = user?.portal === 'employee';
 
   /* -------- scoping -------- */
   const onRoll = useMemo(

@@ -158,8 +158,8 @@ export function deriveDesignations(employees: Employee[], departments: Departmen
       id: `DSG-${seen.size + 1}`,
       title: e.designation,
       deptId: deptId.get(e.dept) || '',
-      min: '',
-      max: '',
+      level: '',
+      isActive: true,
     });
   }
   return Array.from(seen.values());
@@ -171,7 +171,7 @@ export function mapDepartment(d: Raw): Department {
     id: String(d._id || d.id || d.departmentId || ''),
     name: d.name || '',
     head: d.headUserId || d.head || null,
-    budget: d.budget || '',
+    code: d.code || '',
     active: d.isActive !== false,
   };
 }
@@ -182,8 +182,8 @@ export function mapDesignation(d: Raw): Designation {
     id: String(d._id || d.id || ''),
     title: d.name || d.title || '',
     deptId: String(d.departmentId || d.department || ''),
-    min: d.min || '',
-    max: d.max || '',
+    level: d.level || '',
+    isActive: d.isActive !== false,
   };
 }
 

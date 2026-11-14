@@ -3,10 +3,12 @@
 
    Fetches /api/attendance/me and formats activeSeconds / pausedSeconds.
    Refreshes every 30 seconds so the number stays current while the
-   tab is active.
+   tab is active. Uses stable auth state to avoid re-render loops.
    ============================================================ */
+
 import { useEffect, useState } from 'react';
 import { Icon } from '@/components/ui/Icon';
+import { useStableAuthState } from '@/store/useStableAuthState';
 import { getMe } from '@/api/attendance';
 import { useAuth } from '@/context/AuthContext';
 
@@ -19,7 +21,8 @@ function formatSeconds(totalSeconds: number): string {
 export { formatSeconds };
 
 export function ActiveTimer() {
-  const { user } = useAuth();
+  const { user, checkedInToday, hasOpenSession } = useStableAuthState();
+  const { activity } = useAuth();
   const [active, setActive] = useState(0);
   const [paused, setPaused] = useState(0);
   const [status, setStatus] = useState<string>('');
@@ -56,8 +59,7 @@ export function ActiveTimer() {
 
   return (
     <span className="chip" title={`Active: ${formatSeconds(active)} · Paused: ${formatSeconds(paused)} · Status: ${status}`}>
-      <Icon name="clock" size={12} style={{ marginRight: 6 }} />
-      Active {formatSeconds(active)}
+      <Icon name="clock" size={12} style={{ marginRight: 6 }} /> Active {formatSeconds(active)}
       {paused > 0 ? ` · paused ${formatSeconds(paused)}` : ''}
     </span>
   );

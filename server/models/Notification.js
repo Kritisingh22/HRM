@@ -21,4 +21,13 @@ notificationSchema.index({ user: 1, read: 1 });
 notificationSchema.index({ user: 1, createdAt: -1 });
 notificationSchema.index({ relatedEntityType: 1, relatedEntityId: 1 });
 
+/* TTL: auto-remove read notifications older than 90 days. */
+notificationSchema.index(
+  { readAt: 1 },
+  {
+    expireAfterSeconds: 90 * 24 * 60 * 60,
+    partialFilterExpression: { read: true, readAt: { $exists: true, $ne: null } },
+  }
+);
+
 module.exports = mongoose.model('Notification', notificationSchema);

@@ -14,8 +14,37 @@ const catchAsync = require("../utils/catchAsync");
 const { logAudit } = require("../utils/audit");
 const { userHasPermission } = require("../utils/permissions");
 const { teamEmployeeIds } = require("../utils/teamScope");
+const {
+  emitToEmployee,
+  emitToRole,
+  emitToTeam,
+  emitToUser,
+} = require("../utils/socketHandler");
 
 const SEES_ALL = ["ADMIN", "SUPER_ADMIN"];
+
+// Default leave entitlement by type (days per year)
+function entitlement() {
+  return {
+    "Casual Leave": 12,
+    "Sick Leave": 10,
+    "Earned Leave": 15,
+    "Unpaid Leave": 0,
+    "Paid Leave": 15,
+  };
+}
+
+/** Map uppercase User role (e.g. 'EMPLOYEE') to Leave applicantRole TitleCase (e.g. 'Employee'). */
+function mapRoleToApplicantRole(role) {
+  const roleMap = {
+    SUPER_ADMIN: "Super Admin",
+    ADMIN: "Admin",
+    HR: "HR",
+    MANAGER: "Manager",
+    EMPLOYEE: "Employee",
+  };
+  return roleMap[role] || "Employee";
+}
 
 // role sets for quick checks
 const HR_ROLES = ["HR", "ADMIN", "SUPER_ADMIN"];
@@ -249,7 +278,7 @@ exports.create = catchAsync(async (req, res) => {
   }
 
   // Determine applicant role and user ID from the authenticated user
-  const applicantRole = req.user.role;
+  const applicantRole = mapRoleToApplicantRole(req.user.role);
   const applicantUserId = req.user._id;
 
   const leave = await Leave.create({
@@ -436,6 +465,28 @@ exports.update = catchAsync(async (req, res) => {
     await applyDecision(null);
   }
 
+  // ---- Cross-Module: Leave → Attendance Calendar Sync ----
+  // When leave is approved, create attendance records for the leave date range
+  // so HR/Manager dashboards show the employee as on leave.
+  if (action === "Approved") {
+    try {
+      await syncLeaveToAttendance(leave);
+    } catch (e) {
+      // Attendance sync failure must not roll back the leave approval.
+      console.error("[leave.update] Leave→Attendance sync failed:", e.message);
+    }
+  }
+
+  // When approved leave is cancelled, remove the attendance records created for it.
+  if (action === "Cancelled" && leave.status === "Approved" && leave.balanceDeducted && leave.balanceRestored) {
+    try {
+      await removeLeaveFromAttendance(leave);
+    } catch (e) {
+      console.error("[leave.update] Leave→Attendance removal failed:", e.message);
+    }
+  }
+  // ---- End Cross-Module ----
+
   // Notify the employee of the decision — only after the DB write succeeds.
   await notifyEmployeeOfDecision(leave, action);
 
@@ -496,6 +547,43 @@ exports.update = catchAsync(async (req, res) => {
       description: `Cancelled leave for ${(leave.employee && leave.employee.employeeId) || leave.employee}`,
     });
   }
+
+  // ---- Real-Time: Emit leave decision event ----
+  try {
+    const employee = leave.employee && leave.employee.employeeId ? leave.employee.employeeId : String(leave.employee);
+    emitToEmployee(String(leave.employee), 'leave.decision', {
+      leaveId: String(leave._id),
+      employeeId: employee,
+      action,
+      type: leave.type,
+      from: leave.from,
+      to: leave.to,
+      days: leave.days,
+      decidedBy: String(req.user._id),
+      decidedAt: leave.decidedAt,
+    });
+    emitToRole('HR', 'leave.decision', {
+      leaveId: String(leave._id),
+      employeeId: employee,
+      action,
+      type: leave.type,
+      from: leave.from,
+      to: leave.to,
+      days: leave.days,
+    });
+    emitToRole('MANAGER', 'leave.decision', {
+      leaveId: String(leave._id),
+      employeeId: employee,
+      action,
+      type: leave.type,
+      from: leave.from,
+      to: leave.to,
+      days: leave.days,
+    });
+  } catch (e) {
+    console.error('[leave.update] Socket emit failed:', e.message);
+  }
+
   res.json({ leave });
 });
 
@@ -754,6 +842,88 @@ exports.balance = catchAsync(async (req, res) => {
 
   res.json({ balance: result });
 });
+
+/* ---- Cross-Module: Leave → Attendance Calendar Sync ----
+   When leave is approved, create attendance records for each day of the leave
+   date range with status 'leave'. This makes the employee appear as on leave
+   in HR/Manager attendance dashboards.
+   When cancelled, removes those attendance records.
+*/
+
+async function syncLeaveToAttendance(leave) {
+  const Attendance = require('../models/Attendance');
+  const employee = await Employee.findById(leave.employee).lean();
+  if (!employee) return;
+
+  const from = new Date(leave.from);
+  const to = new Date(leave.to);
+  const leaveType = leave.type || 'Unpaid Leave';
+
+  for (let d = new Date(from); d <= to; d.setDate(d.getDate() + 1)) {
+    const dateStr = d.toISOString().split('T')[0];
+
+    // Skip if attendance record already exists for this employee/date
+    const existing = await Attendance.findOne({ employee: employee._id, date: dateStr }).lean();
+    if (existing) continue;
+
+    // Determine day of week
+    const dayOfWeek = d.getDay();
+    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+
+    // Create attendance record for leave day
+    await Attendance.create({
+      employee: employee._id,
+      user: leave.applicantUserId,
+      date: dateStr,
+      employeeName: employee.fullName || null,
+      department: employee.department || null,
+      designation: employee.designation || null,
+      status: 'leave',
+      checkIn: null,
+      checkOut: null,
+      workingHoursMinutes: 0,
+      activeSeconds: 0,
+      pausedSeconds: 0,
+      locationStatus: 'unknown',
+      location: { verificationStatus: 'skipped' },
+      geofence: { inRange: true, distanceMeters: 0 },
+      sessions: [],
+      consentGiven: false,
+      note: `Leave: ${leaveType} (${leave.from.toISOString().split('T')[0]} to ${leave.to.toISOString().split('T')[0]})`,
+      leaveType: leaveType,
+      isWeekend: isWeekend,
+    });
+  }
+}
+
+async function removeLeaveFromAttendance(leave) {
+  const Attendance = require('../models/Attendance');
+  const employee = await Employee.findById(leave.employee).lean();
+  if (!employee) return;
+
+  const from = new Date(leave.from);
+  const to = new Date(leave.to);
+
+  for (let d = new Date(from); d <= to; d.setDate(d.getDate() + 1)) {
+    const dateStr = d.toISOString().split('T')[0];
+    await Attendance.deleteOne({ employee: employee._id, date: dateStr, status: 'leave' });
+  }
+}
+
+/* ---- End Cross-Module -*/
+
+/** Return leave entitlement by type for an employee.
+   * Default entitlement: Casual=12, Sick=10, Earned=15, Paid=15, Unpaid=0.
+   */
+function entitlementForEmployee(employee) {
+  return {
+    "Casual Leave": 12,
+    "Sick Leave": 10,
+    "Earned Leave": 15,
+    "Unpaid Leave": 0,
+    "Paid Leave": 15,
+  };
+}
 
 /* GET /api/leaves/management — leave management records for HR/Admin/Super Admin.
  * Returns employee and HR leave records with full details including approval

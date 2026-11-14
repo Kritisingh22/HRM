@@ -13,8 +13,8 @@ import { useMemo, useState } from 'react';
 import { Icon } from '@/components/ui/Icon';
 import { Tabs } from '@/components/ui/primitives';
 import { useApp } from '@/store/AppContext';
-import { useAuth } from '@/context/AuthContext';
 import { isApiSession } from '@/api/client';
+import { useStableAuthState } from '@/store/useStableAuthState';
 import { CheckInCard } from '@/components/attendance/CheckInCard';
 import { ActiveTimer } from '@/components/attendance/ActiveTimer';
 import { AttendanceHistory } from '@/components/attendance/AttendanceHistory';
@@ -24,7 +24,7 @@ import { AttendancePageDemo } from './AttendancePageDemo';
 
 export function AttendancePage() {
   const { data } = useApp();
-  const { user, canManage, checkedInToday, hasOpenSession } = useAuth();
+  const { user, canManage, checkedInToday, hasOpenSession } = useStableAuthState();
   const api = isApiSession();
   const myId = user?.employeeId ?? '';
   const isSelf = user?.portal === 'employee';

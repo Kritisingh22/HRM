@@ -121,7 +121,7 @@ export interface Department {
   id: string;
   name: string;
   head: string | null;
-  budget: string;
+  code: string;
   active: boolean;
 }
 
@@ -129,8 +129,8 @@ export interface Designation {
   id: string;
   title: string;
   deptId: string;
-  min: string;
-  max: string;
+  level: string;
+  isActive: boolean;
 }
 
 /* ---------------- Recruitment ---------------- */

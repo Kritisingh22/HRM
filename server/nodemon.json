@@ -1,0 +1,33 @@
+{
+  /* nodemon config for the Cyethack HRM backend.
+   *
+   * Watches server source files and restarts on changes.
+   * Ignores generated/runtime directories so a rebuild is not
+   * triggered by uploads, logs, or the served frontend build. */
+  "verbose": false,
+  "watch": [
+    "server.js",
+    "app.js",
+    "config/**/*.js",
+    "controllers/**/*.js",
+    "middleware/**/*.js",
+    "models/**/*.js",
+    "routes/**/*.js",
+    "services/**/*.js",
+    "utils/**/*.js",
+    "scheduler.js"
+  ],
+  "ignore": [
+    "node_modules/**",
+    "public/**",
+    "uploads/**",
+    "*.log",
+    "tests/**",
+    "scripts/**",
+    "seeds/**",
+    ".env"
+  ],
+  "ext": "js",
+  "delay": "500ms",
+  "exec": "node server.js"
+}

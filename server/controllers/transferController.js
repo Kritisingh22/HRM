@@ -6,7 +6,6 @@
 const Transfer = require('../models/Transfer');
 const Employee = require('../models/Employee');
 const User = require('../models/User');
-const Notification = require('../models/Notification');
 const ApiError = require('../utils/ApiError');
 const catchAsync = require('../utils/catchAsync');
 const { logAudit } = require('../utils/audit');
@@ -15,6 +14,7 @@ const { userHasPermission } = require('../utils/permissions');
 // is scoped to their OWN assigned employees (+ any live access-request grant),
 // never every employee just because their role is HR — that was the bug here.
 const { SEES_ALL, teamEmployeeIds } = require('../utils/teamScope');
+const { implementTransfer } = require('../services/transferService');
 
 async function myEmployee(user) {
   return Employee.findOne({
@@ -167,11 +167,19 @@ exports.update = catchAsync(async (req, res) => {
     'Approved': ['Implemented', 'Rejected'],
     'Rejected': ['Pending'], // Can reopen
   };
-  
+
   if (action) {
     const allowed = validTransitions[transfer.status] || [];
     if (!allowed.includes(action)) {
       throw ApiError.badRequest(`Cannot transition from ${transfer.status} to ${action}.`);
+    }
+    
+    if (action === 'Implemented') {
+      /* Use the service for atomic implementation: update Employee+User in a
+         transaction, revoke tokens if role changes, notify stakeholders. */
+      const result = await implementTransfer(transfer._id, req.user, req);
+      res.json({ transfer: result.transfer, tokenRevoked: result.tokenRevoked });
+      return;
     }
     
     transfer.status = action;
@@ -180,11 +188,6 @@ exports.update = catchAsync(async (req, res) => {
       transfer.approvedBy = req.user._id;
       transfer.approvedAt = new Date();
       if (req.body.approvalNote !== undefined) transfer.approvalNote = req.body.approvalNote;
-    } else if (action === 'Implemented') {
-      transfer.implementedBy = req.user._id;
-      transfer.implementedAt = new Date();
-      // Apply the changes to the Employee record
-      await applyTransferToEmployee(transfer);
     } else if (action === 'Rejected') {
       transfer.approvedBy = req.user._id;
       transfer.approvedAt = new Date();
@@ -200,7 +203,7 @@ exports.update = catchAsync(async (req, res) => {
   
   await transfer.save();
   
-  // Notify stakeholders
+  // Notify stakeholders (existing inline notification for non-implement actions)
   await notifyTransferStakeholders(transfer, action || 'updated');
   
   logAudit(req, {

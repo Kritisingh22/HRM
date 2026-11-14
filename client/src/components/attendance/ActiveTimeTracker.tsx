@@ -17,7 +17,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
 import { quickLocation } from '@/lib/geo';
 import type { AttendanceRecord } from '@/types';
-import { attendance } from '@/api/attendance';
+import * as attendance from '@/api/attendance';
 
 export function ActiveTimeTracker() {
   const { data, dispatch } = useApp();
@@ -31,7 +31,7 @@ export function ActiveTimeTracker() {
   const [pausedAt, setPausedAt] = useState<Date | null>(null);
 
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const timeoutRef = useRef<number | null>(null); // for 429 back-off
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); // for 429 back-off
 
   // --- determine pause reason from browser events ---
   useEffect(() => {
@@ -82,7 +82,9 @@ export function ActiveTimeTracker() {
     };
 
     const resetIdleTimer = () => {
-      clearTimeout(timeoutRef.current);
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
       // if currently paused due to idle, keep paused; just reset the countdown
       timeoutRef.current = setTimeout(() => {
         // after 5 min of no input, we'd be idle — but we only back off on 429
@@ -107,7 +109,10 @@ export function ActiveTimeTracker() {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('scroll', onScroll);
-      clearTimeout(timeoutRef.current);
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
     };
   }, [state, reason, pausedAt, sendHeartbeat]);
 

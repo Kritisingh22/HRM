@@ -11,13 +11,20 @@
  * API routes that need the database simply return errors until MongoDB
  * connects (and mongoose retries automatically), so the portal shell and
  * /health stay up even when the database is slow or temporarily unreachable.
+ *
+ * Production safety: refuse to start with placeholder secrets
+ * (change-me-*, change-this-*, or < 16 chars).
  */
 const app = require('./app');
 const cfg = require('./config/env');
-const { connectDB, mongoose } = require('./config/database');
+const { connectDB, mongoose, assertProductionSafe } = require('./config/database');
 const { startScheduler, stopScheduler } = require('./scheduler');
+const { initSocketIO } = require('./utils/socketHandler');
 
 const start = async () => {
+  // ---- Production safety check: refuse to start with unsafe secrets -----
+  assertProductionSafe();
+
   // Bind explicitly to 0.0.0.0 so the platform-assigned port (Render sets
   // process.env.PORT dynamically) is reachable from outside the container.
   // The port always comes from process.env.PORT via cfg — never hardcoded.
@@ -25,6 +32,11 @@ const start = async () => {
     const { port } = server.address();
     // eslint-disable-next-line no-console
     console.log('Cyethack HR API + portal listening on 0.0.0.0:' + port + '  (' + cfg.NODE_ENV + ')');
+
+    // Initialize Socket.IO on the same HTTP server.
+    initSocketIO(server);
+    // eslint-disable-next-line no-console
+    console.log('Socket.IO initialized on port ' + port);
   });
 
   server.on('error', (err) => {

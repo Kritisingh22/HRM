@@ -13,6 +13,7 @@ import { useAuth } from '@/context/AuthContext';
 import { PATH_PAGE, pageLabel } from '@/data/nav';
 import { AttendanceGate } from '@/components/attendance/AttendanceGate';
 import { ActiveTimeTracker } from '@/components/attendance/ActiveTimeTracker';
+import { useSocket } from '@/lib/socketClient';
 
 const RAIL_KEY = 'cyethackHRM.rail';
 
@@ -142,11 +143,13 @@ export function AppShell() {
   const [rail, setRail] = useState(initialRail);
   const [drawer, setDrawer] = useState(false);
 
-  /* Ensure attendance state is loaded once the shell mounts. */
-  useEffect(() => {
-    if (user) void fetchAttendanceState();
-  }, [user, fetchAttendanceState]);
+  /* Initialize Socket.IO for real-time dashboard synchronization. */
+  useSocket();
 
+  /* Attendance state is fetched by AuthContext on session restore.
+     This effect is intentionally NOT here — AuthContext owns it to
+     prevent a fetch loop (setUser → new user ref → effect re-run → go()
+     → bootstrap → setUser again). */
   /* The topbar title follows the portal: a manager reads "My Team",
      an employee "My Attendance" — same table as the sidebar. */
   const pageName = PATH_PAGE[location.pathname] ?? 'Dashboard';
@@ -186,8 +189,11 @@ export function AppShell() {
       {drawer ? <div className="mobile-scrim" onClick={() => setDrawer(false)} aria-hidden="true" /> : null}
       <FloatingActions />
 
-      {/* Mandatory check-in gate — blocks the portal until checked in today. */}
-      {user && status === 'authenticated' && !checkedInToday ? (
+      {/* Check-in gate — shown once per session, not blocking. User may close
+         it (×), press Esc, or click backdrop. After dismissal it will not
+         appear again until the next login. The portal is fully usable
+         without checking in. */}
+      {user && status === 'authenticated' ? (
         <AttendanceGate
           checkedInToday={checkedInToday}
           hasOpenSession={hasOpenSession}

@@ -33,6 +33,12 @@ const { logAudit } = require('../utils/audit');
 const { SEES_ALL, teamEmployeeIds } = require('../utils/teamScope');
 const { checkGeofence } = require('../utils/geofence');
 const { formatTime, formatDate } = require('../utils/attendanceTime');
+const {
+  emitToEmployee,
+  emitToRole,
+  emitToTeam,
+  emitToUser,
+} = require('../utils/socketHandler');
 
 /* ---- Company time zone config --------------------------------------- */
 const cfg = require('../config/env');
@@ -324,6 +330,34 @@ exports.checkIn = catchAsync(async (req, res) => {
     description: `Checked in at ${time} on ${date} (${geofence.inRange ? 'in-range' : 'out-of-range'})`,
   });
 
+  // ---- Real-Time: Emit check-in event to dashboards ----
+  try {
+    emitToEmployee(String(me._id), 'attendance.check_in', {
+      employeeId: me.employeeId,
+      employeeName: me.fullName,
+      date,
+      time,
+      status,
+      geofence: { inRange: geofence.inRange, distanceMeters: geofence.distanceMeters },
+    });
+    emitToRole('HR', 'attendance.check_in', {
+      employeeId: me.employeeId,
+      employeeName: me.fullName,
+      date,
+      time,
+      status,
+    });
+    emitToRole('MANAGER', 'attendance.check_in', {
+      employeeId: me.employeeId,
+      employeeName: me.fullName,
+      date,
+      time,
+      status,
+    });
+  } catch (e) {
+    console.error('[checkin] Socket emit failed:', e.message);
+  }
+
   const attendance = {
     _id: createdId,
     employee: me._id,
@@ -421,6 +455,22 @@ exports.heartbeat = catchAsync(async (req, res) => {
     details: { state, activeSeconds: totals.activeSeconds, pausedSeconds: totals.pausedSeconds },
   }).catch((e) => console.error('[heartbeat] AttendanceEvent.create failed:', e.message));
 
+  // ---- Real-Time: Emit heartbeat event for active time tracking ----
+  try {
+    emitToEmployee(String(me._id), 'attendance.heartbeat', {
+      employeeId: me.employeeId,
+      employeeName: me.fullName,
+      state,
+      reason: reason || (state === 'paused' ? 'idle' : 'resume'),
+      activeSeconds: totals.activeSeconds,
+      pausedSeconds: totals.pausedSeconds,
+      status: rec.status,
+      lastHeartbeatAt: now,
+    });
+  } catch (e) {
+    console.error('[heartbeat] Socket emit failed:', e.message);
+  }
+
   res.json({
     attendance: rec,
     activeSeconds: totals.activeSeconds,
@@ -482,6 +532,137 @@ exports.pause = catchAsync(async (req, res) => {
     targetId: String(rec._id),
     description: `Paused at ${serverTimeStr()} (${reason || 'idle'})`,
   });
+
+  // ---- Real-Time: Emit pause event ----
+  try {
+    emitToEmployee(String(me._id), 'attendance.pause', {
+      employeeId: me.employeeId,
+      employeeName: me.fullName,
+      reason: reason || 'idle',
+      activeSeconds: totals.activeSeconds,
+      pausedSeconds: totals.pausedSeconds,
+      status: rec.status,
+      pausedAt: now,
+    });
+  } catch (e) {
+    console.error('[pause] Socket emit failed:', e.message);
+  }
+
+  res.json({ attendance: rec, activeSeconds: totals.activeSeconds, pausedSeconds: totals.pausedSeconds });
+});
+
+/* ---- POST /api/attendance/break/start ---- */
+exports.breakStart = catchAsync(async (req, res) => {
+  const me = await myEmployee(req.user);
+  if (!me) throw ApiError.badRequest('No employee record is linked to your account.');
+
+  const date = serverDateStr();
+  const now = serverNow();
+  const { reason } = req.body || {};
+
+  const rec = await Attendance.findOne({ employee: me._id, date });
+  if (!rec || !rec.checkIn) {
+    throw ApiError.badRequest('Check in first before starting a break.');
+  }
+
+  const sessions = rec.sessions || [];
+  const last = sessions[sessions.length - 1];
+  if (last && last.end) {
+    // start a new paused session
+    sessions.push({ start: now, end: null, state: 'paused', reason: reason || 'break' });
+  } else if (last && last.state === 'paused' && (last.reason === 'break' || !last.reason)) {
+    // already paused, extend or keep as is
+    // do nothing - last session remains paused
+  } else {
+    sessions.push({ start: now, end: null, state: 'paused', reason: reason || 'break' });
+  }
+
+  const totals = computeTotals(sessions);
+  rec.sessions = sessions;
+  rec.lastHeartbeatAt = now;
+  rec.pausedSeconds = totals.pausedSeconds;
+  rec.activeSeconds = totals.activeSeconds;
+  rec.status = computeStatus({
+    activeSeconds: totals.activeSeconds,
+    geofence: rec.geofence,
+    settings: rec.settings,
+    checkIn: rec.checkIn,
+  });
+  await rec.save();
+
+  // emit real-time update
+  try {
+    const io = getIO();
+    if (io) {
+      io.to(`employee_${me._id}`).emit('attendance:break:start', {
+        attendanceId: rec._id,
+        breakStart: now,
+        reason: reason || 'break',
+        activeSeconds: totals.activeSeconds,
+        pausedSeconds: totals.pausedSeconds,
+        status: rec.status,
+      });
+    }
+  } catch (e) {
+    console.error('[breakStart] Socket emit failed:', e.message);
+  }
+
+  res.json({ attendance: rec, activeSeconds: totals.activeSeconds, pausedSeconds: totals.pausedSeconds });
+});
+
+/* ---- POST /api/attendance/break/end ---- */
+exports.breakEnd = catchAsync(async (req, res) => {
+  const me = await myEmployee(req.user);
+  if (!me) throw ApiError.badRequest('No employee record is linked to your account.');
+
+  const date = serverDateStr();
+  const now = serverNow();
+
+  const rec = await Attendance.findOne({ employee: me._id, date });
+  if (!rec || !rec.checkIn) {
+    throw ApiError.badRequest('Check in first before ending break.');
+  }
+
+  const sessions = rec.sessions || [];
+  // Find the last paused session with reason 'break'
+  const breakIdx = sessions.findIndex(
+    (s) => s.state === 'paused' && s.reason === 'break'
+  );
+  if (breakIdx < 0) {
+    throw ApiError.badRequest('No active break session found.');
+  }
+
+  // Mark the break session as ended
+  sessions[breakIdx].end = now;
+
+  const totals = computeTotals(sessions);
+  rec.sessions = sessions;
+  rec.lastHeartbeatAt = now;
+  rec.pausedSeconds = totals.pausedSeconds;
+  rec.activeSeconds = totals.activeSeconds;
+  rec.status = computeStatus({
+    activeSeconds: totals.activeSeconds,
+    geofence: rec.geofence,
+    settings: rec.settings,
+    checkIn: rec.checkIn,
+  });
+  await rec.save();
+
+  // emit real-time update
+  try {
+    const io = getIO();
+    if (io) {
+      io.to(`employee_${me._id}`).emit('attendance:break:end', {
+        attendanceId: rec._id,
+        breakEnd: now,
+        activeSeconds: totals.activeSeconds,
+        pausedSeconds: totals.pausedSeconds,
+        status: rec.status,
+      });
+    }
+  } catch (e) {
+    console.error('[breakEnd] Socket emit failed:', e.message);
+  }
 
   res.json({ attendance: rec, activeSeconds: totals.activeSeconds, pausedSeconds: totals.pausedSeconds });
 });
@@ -581,6 +762,36 @@ exports.checkOut = catchAsync(async (req, res) => {
     targetId: String(rec._id),
     description: `Checked out at ${time} on ${date} — active ${Math.floor(totals.activeSeconds / 3600)}h ${Math.floor((totals.activeSeconds % 3600) / 60)}m`,
   });
+
+  // ---- Real-Time: Emit check-out event to dashboards ----
+  try {
+    emitToEmployee(String(me._id), 'attendance.check_out', {
+      employeeId: me.employeeId,
+      employeeName: me.fullName,
+      date,
+      time,
+      status,
+      activeSeconds: totals.activeSeconds,
+      pausedSeconds: totals.pausedSeconds,
+      workingHoursMinutes,
+    });
+    emitToRole('HR', 'attendance.check_out', {
+      employeeId: me.employeeId,
+      employeeName: me.fullName,
+      date,
+      time,
+      status,
+    });
+    emitToRole('MANAGER', 'attendance.check_out', {
+      employeeId: me.employeeId,
+      employeeName: me.fullName,
+      date,
+      time,
+      status,
+    });
+  } catch (e) {
+    console.error('[checkout] Socket emit failed:', e.message);
+  }
 
   res.json({
     attendance: rec,

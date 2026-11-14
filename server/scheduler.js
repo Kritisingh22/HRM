@@ -7,9 +7,13 @@ const Employee = require('./models/Employee');
 const User = require('./models/User');
 const Notification = require('./models/Notification');
 const AccessRequest = require('./models/AccessRequest');
+const Offboarding = require('./models/Offboarding');
+const Transfer = require('./models/Transfer');
+const TransferTicket = require('./models/TransferTicket');
 const { computeWeeklySummariesForAllEmployees } = require('./utils/weeklyAttendance');
 const { sendDailyReportReminder } = require('./services/emailService');
 const { logAudit } = require('./utils/audit');
+const { completeOffboarding } = require('./services/offboardingService');
 
 let reminderJob = null;
 let overdueJob = null;
@@ -18,6 +22,8 @@ let weeklyAttendanceJob = null;
 let taskReminderJob = null;
 let taskDueTomorrowJob = null;
 let taskOverdueJob = null;
+let offboardingCompletionJob = null;
+let transferCompletionJob = null;
 
 function startOfDay(d) {
   const dt = new Date(d);
@@ -126,6 +132,30 @@ function startScheduler() {
   });
   console.log('[Scheduler] Task overdue reminders job scheduled: 0 10 * * * (Asia/Kolkata)');
 
+  // Offboarding completion - runs every 15 minutes. Checks for offboardings
+  // whose lastWorkingDate has passed and status is not Completed, then completes
+  // them (reassigns tasks, deactivates user, revokes tokens).
+  offboardingCompletionJob = cron.schedule('*/15 * * * *', async () => {
+    console.log('[Scheduler] Running offboarding completion check...');
+    await completeDueOffboardings();
+  }, {
+    scheduled: true,
+    timezone: 'Asia/Kolkata',
+  });
+  console.log('[Scheduler] Offboarding completion job scheduled: */15 * * * * (Asia/Kolkata)');
+
+  // Transfer completion - runs every 30 minutes. Checks for transfers that are
+  // Approved but not yet Implemented, and if all their transfer tickets are
+  // closed, marks them complete.
+  transferCompletionJob = cron.schedule('*/30 * * * *', async () => {
+    console.log('[Scheduler] Running transfer completion check...');
+    await completeReadyTransfers();
+  }, {
+    scheduled: true,
+    timezone: 'Asia/Kolkata',
+  });
+  console.log('[Scheduler] Transfer completion job scheduled: */30 * * * * (Asia/Kolkata)');
+
   console.log('[Scheduler] All jobs started');
 }
 
@@ -161,6 +191,14 @@ function stopScheduler() {
   if (taskOverdueJob) {
     taskOverdueJob.stop();
     taskOverdueJob = null;
+  }
+  if (offboardingCompletionJob) {
+    offboardingCompletionJob.stop();
+    offboardingCompletionJob = null;
+  }
+  if (transferCompletionJob) {
+    transferCompletionJob.stop();
+    transferCompletionJob = null;
   }
   console.log('[Scheduler] All jobs stopped');
 }
@@ -641,6 +679,72 @@ async function sendTaskOverdueReminders() {
   }
 }
 
+/**
+ * Complete offboardings whose lastWorkingDate has passed and are not yet Completed.
+ * Idempotent: completeOffboarding checks status and skips if already Completed.
+ */
+async function completeDueOffboardings() {
+  try {
+    const now = new Date();
+    const due = await Offboarding.find({
+      status: { $nin: ['Completed', 'Cancelled'] },
+      lastWorkingDate: { $lt: now },
+    }).limit(50);
+
+    console.log(`[Scheduler] Found ${due.length} offboarding(s) due for completion.`);
+
+    for (const offboarding of due) {
+      try {
+        /* We don't have a real actor for auto-completion; use a system actor. */
+        const systemActor = { _id: null, role: 'SYSTEM' };
+        const fakeReq = { user: systemActor, ip: 'scheduler', headers: {} };
+        await completeOffboarding(offboarding._id, systemActor, fakeReq);
+        console.log(`[Scheduler] Auto-completed offboarding ${offboarding._id}.`);
+      } catch (err) {
+        console.error(`[Scheduler] Failed to auto-complete offboarding ${offboarding._id}:`, err.message);
+      }
+    }
+  } catch (err) {
+    console.error('[Scheduler] completeDueOffboardings failed:', err.message);
+  }
+}
+
+/**
+ * Mark Approved transfers as Implemented when all their transfer tickets are closed.
+ * Idempotent: implementTransfer checks status and skips if already Implemented.
+ */
+async function completeReadyTransfers() {
+  try {
+    const transfers = await Transfer.find({
+      status: 'Approved',
+      implementedAt: null,
+    }).limit(50);
+
+    console.log(`[Scheduler] Found ${transfers.length} Approved transfer(s) awaiting implementation.`);
+
+    for (const transfer of transfers) {
+      try {
+        /* Check if all transfer tickets for this employee are closed. */
+        const tickets = await TransferTicket.find({ employee: transfer.employee });
+        if (tickets.length === 0) continue;
+
+        const allClosed = tickets.every((t) => t.status === 'Approved' || t.status === 'Completed' || t.status === 'Rejected' || t.status === 'Cancelled');
+        if (!allClosed) continue;
+
+        /* Use a system actor. */
+        const systemActor = { _id: null, role: 'SYSTEM' };
+        const fakeReq = { user: systemActor, ip: 'scheduler', headers: {} };
+        await implementTransfer(transfer._id, systemActor, fakeReq);
+        console.log(`[Scheduler] Auto-implemented transfer ${transfer._id}.`);
+      } catch (err) {
+        console.error(`[Scheduler] Failed to auto-implement transfer ${transfer._id}:`, err.message);
+      }
+    }
+  } catch (err) {
+    console.error('[Scheduler] completeReadyTransfers failed:', err.message);
+  }
+}
+
 module.exports = {
   startScheduler,
   stopScheduler,
@@ -652,4 +756,6 @@ module.exports = {
   sendTaskDueTodayReminders,
   sendTaskDueTomorrowReminders,
   sendTaskOverdueReminders,
+  completeDueOffboardings,
+  completeReadyTransfers,
 };
