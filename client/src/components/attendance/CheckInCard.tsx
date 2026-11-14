@@ -14,11 +14,12 @@
    the check-in/check-out is visible immediately (and survives a
    refresh).
    ============================================================ */
+
 import { useState, useEffect, useCallback } from 'react';
 import { Icon } from '@/components/ui/Icon';
-import { isApiSession } from '@/api/client';
+import { Tabs } from '@/components/ui/primitives';
 import { useApp } from '@/store/AppContext';
-import { useAuth } from '@/context/AuthContext';
+import { useStableAuthState } from '@/store/useStableAuthState';
 import { useToast } from '@/context/ToastContext';
 import {
   checkIn as checkInApi,
@@ -41,13 +42,17 @@ import { durationText, overrideKey, parseClockMinutes, requestOn } from '@/lib/a
 import type { AttendanceRecord, AttendanceRow, GeoPoint } from '@/types';
 
 export function CheckInCard() {
-  const { data, dispatch, audit, logLocation } = useApp();
-  const { user, fetchAttendanceState } = useAuth();
+  const { data, dispatch, audit } = useApp();
+  const { user, fetchAttendanceState } = useStableAuthState();
   const { toast } = useToast();
   const [busy, setBusy] = useState<'in' | 'out' | null>(null);
   const [note, setNote] = useState('');
   const [locating, setLocating] = useState(false);
   const [todayRow, setTodayRow] = useState<AttendanceRow | null>(null);
+  const [liveTime, setLiveTime] = useState<string>(() => {
+    const now = new Date();
+    return now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  });
 
   const api = isApiSession();
   const empId = user?.employeeId ?? null;
@@ -103,6 +108,22 @@ export function CheckInCard() {
     prefetchLocation();
   }, []);
 
+  // Live clock — updates every second so the dashboard always shows
+  // the current time next to the attendance tracker.
+  useEffect(() => {
+    const tick = () => {
+      const now = new Date();
+      setLiveTime(now.toLocaleTimeString('en-IN', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      }));
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, []);
+
   const handleCheckIn = useCallback(async () => {
     if (busy || onLeave) return;
     setBusy('in');
@@ -128,11 +149,7 @@ export function CheckInCard() {
       /* ---- demo path: local override only --------------------------- */
       const time = clockNow();
       const mins = parseClockMinutes(time);
-      const rec: AttendanceRecord = {
-        ...(record ?? {}),
-        status: record?.status ?? (wfh ? 'wfh' : 'present'),
-        checkIn: time,
-      };
+      const rec: AttendanceRecord = { ...(record ?? {}), status: record?.status ?? (wfh ? 'wfh' : 'present'), checkIn: time };
       if (mins !== null && mins > 570) rec.lateBy = `${mins - 570} min`;
       dispatch({ type: 'override', key, record: rec });
       if (point) {
@@ -178,7 +195,7 @@ export function CheckInCard() {
       setLocating(false);
       setBusy(null);
     }
-  }, [api, busy, onLeave, key, empId, user, today, browserTimezone, record, inRange, locationVerified, fetchAttendanceState]);
+  }, [api, busy, onLeave, key, empId, user, today, browserTimezone, record, inRange, locationVerified]);
 
   /* ---- check-out ---------------------------------------------------- */
   // Prefetch a location fix on mount so it's ready when the user clicks Check Out.
@@ -268,6 +285,9 @@ export function CheckInCard() {
           <h2>
             Today · {DAYS_LONG[parseISO(today).getDay()]}, {niceDate(today)}
           </h2>
+          <div className="sub" style={{ fontSize: 18, fontWeight: 600, color: 'var(--text)', marginTop: 4 }}>
+            {liveTime}
+          </div>
           <div className="sub">
             {api
               ? 'Check-in and check-out times are recorded by the HR server — no background tracking'
@@ -281,6 +301,7 @@ export function CheckInCard() {
           {wfh ? <span className="chip">Work From Home approved</span> : null}
           {worked ? <span className="chip">Worked {worked}</span> : null}
           {!onLeave && !checkedIn ? (
+
             <button className="btn btn-primary btn-sm" onClick={handleCheckIn} disabled={busy !== null} type="button">
               <Icon name="navigation" size={15} />
               {busy === 'in' ? (locating ? 'Locating…' : 'Checking in…') : 'Check in'}

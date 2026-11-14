@@ -233,7 +233,7 @@ export function AttendanceGate({
               border: '1px solid var(--red)',
               borderRadius: 8,
               fontSize: 13,
-              color: var(--red),
+              color: 'var(--red)',
             }}
           >
             <Icon name="alertCircle" size={16} style={{ marginRight: 8 }} />
@@ -242,26 +242,6 @@ export function AttendanceGate({
         )}
 
         <div style={{ marginTop: 20, display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <button
-            onClick={handleModalClose}
-            className="icon-btn"
-            aria-label="Close"
-            style={{
-              width: '40px',
-              height: '40px',
-              flexShrink: 0,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: 0,
-              fontSize: 18,
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-            }}
-          >
-            <Icon name="x" size={20} style={{ color: var(--muted) }} />
-          </button>
           <button
             className="btn btn-primary"
             onClick={doCheckIn}

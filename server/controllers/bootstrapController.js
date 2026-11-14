@@ -7,6 +7,7 @@ Identity and scope always come from req.user (set by authenticate), never
 from the client. */
 const Notification = require('../models/Notification');
 const dashboard = require('./dashboardController');
+const { safeUserJson } = require('../utils/user');
 const ApiError = require('../utils/ApiError');
 const catchAsync = require('../utils/catchAsync');
 const crypto = require('crypto');
@@ -33,7 +34,7 @@ exports.summary = catchAsync(async (req, res) => {
   }
 
   const body = {
-    user: { ...user.toSafeJSON(), permissions: allPerms, nav: navFor(user.role), portal: portalFor(user.role) },
+    user: { ...safeUserJson(user), permissions: allPerms, nav: navFor(user.role), portal: portalFor(user.role) },
     unreadCount,
     dashboard: dashboardPayload,
   };

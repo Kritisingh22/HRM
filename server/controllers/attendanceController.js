@@ -551,6 +551,122 @@ exports.pause = catchAsync(async (req, res) => {
   res.json({ attendance: rec, activeSeconds: totals.activeSeconds, pausedSeconds: totals.pausedSeconds });
 });
 
+/* ---- POST /api/attendance/break/start ---- */
+exports.breakStart = catchAsync(async (req, res) => {
+  const me = await myEmployee(req.user);
+  if (!me) throw ApiError.badRequest('No employee record is linked to your account.');
+
+  const date = serverDateStr();
+  const now = serverNow();
+  const { reason } = req.body || {};
+
+  const rec = await Attendance.findOne({ employee: me._id, date });
+  if (!rec || !rec.checkIn) {
+    throw ApiError.badRequest('Check in first before starting a break.');
+  }
+
+  const sessions = rec.sessions || [];
+  const last = sessions[sessions.length - 1];
+  if (last && last.end) {
+    // start a new paused session
+    sessions.push({ start: now, end: null, state: 'paused', reason: reason || 'break' });
+  } else if (last && last.state === 'paused' && (last.reason === 'break' || !last.reason)) {
+    // already paused, extend or keep as is
+    // do nothing - last session remains paused
+  } else {
+    sessions.push({ start: now, end: null, state: 'paused', reason: reason || 'break' });
+  }
+
+  const totals = computeTotals(sessions);
+  rec.sessions = sessions;
+  rec.lastHeartbeatAt = now;
+  rec.pausedSeconds = totals.pausedSeconds;
+  rec.activeSeconds = totals.activeSeconds;
+  rec.status = computeStatus({
+    activeSeconds: totals.activeSeconds,
+    geofence: rec.geofence,
+    settings: rec.settings,
+    checkIn: rec.checkIn,
+  });
+  await rec.save();
+
+  // emit real-time update
+  try {
+    const io = getIO();
+    if (io) {
+      io.to(`employee_${me._id}`).emit('attendance:break:start', {
+        attendanceId: rec._id,
+        breakStart: now,
+        reason: reason || 'break',
+        activeSeconds: totals.activeSeconds,
+        pausedSeconds: totals.pausedSeconds,
+        status: rec.status,
+      });
+    }
+  } catch (e) {
+    console.error('[breakStart] Socket emit failed:', e.message);
+  }
+
+  res.json({ attendance: rec, activeSeconds: totals.activeSeconds, pausedSeconds: totals.pausedSeconds });
+});
+
+/* ---- POST /api/attendance/break/end ---- */
+exports.breakEnd = catchAsync(async (req, res) => {
+  const me = await myEmployee(req.user);
+  if (!me) throw ApiError.badRequest('No employee record is linked to your account.');
+
+  const date = serverDateStr();
+  const now = serverNow();
+
+  const rec = await Attendance.findOne({ employee: me._id, date });
+  if (!rec || !rec.checkIn) {
+    throw ApiError.badRequest('Check in first before ending break.');
+  }
+
+  const sessions = rec.sessions || [];
+  // Find the last paused session with reason 'break'
+  const breakIdx = sessions.findIndex(
+    (s) => s.state === 'paused' && s.reason === 'break'
+  );
+  if (breakIdx < 0) {
+    throw ApiError.badRequest('No active break session found.');
+  }
+
+  // Mark the break session as ended
+  sessions[breakIdx].end = now;
+
+  const totals = computeTotals(sessions);
+  rec.sessions = sessions;
+  rec.lastHeartbeatAt = now;
+  rec.pausedSeconds = totals.pausedSeconds;
+  rec.activeSeconds = totals.activeSeconds;
+  rec.status = computeStatus({
+    activeSeconds: totals.activeSeconds,
+    geofence: rec.geofence,
+    settings: rec.settings,
+    checkIn: rec.checkIn,
+  });
+  await rec.save();
+
+  // emit real-time update
+  try {
+    const io = getIO();
+    if (io) {
+      io.to(`employee_${me._id}`).emit('attendance:break:end', {
+        attendanceId: rec._id,
+        breakEnd: now,
+        activeSeconds: totals.activeSeconds,
+        pausedSeconds: totals.pausedSeconds,
+        status: rec.status,
+      });
+    }
+  } catch (e) {
+    console.error('[breakEnd] Socket emit failed:', e.message);
+  }
+
+  res.json({ attendance: rec, activeSeconds: totals.activeSeconds, pausedSeconds: totals.pausedSeconds });
+});
+
 /* ---- POST /api/attendance/check-out ---- */
 exports.checkOut = catchAsync(async (req, res) => {
   const me = await myEmployee(req.user);

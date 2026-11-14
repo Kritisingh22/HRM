@@ -317,7 +317,9 @@ export function PayrollPage() {
         'success',
       );
     } catch (err) {
-      tab?.close();
+      if (tab && !tab.closed) {
+        tab.close();
+      }
       toast(payslipErrorMessage(err), 'error');
     } finally {
       setSlipBusy(null);

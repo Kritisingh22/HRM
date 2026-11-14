@@ -12,6 +12,8 @@ router.get('/me', ctrl.me);                                        // caller's o
 router.post('/check-in', ctrl.checkIn);                            // mandatory check-in with geolocation + geofence
 router.post('/heartbeat', ctrl.heartbeat);                         // client heartbeat: active/paused state (server computes totals)
 router.post('/pause', ctrl.pause);                                 // explicit pause (blur / idle / tab switch)
+router.post('/break/start', ctrl.breakStart);                      // break start (pause for break)
+router.post('/break/end', ctrl.breakEnd);                          // break end (resume active)
 router.post('/check-out', ctrl.checkOut);                          // check-out, closes sessions, computes final totals
 
 /* ---- HR/Manager settings ---- */
