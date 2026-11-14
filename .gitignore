@@ -39,4 +39,10 @@ Thumbs.db
 .vscode/
 .idea/
 *.md
+
+
+
+LIGHTHOUSE_QA_FIX_REPORT.md
+=======
 !tests/performance/README.md
+
