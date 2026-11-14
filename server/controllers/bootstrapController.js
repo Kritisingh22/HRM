@@ -7,8 +7,10 @@ Identity and scope always come from req.user (set by authenticate), never
 from the client. */
 const Notification = require('../models/Notification');
 const dashboard = require('./dashboardController');
+const { safeUserJson } = require('../utils/user');
 const ApiError = require('../utils/ApiError');
 const catchAsync = require('../utils/catchAsync');
+const crypto = require('crypto');
 
 exports.summary = catchAsync(async (req, res) => {
   const user = req.user;
@@ -31,9 +33,21 @@ exports.summary = catchAsync(async (req, res) => {
     throw ApiError.forbidden('No dashboard is available for your role.');
   }
 
-  res.json({
-    user: { ...user.toSafeJSON(), permissions: allPerms, nav: navFor(user.role), portal: portalFor(user.role) },
+  const body = {
+    user: { ...safeUserJson(user), permissions: allPerms, nav: navFor(user.role), portal: portalFor(user.role) },
     unreadCount,
     dashboard: dashboardPayload,
-  });
+  };
+
+  /* ETag/304 support: if-none-match with the same body hash returns 304.
+     Bootstrap is cacheable per-user for 10-30s — the client stores it in
+     memory and only re-fetches on login/refresh. */
+  const etag = '"' + crypto.createHash('md5').update(JSON.stringify(body)).digest('hex') + '"';
+  if (req.get('if-none-match') === etag) {
+    res.status(304).end();
+    return;
+  }
+  res.set('etag', etag);
+  res.set('cache-control', 'private, max-age=20'); // 20s per-user cache
+  res.json(body);
 });

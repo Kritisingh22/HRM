@@ -1,25 +1,25 @@
 /* ============================================================
    Documents — Company Resources & Employee Documents
-   
+
    Company Resources: Company-wide documents (HR Manual, Policies, Circulars, Forms)
    Employee Documents: Employee-specific documents (offer letters, ID proofs, certificates)
-   
+
    Server sessions: metadata comes from the authenticated register
-   API; files are uploaded to the server's file service (Google
-   Drive behind the scenes) and viewed/downloaded through
-   authenticated endpoints — the browser never receives storage
-   keys or provider links. Demo sessions keep the local register.
+   API; files are uploaded to Cloudflare R2 through the server and viewed/downloaded
+   through authenticated endpoints — the browser never receives storage keys or
+   provider links. Demo sessions keep the local register.
    ============================================================ */
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ResourceView, type FieldDef } from '@/components/ui/ResourceView';
 import { Modal } from '@/components/ui/Modal';
-import { Pill, Tabs } from '@/components/ui/primitives';
+import { Pill, Progress, Tabs } from '@/components/ui/primitives';
 import { Icon } from '@/components/ui/Icon';
+import { useNavigate } from 'react-router-dom';
 import { useApp } from '@/store/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
 import { useDrill } from '@/lib/useDrill';
-import { isApiSession } from '@/api/client';
+import { isApiSession, SessionRequiredError } from '@/api/client';
 import { downloadBlob, documentErrorMessage, fetchDocumentBlob, openDocument } from '@/api/documents';
 import { officialUploadDocument, officialVerifyDocument } from '@/store/apiBridge';
 import { niceDate } from '@/lib/date';
@@ -71,6 +71,14 @@ const COMPANY_FOLDERS = [
   { id: 'other', name: 'Other Resources', icon: 'folder' },
 ] as const;
 
+interface UploadFileItem {
+  file: File;
+  preview: string;
+  progress: number;
+  status: 'pending' | 'uploading' | 'done' | 'error';
+  error?: string;
+}
+
 interface UploadModalProps {
   canManage: boolean;
   isAdmin: boolean;
@@ -79,44 +87,165 @@ interface UploadModalProps {
   onClose: () => void;
 }
 
-/** Server-session upload: file → the document service behind the API. */
-function UploadDocumentModal({ canManage, isAdmin, myId, employees, onClose }: UploadModalProps) {
+/** Server-session upload: file → Cloudflare R2 through the HR server API. */
+function UploadDocumentModal({
+  canManage,
+  isAdmin,
+  myId,
+  employees,
+  onClose,
+}: UploadModalProps) {
   const { toast } = useToast();
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
+  const [uploadItems, setUploadItems] = useState<UploadFileItem[]>([]);
   const [title, setTitle] = useState('');
   const [category, setCategory] = useState('Company Document');
   const [owner, setOwner] = useState('company-wide');
   const [visibility, setVisibility] = useState<'private' | 'hr' | 'all'>('private');
   const [docType, setDocType] = useState<'company' | 'employee'>('company');
   const [folder, setFolder] = useState('hr-manual');
+  const [expiryDate, setExpiryDate] = useState('');
+  const [description, setDescription] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
+  const isDragging = useRef(false);
+
+  const onDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    isDragging.current = true;
+  };
+  const onDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    isDragging.current = false;
+  };
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    isDragging.current = false;
+    const dropped = Array.from(e.dataTransfer.files ?? []);
+    if (dropped.length) addFiles(dropped);
+  };
+
+  const addFiles = (newFiles: File[]) => {
+    setError('');
+    const valid = newFiles.filter((f) => {
+      const allowed = [
+        'application/pdf',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/vnd.ms-excel',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'image/jpeg',
+        'image/png',
+        'image/gif',
+        'text/plain',
+      ];
+      return allowed.includes(f.type);
+    });
+    if (valid.length !== newFiles.length) {
+      setError('Some files were skipped — unsupported type.');
+    }
+    setFiles((prev) => [...prev, ...valid]);
+  };
+
+  const removeFile = (index: number) => {
+    setFiles((prev) => prev.filter((_, i) => i !== index));
+    setUploadItems((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const browseFiles = () => fileInputRef.current?.click();
+
+  const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) addFiles(Array.from(e.target.files));
+  };
+
   const submit = async () => {
-    if (!file) {
-      setError('Choose a file to upload.');
+    if (files.length === 0) {
+      setError('Choose at least one file to upload.');
       return;
     }
+    if (!category) {
+      setError('Choose a document category.');
+      return;
+    }
+
+    const uploadOwner = owner === 'company-wide' ? null : owner;
+    const uploadVisibility = owner === 'company-wide' ? 'all' : visibility;
+    const uploadCategory = docType === 'company' ? folder : category;
+
     setBusy(true);
     setError('');
-    try {
-      const uploadOwner = owner === 'company-wide' ? null : owner;
-      const uploadVisibility = owner === 'company-wide' ? 'all' : visibility;
-      const uploadCategory = docType === 'company' ? folder : category;
-      await officialUploadDocument({
-        file,
-        title: title || file.name,
-        category: uploadCategory,
-        ownerEmployeeId: canManage && uploadOwner ? uploadOwner : null,
-        visibility: canManage ? uploadVisibility : undefined,
-      });
-      toast(`"${title || file.name}" uploaded to the document service.`, 'success');
+
+    // Upload files sequentially to avoid overwhelming the server.
+    let failed = 0;
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      setUploadItems((prev) =>
+        prev.map((item, idx) =>
+          idx === i ? { ...item, status: 'uploading' as const, progress: 0 } : item,
+        ),
+      );
+
+      try {
+        const fd = new FormData();
+        fd.append('file', file);
+        fd.append('title', (title || file.name).slice(0, 200));
+        fd.append('category', uploadCategory);
+        if (uploadOwner) fd.append('owner', uploadOwner);
+        if (uploadVisibility) fd.append('visibility', uploadVisibility);
+        if (description) fd.append('description', description);
+        if (expiryDate) fd.append('expiryDate', expiryDate);
+
+        await officialUploadDocument({
+          file,
+          title: title || file.name,
+          category: uploadCategory,
+          ownerEmployeeId: canManage && uploadOwner ? uploadOwner : null,
+          visibility: canManage ? uploadVisibility : undefined,
+        });
+
+        setUploadItems((prev) =>
+          prev.map((item, idx) =>
+            idx === i ? { ...item, status: 'done' as const, progress: 100 } : item,
+          ),
+        );
+      } catch (err) {
+        failed++;
+        setUploadItems((prev) =>
+          prev.map((item, idx) =>
+            idx === i
+              ? {
+                  ...item,
+                  status: 'error' as const,
+                  error: documentErrorMessage(err),
+                }
+              : item,
+          ),
+        );
+      }
+    }
+
+    setBusy(false);
+    if (failed === 0) {
+      toast(`${files.length} file(s) uploaded to Cloudflare R2.`, 'success');
+      setFiles([]);
+      setUploadItems([]);
+      setTitle('');
+      setDescription('');
+      setExpiryDate('');
       onClose();
-    } catch (err) {
-      setError(documentErrorMessage(err));
-      setBusy(false);
+    } else {
+      toast(`${failed} of ${files.length} upload(s) failed.`, 'error');
     }
   };
+
+  const uploadProgress = uploadItems.length
+    ? Math.round(
+        uploadItems.reduce((sum, item) => sum + item.progress, 0) / uploadItems.length,
+      )
+    : 0;
 
   return (
     <Modal
@@ -124,38 +253,109 @@ function UploadDocumentModal({ canManage, isAdmin, myId, employees, onClose }: U
       onClose={onClose}
       footer={
         <>
-          <button className="btn btn-ghost" onClick={onClose} type="button" disabled={busy}>
+          <button
+            className="btn btn-ghost"
+            onClick={onClose}
+            type="button"
+            disabled={busy}
+          >
             Cancel
           </button>
-          <button className="btn btn-primary" onClick={() => void submit()} type="button" disabled={busy || !file}>
-            {busy ? 'Uploading...' : 'Upload'}
+          <button
+            className="btn btn-primary"
+            onClick={() => void submit()}
+            type="button"
+            disabled={busy || files.length === 0}
+          >
+            {busy ? 'Uploading…' : 'Upload'}
           </button>
         </>
       }
+      large
     >
       <div className="form-2col">
-        <div className="field">
-          <label htmlFor="doc-file">File</label>
+        {/* Drag-and-drop zone */}
+        <div
+          className={`drop-zone${isDragging.current ? ' active' : ''}`}
+          onDragOver={onDragOver}
+          onDragLeave={onDragLeave}
+          onDrop={onDrop}
+        >
           <input
-            id="doc-file"
+            ref={fileInputRef}
             type="file"
-            onChange={(e) => {
-              setFile(e.target.files?.[0] ?? null);
-              setError('');
-            }}
+            multiple
+            onChange={handleFileInput}
+            style={{ display: 'none' }}
           />
+          <button
+            className="btn btn-outline"
+            onClick={browseFiles}
+            type="button"
+            disabled={busy}
+          >
+            <Icon name="cloudUpload" size={14} /> Choose files
+          </button>
+          <span className="sub" style={{ marginLeft: 8 }}>
+            Drag & drop here, or browse. PDF, DOC/DOCX, XLS/XLSX, PPT/PPTX, JPG, PNG, TXT.
+          </span>
         </div>
+
+        {/* File list with progress */}
+        {files.length > 0 && (
+          <div className="file-list">
+            {files.map((file, i) => {
+              const item = uploadItems[i];
+              return (
+                <div
+                  key={`${file.name}-${i}`}
+                  className={`file-row ${item?.status || 'pending'}`}
+                >
+                  <span className="file-name" title={file.name}>
+                    <Icon name="fileText" size={12} /> {file.name}
+                  </span>
+                  <span className="file-size">
+                    {(file.size / 1024).toFixed(1)} KB
+                  </span>
+                  {item && item.status === 'uploading' && (
+                    <Progress value={item.progress} />
+                  )}
+                  {item && item.status === 'error' && (
+                    <span className="sub" style={{ color: '#d92d20' }}>
+                      {item.error}
+                    </span>
+                  )}
+                  <button
+                    className="icon-btn icon-btn-sm"
+                    onClick={() => removeFile(i)}
+                    type="button"
+                    aria-label={`Remove ${file.name}`}
+                  >
+                    <Icon name="x" size={12} />
+                  </button>
+                </div>
+              );
+            })}
+            {busy && uploadItems.length > 0 && (
+              <div className="progress-bar">
+                <Progress value={uploadProgress} label="Uploading…" />
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="field">
           <label htmlFor="doc-title">Title (optional)</label>
           <input
             id="doc-title"
             className="input"
             value={title}
-            placeholder={file?.name ?? 'Document name'}
+            placeholder={files.length === 1 ? files[0]?.name : 'Document name'}
             onChange={(e) => setTitle(e.target.value)}
           />
           <div className="field-hint">Optional. Defaults to file name.</div>
         </div>
+
         <div className="field">
           <label htmlFor="doc-cat">Category</label>
           <select id="doc-cat" value={category} onChange={(e) => setCategory(e.target.value)}>
@@ -166,63 +366,90 @@ function UploadDocumentModal({ canManage, isAdmin, myId, employees, onClose }: U
             ))}
           </select>
         </div>
-        {canManage ? (
-          <div className="field">
-            <label htmlFor="doc-type">Document Type</label>
-            <select id="doc-type" value={docType} onChange={(e) => setDocType(e.target.value)}>
-              <option value="company">Company Resource</option>
-              <option value="employee">Employee Document</option>
-            </select>
-          </div>
-        ) : null}
-        {canManage ? (
-          <div className="field">
-            <label htmlFor="doc-folder">Folder / Category</label>
-            <select id="doc-folder" value={folder} onChange={(e) => setFolder(e.target.value)}>
-              {COMPANY_FOLDERS.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        ) : null}
-        {canManage ? (
-          <div className="field">
-            <label htmlFor="doc-owner">Owner</label>
-            <select id="doc-owner" value={owner} onChange={(e) => setOwner(e.target.value)}>
-              <option value="company-wide">Company-wide (all employees)</option>
-              {employees.map((e) => (
-                <option key={e.id} value={e.id}>
-                  {e.name} ({e.id})
-                </option>
-              ))}
-            </select>
-          </div>
-        ) : null}
-        {canManage ? (
-          <div className="field">
-            <label htmlFor="doc-vis">Access</label>
-            <select
-              id="doc-vis"
-              value={visibility}
-              onChange={(e) => setVisibility(e.target.value as 'private' | 'hr' | 'all')}
-            >
-              <option value="private">Private � the employee and HR</option>
-              <option value="hr">HR only</option>
-              <option value="all">Visible to all employees</option>
-            </select>
-          </div>
-        ) : null}
+
+        {canManage && (
+          <>
+            <div className="field">
+              <label htmlFor="doc-type">Document Type</label>
+              <select id="doc-type" value={docType} onChange={(e) => setDocType(e.target.value as 'company' | 'employee')}>
+                <option value="company">Company Resource</option>
+                <option value="employee">Employee Document</option>
+              </select>
+            </div>
+            {docType === 'company' && canManage ? (
+              <div className="field">
+                <label htmlFor="doc-folder">Folder / Category</label>
+                <select id="doc-folder" value={folder} onChange={(e) => setFolder(e.target.value)}>
+                  {COMPANY_FOLDERS.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
+            {canManage ? (
+              <div className="field">
+                <label htmlFor="doc-owner">Owner</label>
+                <select id="doc-owner" value={owner} onChange={(e) => setOwner(e.target.value)}>
+                  <option value="company-wide">Company-wide (all employees)</option>
+                  {employees.map((e) => (
+                    <option key={e.id} value={e.id}>
+                      {e.name} ({e.id})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
+            {canManage ? (
+              <div className="field">
+                <label htmlFor="doc-vis">Access</label>
+                <select
+                  id="doc-vis"
+                  value={visibility}
+                  onChange={(e) => setVisibility(e.target.value as 'private' | 'hr' | 'all')}
+                >
+                  <option value="private">Private — the employee and HR</option>
+                  <option value="hr">HR only</option>
+                  <option value="all">Visible to all employees</option>
+                </select>
+              </div>
+            ) : null}
+          </>
+        )}
+
+        <div className="field">
+          <label htmlFor="doc-desc">Description</label>
+          <textarea
+            id="doc-desc"
+            className="input"
+            value={description}
+            placeholder="Optional description of this document"
+            onChange={(e) => setDescription(e.target.value)}
+          />
+        </div>
+
+        <div className="field">
+          <label htmlFor="doc-expiry">Expiry date (optional)</label>
+          <input
+            id="doc-expiry"
+            type="date"
+            className="input"
+            value={expiryDate}
+            onChange={(e) => setExpiryDate(e.target.value)}
+          />
+          <div className="field-hint">Optional. After this date the document may require renewal.</div>
+        </div>
       </div>
+
       {error ? (
         <p role="alert" style={{ marginTop: 10, color: '#d92d20' }}>
           {error}
         </p>
       ) : null}
       <p className="sub" style={{ marginTop: 10 }}>
-        The file is stored in the company document service (Google Drive); the register keeps its
-        metadata and access rules, and every view or download is authorised by the server.
+        The file is stored in Cloudflare R2; the register keeps its metadata and
+        access rules, and every view or download is authorised by the server.
       </p>
     </Modal>
   );
@@ -230,8 +457,9 @@ function UploadDocumentModal({ canManage, isAdmin, myId, employees, onClose }: U
 
 export function DocumentsPage() {
   const { data, dispatch, audit, nextId } = useApp();
-  const { canManage, user } = useAuth();
+  const { canManage, user, logout } = useAuth();
   const { toast } = useToast();
+  const navigate = useNavigate();
   const { query: seedQuery, clear } = useDrill();
   const [drill, setDrill] = useState(seedQuery);
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -241,6 +469,7 @@ export function DocumentsPage() {
   const api = isApiSession();
   const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN';
   const myId = user?.employeeId ?? '';
+  const role = user?.role;
 
   /* lazy-sync the drill chip when a new global-search hit arrives */
   useEffect(() => {
@@ -270,30 +499,32 @@ export function DocumentsPage() {
     let docs = data.documents.filter((d) => d.owner !== null);
     if (activeTab === 'employee' && drill) {
       const q = drill.toLowerCase();
-      docs = docs.filter((d) => `${d.name} ${d.type} ${ownerName(d.owner)}`.toLowerCase().includes(q));
+      docs = docs.filter((d) =>
+        `${d.name} ${d.type} ${ownerName(d.owner)}`.toLowerCase().includes(q),
+      );
     }
     return docs;
   }, [data.documents, data.employees, data.candidates, drill, activeTab]);
 
   // For employees: only show their own documents
   const myDocuments = useMemo(() => {
-    const myId = user?.employeeId ?? '';
     return data.documents.filter((d) => d.owner === myId);
-  }, [data.documents, user?.employeeId]);
+  }, [data.documents, myId]);
 
   // Determine which documents to show based on role and active tab
   const rows = useMemo(() => {
     if (activeTab === 'company') {
       return companyResources;
     } else if (activeTab === 'employee') {
-      if (canManage) {
+      // Managers and HR see all employee documents (global visibility)
+      // Employees only see their own
+      if (role === 'MANAGER' || role === 'HR' || role === 'ADMIN' || role === 'SUPER_ADMIN') {
         return employeeDocuments;
       }
-      // Employees only see their own documents
       return myDocuments;
     }
     return [];
-  }, [activeTab, companyResources, employeeDocuments, myDocuments, canManage]);
+  }, [activeTab, companyResources, employeeDocuments, myDocuments, role]);
 
   const folderName = (id: string) => {
     return COMPANY_FOLDERS.find((f) => f.id === id)?.name ?? id;
@@ -314,7 +545,11 @@ export function DocumentsPage() {
       ),
     },
     { header: 'Type', render: (d: DocumentRecord) => d.type },
-    { header: activeTab === 'company' ? 'Folder' : 'Owner', render: (d: DocumentRecord) => activeTab === 'company' ? folderName(d.type) : ownerName(d.owner) },
+    {
+      header: activeTab === 'company' ? 'Folder' : 'Owner',
+      render: (d: DocumentRecord) =>
+        activeTab === 'company' ? folderName(d.type) : ownerName(d.owner),
+    },
     { header: 'Uploaded', render: (d: DocumentRecord) => <span className="num">{niceDate(d.uploaded)}</span> },
     { header: 'Status', render: (d: DocumentRecord) => <Pill status={d.status} /> },
   ];
@@ -398,6 +633,18 @@ export function DocumentsPage() {
         toast(`"${d.name}" verified.`, 'success');
       }
     } catch (err) {
+      if (err instanceof SessionRequiredError) {
+        /* No usable API session: stash the exact message (missing session /
+           demo account) so the login page can surface it, clear the shell
+           state, and send the user to login. */
+        try {
+          sessionStorage.setItem('cyethackHRM.loginMessage', err.message);
+        } catch { /* sessionStorage blocked — the redirect still happens */ }
+        toast(err.message, 'error');
+        await logout();
+        navigate('/login', { replace: true });
+        return;
+      }
       toast(documentErrorMessage(err), 'error');
     }
   };
@@ -427,13 +674,21 @@ export function DocumentsPage() {
       <section className="card span12">
         <div className="card-head">
           <div>
-            <h2>{activeTab === 'company' ? 'Company Resources' : canManage ? 'Employee Documents' : 'My Documents'}</h2>
+            <h2>
+              {activeTab === 'company'
+                ? 'Company Resources'
+                : role === 'EMPLOYEE'
+                  ? 'My Documents'
+                  : 'Employee Documents'}
+            </h2>
             <div className="sub">
               {activeTab === 'company'
                 ? 'Company-wide resources: HR Manual, Policies, Circulars, Forms, and other approved resources'
-                : canManage
-                  ? 'Employee-specific documents: offer letters, ID proofs, certificates, and personal records'
-                  : 'Your personal documents: offer letters, ID proofs, certificates, and letters'}
+                : role === 'EMPLOYEE'
+                  ? 'Your personal documents: offer letters, ID proofs, certificates, and letters'
+                  : canManage
+                    ? 'Employee-specific documents across all employees — offer letters, ID proofs, certificates, and personal records'
+                    : 'Employee-specific documents: offer letters, ID proofs, certificates, and personal records'}
             </div>
           </div>
           {api && canManage ? (
@@ -506,7 +761,7 @@ export function DocumentsPage() {
 
         <div className="card-foot">
           {api
-            ? 'Files are stored in the company document service (Google Drive) and streamed through the HR server — this register shows their metadata, access rules and verification status.'
+            ? 'Files are stored in Cloudflare R2 and streamed through the HR server — this register shows their metadata, access rules and verification status.'
             : 'Upload and download are enabled once the backend file service is connected — this register tracks document metadata today.'}
         </div>
       </section>

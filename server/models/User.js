@@ -32,6 +32,20 @@ const userSchema = new mongoose.Schema(
       index: true,
     },
     isVerified: { type: Boolean, default: true },
+    accountStatus: {
+      type: String,
+      enum: ['pending-activation', 'active', 'suspended'],
+      default: 'pending-activation',
+      index: true,
+    }, // new hires start pending-activation until first login sets a password
+    mustChangePassword: { type: Boolean, default: false }, // forces password reset on next login
+    activationToken: { type: String, select: false }, // hashed one-time activation token
+    activationTokenExpires: { type: Date, select: false },
+    // Password reset / one-time setup (admin-initiated). Only the SHA-256 hash
+    // of the token is stored; the raw value is delivered out-of-band once and
+    // never logged or returned after creation.
+    passwordResetToken: { type: String, select: false }, // hashed temp/reset token
+    passwordResetExpires: { type: Date, select: false },
     failedLoginAttempts: { type: Number, default: 0 },
     accountLockedUntil: { type: Date, default: null },
     lastLogin: { type: Date, default: null },
@@ -88,6 +102,8 @@ userSchema.methods.toSafeJSON = function () {
     department: this.department,
     designation: this.designation,
     status: this.status,
+    accountStatus: this.accountStatus,
+    mustChangePassword: this.mustChangePassword,
     permissions: this.permissions || [],
   };
 };

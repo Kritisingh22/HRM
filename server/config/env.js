@@ -1,6 +1,6 @@
 /* Central configuration, loaded from environment variables (.env). */
 const path = require('path');
-require('dotenv').config();
+require('dotenv').config({ path: path.resolve(__dirname, '..', '.env') });
 
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
@@ -50,22 +50,31 @@ const cfg = {
   EMAIL_FROM: process.env.EMAIL_FROM || 'HRM Portal <noreply@cyethack.com>',
 
   // ---- Document storage (object storage provider for uploaded files) ----
-  // Bytes live in the configured provider; MongoDB stores metadata + the file ID.
-  // '' = automatic: use Google Drive when it is fully configured, else local disk.
+  // Bytes live OUTSIDE the repository/database; MongoDB stores metadata + the
+  // file key. Select the provider with DOCUMENT_STORAGE:
+  //   'local'           -> <cwd>/uploads on disk (dev / tests; never served directly)
+  //   'google-drive'    -> private Google Drive folder (legacy; requires GOOGLE_* vars)
+  //   'cloudflare-r2'   -> Cloudflare R2 (production; requires R2_* vars below)
+  // Unset / unknown = automatic: R2 when fully configured, else Google Drive when
+  // fully configured, else local disk. Every record remembers its provider, so
+  // pre-existing files keep working when the provider changes.
   DOCUMENT_STORAGE: (process.env.DOCUMENT_STORAGE || '').toLowerCase(),
   GOOGLE_DRIVE_FOLDER_ID: process.env.GOOGLE_DRIVE_FOLDER_ID || '',
   GOOGLE_DRIVE_AUTH_MODE: (process.env.GOOGLE_DRIVE_AUTH_MODE || 'service_account').toLowerCase(),
-  // Service account key: either the path to the JSON key file (kept OUTSIDE git,
-  // e.g. server/secrets/), or the full JSON inline. One of the two is required.
   GOOGLE_SERVICE_ACCOUNT_FILE: process.env.GOOGLE_SERVICE_ACCOUNT_FILE || path.join(__dirname, '..', 'secrets', 'gdrive-sa.json'),
   GOOGLE_SERVICE_ACCOUNT_JSON: process.env.GOOGLE_SERVICE_ACCOUNT_JSON || '',
-  // Alternative: OAuth refresh token on behalf of a user account (files are then
-  // owned by that user instead of the service account).
   GOOGLE_OAUTH_CLIENT_ID: process.env.GOOGLE_OAUTH_CLIENT_ID || '',
   GOOGLE_OAUTH_CLIENT_SECRET: process.env.GOOGLE_OAUTH_CLIENT_SECRET || '',
   GOOGLE_OAUTH_REFRESH_TOKEN: process.env.GOOGLE_OAUTH_REFRESH_TOKEN || '',
-  // Optional: a subfolder used ONLY by the live test suite / round-trip check.
   GOOGLE_DRIVE_TEST_FOLDER_ID: process.env.GOOGLE_DRIVE_TEST_FOLDER_ID || '',
+  // Cloudflare R2 credentials (backend-only — never exposed to React).
+  R2_ACCOUNT_ID: process.env.R2_ACCOUNT_ID || '',
+  R2_ACCESS_KEY_ID: process.env.R2_ACCESS_KEY_ID || '',
+  R2_SECRET_ACCESS_KEY: process.env.R2_SECRET_ACCESS_KEY || '',
+  R2_BUCKET_NAME: process.env.R2_BUCKET_NAME || '',
+  R2_ENDPOINT: process.env.R2_ENDPOINT || '',
+  R2_REGION: process.env.R2_REGION || 'auto',
+  R2_SIGNED_URL_EXPIRY: parseInt(process.env.R2_SIGNED_URL_EXPIRY || '300', 10),
 
   // Upload guardrails (multipart document endpoints).
   UPLOAD_MAX_MB: parseInt(process.env.UPLOAD_MAX_MB || '10', 10),
@@ -74,7 +83,12 @@ const cfg = {
   UPLOAD_RATE_MAX: parseInt(process.env.UPLOAD_RATE_MAX || '30', 10),
   UPLOAD_RATE_WINDOW_MIN: parseInt(process.env.UPLOAD_RATE_WINDOW_MIN || '15', 10),
 
-  // When true, the payslip PDF is also archived to object storage the moment HR
+  // Company reporting time zone. All attendance dates and HH:mm times are
+  // minted in this timezone so records land under the correct calendar day
+  // regardless of where the server runs (Render free tier typically runs in UTC).
+  TIMEZONE: process.env.TIMEZONE || 'Asia/Kolkata',
+
+  // When true, the payslip PDF is also archived to Cloudflare R2 the moment HR
   // processes it. Off by default — POST /api/payroll/:id/payslip/archive always
   // works on demand. Archiving never changes the payroll record itself.
   PAYSLIP_ARCHIVE_TO_DRIVE: process.env.PAYSLIP_ARCHIVE_TO_DRIVE === 'true',

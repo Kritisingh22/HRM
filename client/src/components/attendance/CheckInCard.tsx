@@ -1,49 +1,81 @@
 /* ============================================================
    Check-in card — the signed-in person's attendance for today.
 
-   Checking in / out writes an explicit attendance override for
-   `employeeId|today` (which the derived register then reads) and
-   captures a one-shot GPS fix. The fix is stored in `locationLog`
-   only when the browser allows location — a refusal never blocks
-   the action, it just skips the record. No background tracking.
+   Demo sessions: write an explicit attendance override
+   (`employeeId|today`) which the derived register reads, and capture
+   a one-shot GPS fix. Location is optional there — a refusal never
+   blocks the action.
+
+   Real (API) sessions: the server mints the timestamps and persists
+   to MongoDB. Location + consent are mandatory and are captured only
+   when the employee clicks Check In / Check Out — never in the
+   background. The UI does not show success until the backend
+   confirms the write, then refreshes today's attendance state so
+   the check-in/check-out is visible immediately (and survives a
+   refresh).
    ============================================================ */
-import { useState } from 'react';
+
+import { useState, useEffect, useCallback } from 'react';
 import { Icon } from '@/components/ui/Icon';
-import { isApiSession } from '@/api/client';
+import { Tabs } from '@/components/ui/primitives';
 import { useApp } from '@/store/AppContext';
-import { useAuth } from '@/context/AuthContext';
+import { useStableAuthState } from '@/store/useStableAuthState';
 import { useToast } from '@/context/ToastContext';
-import { durationText, overrideKey, parseClockMinutes, requestOn } from '@/lib/attendance';
-import { clockNow, DAYS_LONG, isWeekendISO, niceDate, parseISO, todayISO } from '@/lib/date';
+import {
+  checkIn as checkInApi,
+  checkOut as checkOutApi,
+  attendanceErrorMessage,
+  getMe,
+} from '@/api/attendance';
 import {
   accuracyText,
-  captureLocation,
+  prefetchLocation,
+  quickLocation,
   coordText,
   GEO_KIND_LABELS,
+  getCachedFix,
   mapsUrl,
   type CaptureReason,
 } from '@/lib/geo';
-import type { AttendanceRecord } from '@/types';
+import { clockNow, DAYS_LONG, isWeekendISO, niceDate, parseISO, todayISO, durationFromMs } from '@/lib/date';
+import { durationText, overrideKey, parseClockMinutes, requestOn } from '@/lib/attendance';
+import type { AttendanceRecord, AttendanceRow, GeoPoint } from '@/types';
 
 export function CheckInCard() {
-  const { data, dispatch, audit, logLocation } = useApp();
-  const { user } = useAuth();
+  const { data, dispatch, audit } = useApp();
+  const { user, fetchAttendanceState } = useStableAuthState();
   const { toast } = useToast();
   const [busy, setBusy] = useState<'in' | 'out' | null>(null);
   const [note, setNote] = useState('');
+  const [locating, setLocating] = useState(false);
+  const [todayRow, setTodayRow] = useState<AttendanceRow | null>(null);
+  const [liveTime, setLiveTime] = useState<string>(() => {
+    const now = new Date();
+    return now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  });
 
+  const api = isApiSession();
   const empId = user?.employeeId ?? null;
   const today = todayISO();
-  /* Real sessions: the server mints the timestamps and stores no
-     per-action GPS — so no location prompt is raised here. */
-  const api = isApiSession();
+  const browserTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+  /* Real sessions: read today's server record so the UI reflects
+     persisted truth (including after a reload). */
+  useEffect(() => {
+    if (!api) return;
+    void getMe()
+      .then((res) => setTodayRow(res.todayRow ?? null))
+      .catch(() => {
+        /* best-effort; the gate / next render will recover */
+      });
+  }, [api]);
 
   /* Nothing to check into on weekends or holidays. */
   if (!empId || !user) return null;
   if (isWeekendISO(today) || data.holidays.some((h) => h.date === today)) return null;
 
   const key = overrideKey(empId, today);
-  const record = data.attendanceOverrides[key];
+  const record: AttendanceRow | AttendanceRecord | null = api ? todayRow : data.attendanceOverrides[key];
   const geoLines = data.locationLog.filter((l) => l.ref === key && l.kind !== 'login');
 
   const leave = requestOn(data.leaveRequests, empId, today);
@@ -51,80 +83,200 @@ export function CheckInCard() {
   const wfh = approvedLeave?.type === 'Work From Home';
   const onLeave = Boolean(approvedLeave && !wfh);
 
+  const checkedIn = Boolean(record?.checkIn);
+  const checkedOut = Boolean(record?.checkOut);
+  const worked =
+    record?.workingHoursMinutes != null
+      ? durationFromMs(record.workingHoursMinutes * 60_000)
+      : record?.workingHours;
+
+  const inRange = record?.geofence?.inRange;
+  const locationVerified = record?.location?.verificationStatus === 'verified';
+
   /* Store where permitted; explain politely when not. */
   const noteFor = (reason: CaptureReason) => {
     if (reason === 'denied') {
       setNote("Location wasn't shared — allow it in your browser to record where you check in next time.");
     } else if (reason !== 'ok') {
-      setNote("Couldn't determine a location this time — the action was still recorded.");
+      setNote("Couldn't determine a location this time.");
     }
   };
 
-  const checkIn = async () => {
+  /* ---- check-in ----------------------------------------------------- */
+  // Prefetch a location fix on mount so it's ready when the user clicks Check In.
+  useEffect(() => {
+    prefetchLocation();
+  }, []);
+
+  // Live clock — updates every second so the dashboard always shows
+  // the current time next to the attendance tracker.
+  useEffect(() => {
+    const tick = () => {
+      const now = new Date();
+      setLiveTime(now.toLocaleTimeString('en-IN', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      }));
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const handleCheckIn = useCallback(async () => {
     if (busy || onLeave) return;
     setBusy('in');
+    setLocating(true);
     setNote('');
-    const { point, reason } = api
-      ? { point: null, reason: 'ok' as CaptureReason }
-      : await captureLocation();
-    const time = clockNow();
-    const mins = parseClockMinutes(time);
-    const rec: AttendanceRecord = {
-      ...(record ?? {}),
-      status: record?.status ?? (wfh ? 'wfh' : 'present'),
-      checkIn: time,
-    };
-    if (mins !== null && mins > 570) rec.lateBy = `${mins - 570} min`;
-    dispatch({ type: 'override', key, record: rec });
-    if (point) {
-      logLocation({ kind: 'check-in', ref: key, employeeId: empId, email: user.email, ...point });
-    }
-    audit('Attendance check-in', `${today} · ${time}`, user.name);
-    toast(
-      api
-        ? 'Checked in — the server recorded your time.'
-        : point
-          ? `Checked in at ${time} — location recorded.`
-          : `Checked in at ${time}.`,
-      'success',
-    );
-    noteFor(reason);
-    setBusy(null);
-  };
 
-  const checkOut = async () => {
-    if (busy || !record?.checkIn) return;
+    /* Use quickLocation: cached fix first, then a short timeout shot.
+       quickLocation internally calls getCachedFix() and then navigator.geolocation
+       with timeout 2500ms and caches the result for 5 minutes. */
+    const point = await quickLocation(2500);
+    const reason: CaptureReason = point ? 'ok' : 'timeout';
+
+    /* Location is mandatory for real sessions — never bypass or fake it. */
+    if (!point) {
+      setLocating(false);
+      setBusy(null);
+      setNote("Location could not be determined. Allow geolocation and retry.");
+      toast('Location required for check-in', 'error');
+      return;
+    }
+
+    if (!api) {
+      /* ---- demo path: local override only --------------------------- */
+      const time = clockNow();
+      const mins = parseClockMinutes(time);
+      const rec: AttendanceRecord = { ...(record ?? {}), status: record?.status ?? (wfh ? 'wfh' : 'present'), checkIn: time };
+      if (mins !== null && mins > 570) rec.lateBy = `${mins - 570} min`;
+      dispatch({ type: 'override', key, record: rec });
+      if (point) {
+        logLocation({ kind: 'check-in', ref: key, employeeId: empId, email: user.email, ...point });
+      }
+      audit('Attendance check-in', `${today} · ${time}`, user.name);
+      setLocating(false);
+      toast(point ? `Checked in at ${time} — location recorded.` : `Checked in at ${time}.`, 'success');
+      noteFor(reason);
+      setBusy(null);
+      return;
+    }
+
+    /* ---- real path: server confirms before we show success ---------- */
+    try {
+      const { attendance } = await checkInApi({
+        consentGiven: true,
+        lat: point.lat,
+        lng: point.lng,
+        accuracy: point.accuracy,
+        clientTimestamp: point.capturedAt,
+        timezone: browserTimezone,
+      });
+      const row = attendance as AttendanceRow;
+      setTodayRow(row);
+      await fetchAttendanceState(); // refresh checkedInToday / hasOpenSession (dismisses the gate)
+
+      if (point) {
+        logLocation({ kind: 'check-in', ref: key, employeeId: empId, email: user.email, ...point });
+      }
+      audit('Attendance check-in', `${today} · ${row.checkIn}`, user.name);
+
+      const verified = inRange !== undefined ? inRange : locationVerified;
+      toast(
+        `Checked in at ${row.checkIn} — ${verified ? 'Location verified' : 'Location recorded'}`,
+        'success',
+      );
+    } catch (err) {
+      const msg = attendanceErrorMessage(err);
+      setNote(msg);
+      toast(msg, 'error');
+    } finally {
+      setLocating(false);
+      setBusy(null);
+    }
+  }, [api, busy, onLeave, key, empId, user, today, browserTimezone, record, inRange, locationVerified]);
+
+  /* ---- check-out ---------------------------------------------------- */
+  // Prefetch a location fix on mount so it's ready when the user clicks Check Out.
+  useEffect(() => {
+    prefetchLocation();
+  }, []);
+
+  const handleCheckOut = useCallback(async () => {
+    if (busy || !checkedIn) return;
     setBusy('out');
+    setLocating(true);
     setNote('');
-    const { point, reason } = api
-      ? { point: null, reason: 'ok' as CaptureReason }
-      : await captureLocation();
-    const time = clockNow();
-    const rec: AttendanceRecord = { ...record, checkOut: time };
-    const worked = durationText(record.checkIn, time);
-    if (worked) rec.workingHours = worked;
-    dispatch({ type: 'override', key, record: rec });
-    if (point) {
-      logLocation({ kind: 'check-out', ref: key, employeeId: empId, email: user.email, ...point });
-    }
-    audit('Attendance check-out', `${today} · ${time}`, user.name);
-    toast(
-      api
-        ? 'Checked out — the server recorded your time.'
-        : point
-          ? `Checked out at ${time} — location recorded.`
-          : `Checked out at ${time}.`,
-      'success',
-    );
-    noteFor(reason);
-    setBusy(null);
-  };
 
-  const stateText = !record?.checkIn
+    /* Use quickLocation: cached fix first, then a short timeout shot. */
+    const point = await quickLocation(2500);
+
+    if (!api) {
+      /* ---- demo path: local override only --------------------------- */
+      const time = clockNow();
+      const rec: AttendanceRecord = { ...(record as AttendanceRecord), checkOut: time };
+      const workedDemo = durationText(record?.checkIn ?? '', time);
+      if (workedDemo) rec.workingHours = workedDemo;
+      dispatch({ type: 'override', key, record: rec });
+      if (point) {
+        logLocation({ kind: 'check-out', ref: key, employeeId: empId, email: user.email, ...point });
+      }
+      audit('Attendance check-out', `${today} · ${time}`, user.name);
+      setLocating(false);
+      toast(
+        point ? `Checked out at ${time} — location recorded.` : `Checked out at ${time}.`,
+        'success',
+      );
+      noteFor('ok');
+      setBusy(null);
+      return;
+    }
+
+    /* ---- real path: server confirms before we show success ---------- */
+    try {
+      const payload: Record<string, unknown> = {};
+      if (point) {
+        payload.lat = point.lat;
+        payload.lng = point.lng;
+        payload.accuracy = point.accuracy;
+        payload.clientTimestamp = point.capturedAt;
+        payload.timezone = browserTimezone;
+      }
+      const { attendance } = await checkOutApi(payload);
+      const row = attendance as AttendanceRow;
+      setTodayRow(row);
+      await fetchAttendanceState();
+
+      if (point) {
+        logLocation({ kind: 'check-out', ref: key, employeeId: empId, email: user.email, ...point });
+      }
+      audit('Attendance check-out', `${today} · ${row.checkOut}`, user.name);
+
+      const workedServer =
+        row.workingHoursMinutes != null ? durationFromMs(row.workingHoursMinutes * 60_000) : null;
+      toast(
+        `Checked out at ${row.checkOut} — worked ${workedServer ?? '—'}`,
+        'success',
+      );
+    } catch (err) {
+      const msg = attendanceErrorMessage(err);
+      setNote(msg);
+      toast(msg, 'error');
+    } finally {
+      setLocating(false);
+      setBusy(null);
+    }
+  }, [api, busy, checkedIn, key, empId, user, today, browserTimezone, record, fetchAttendanceState]);
+
+  const checkInTime = record?.checkIn ?? '';
+  const checkOutTime = record?.checkOut ?? '';
+  const lateBy = record?.lateBy ?? '';
+  const stateText = !checkInTime
     ? 'Not checked in yet'
-    : record.checkOut
-      ? `Checked in ${record.checkIn} · checked out ${record.checkOut}`
-      : `Checked in at ${record.checkIn}${record.lateBy ? ` · late by ${record.lateBy}` : ''}`;
+    : checkOutTime
+      ? `Checked in ${checkInTime} · checked out ${checkOutTime}`
+      : `Checked in at ${checkInTime}${lateBy ? ` · late by ${lateBy}` : ''}`;
 
   return (
     <section className="card span12">
@@ -133,6 +285,9 @@ export function CheckInCard() {
           <h2>
             Today · {DAYS_LONG[parseISO(today).getDay()]}, {niceDate(today)}
           </h2>
+          <div className="sub" style={{ fontSize: 18, fontWeight: 600, color: 'var(--text)', marginTop: 4 }}>
+            {liveTime}
+          </div>
           <div className="sub">
             {api
               ? 'Check-in and check-out times are recorded by the HR server — no background tracking'
@@ -144,18 +299,24 @@ export function CheckInCard() {
             <span className="chip">On approved leave {approvedLeave ? `· ${approvedLeave.type}` : ''}</span>
           ) : null}
           {wfh ? <span className="chip">Work From Home approved</span> : null}
-          {record?.workingHours ? <span className="chip">Worked {record.workingHours}</span> : null}
-          {!onLeave && !record?.checkIn ? (
-            <button className="btn btn-primary btn-sm" onClick={checkIn} disabled={busy !== null} type="button">
+          {worked ? <span className="chip">Worked {worked}</span> : null}
+          {!onLeave && !checkedIn ? (
+
+            <button className="btn btn-primary btn-sm" onClick={handleCheckIn} disabled={busy !== null} type="button">
               <Icon name="navigation" size={15} />
-              {busy === 'in' ? 'Checking in…' : 'Check in'}
+              {busy === 'in' ? (locating ? 'Locating…' : 'Checking in…') : 'Check in'}
             </button>
           ) : null}
-          {!onLeave && record?.checkIn && !record.checkOut ? (
-            <button className="btn btn-primary btn-sm" onClick={checkOut} disabled={busy !== null} type="button">
+          {!onLeave && checkedIn && !checkedOut ? (
+            <button className="btn btn-primary btn-sm" onClick={handleCheckOut} disabled={busy !== null} type="button">
               <Icon name="clock" size={15} />
-              {busy === 'out' ? 'Checking out…' : 'Check out'}
+              {busy === 'out' ? (locating ? 'Locating…' : 'Checking out…') : 'Check out'}
             </button>
+          ) : null}
+          {checkedIn && !checkedOut && locationVerified !== undefined && !locationVerified ? (
+            <span className="chip" style={{ color: '#b91c1c' }}>
+              Location outside office radius
+            </span>
           ) : null}
         </div>
       </div>

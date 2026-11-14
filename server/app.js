@@ -9,9 +9,11 @@ const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const fs = require('fs');
 const cfg = require('./config/env');
+const { isDBReady, getDBError } = require('./config/database');
 const apiRoutes = require('./routes');
 const { notFound, errorHandler } = require('./middleware/errorHandler');
 const { apiLimiter } = require('./middleware/rateLimiter');
+const { apiTimeout } = require('./middleware/requestTimeout');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -45,6 +47,42 @@ app.get('/health', (_req, res) => {
   res.type('json').status(200).send(JSON.stringify({ status: 'ok', time: new Date().toISOString() }));
 });
 
+// ---- /health?deep=1 — readiness check with DB ping ----
+// Returns 200 when MongoDB is connected, 503 otherwise.
+// Used by orchestrators (Kubernetes, Render) to decide whether to send traffic.
+let lastDeepCheck = 0;
+const DEEP_CHECK_DEBOUNCE_MS = 5_000;
+app.get('/health/deep', (_req, res) => {
+  const now = Date.now();
+  if (now - lastDeepCheck < DEEP_CHECK_DEBOUNCE_MS) {
+    res.type('json').status(304).end();
+    return;
+  }
+  lastDeepCheck = now;
+  if (isDBReady()) {
+    res.type('json').status(200).send(JSON.stringify({ status: 'ok', db: 'connected', time: new Date().toISOString() }));
+  } else {
+    const err = getDBError();
+    res.type('json').status(503).send(JSON.stringify({ status: 'degraded', db: 'disconnected', error: err ? err.message : 'connecting', time: new Date().toISOString() }));
+  }
+});
+
+// ---- /health/ready — alias for /health?deep=1 ----
+app.get('/health/ready', (_req, res) => {
+  const now = Date.now();
+  if (now - lastDeepCheck < DEEP_CHECK_DEBOUNCE_MS) {
+    res.type('json').status(304).end();
+    return;
+  }
+  lastDeepCheck = now;
+  if (isDBReady()) {
+    res.type('json').status(200).send(JSON.stringify({ status: 'ok', db: 'connected', time: new Date().toISOString() }));
+  } else {
+    const err = getDBError();
+    res.type('json').status(503).send(JSON.stringify({ status: 'degraded', db: 'disconnected', error: err ? err.message : 'connecting', time: new Date().toISOString() }));
+  }
+});
+
 // ---- Security headers ----
 app.use(
   helmet({
@@ -69,22 +107,6 @@ app.use(
   })
 );
 
-// ---- Content-Security-Policy-Report-Only (Trusted Types probe) ----
-// Report-only: violations are NOT enforced, only reported (DevTools
-// Issues panel). Mirrors the enforced CSP plus require-trusted-types-for
-// 'script' so we can see what would break before ever enabling it.
-app.use((_req, res, next) => {
-  res.setHeader(
-    'Content-Security-Policy-Report-Only',
-    "default-src 'self'; base-uri 'self'; font-src 'self' https://fonts.gstatic.com data:; " +
-    "form-action 'self'; frame-ancestors 'self'; img-src 'self' data:; object-src 'none'; " +
-    "script-src 'self'; script-src-attr 'none'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
-    "upgrade-insecure-requests; connect-src 'self'; " +
-    "require-trusted-types-for 'script';"
-  );
-  next();
-});
-
 app.use(cors({ origin: cfg.FRONTEND_URL, credentials: true }));
 app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
@@ -104,38 +126,32 @@ if (DIST_EXISTS) {
     })
   );
 
+  // Font files (/fonts/*): long-lived immutable cache. The self-hosted IBM Plex
+  // font binaries in client/public/fonts are immutable and referenced directly
+  // by the @font-face rules in client/index.html (plus the preload hint).
+  app.use(
+    '/fonts',
+    express.static(path.join(FRONTEND_DIST, 'fonts'), {
+      setHeaders: (res) => {
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      }
+    })
+  );
+
   // Other static files (robots.txt, favicon.ico, manifest.json, llms.txt, ai-catalog.json, etc.)
   app.use(express.static(FRONTEND_DIST));
 }
 
-// ---- Temporary request timing log (remove after measurement) ----
-// Logs every API request's duration so we can find slow endpoints.
-app.use((req, res, next) => {
-  if (!req.url.startsWith('/api')) return next();
-  const start = Date.now();
-  const originalSend = res.send;
-  res.send = function (body) {
-    try {
-      // eslint-disable-next-line no-console
-      console.log(`[API-TIMING] ${req.method} ${req.url} ${res.statusCode} ${Date.now() - start}ms`);
-    } catch {
-      /* ignore */
-    }
-    return originalSend.call(this, body);
-  };
-  next();
-});
-
-// API
-app.use('/api', apiLimiter, apiRoutes);
-
-// Serve uploaded files (payslips, documents) from <cwd>/uploads
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// API — timeout before rate limiting so a hung handler doesn't hold a rate-limit slot.
+app.use('/api', apiTimeout, apiLimiter, apiRoutes);
 
 // ---- SPA fallback — index.html with no-cache ----
 // The HTML itself must always revalidate so deploys pick up the new asset
 // hashes. Hashed assets inside it are cached immutably (see /assets above).
 // Only serves index.html for GET requests to non-API paths without file extensions.
+// Uploaded files (payslips, documents) are NOT served here: they are private and
+// streamed only through the authenticated download routes (documentRoutes,
+// employeeDocumentRoutes, payrollRoutes) after object-level authorization.
 app.get(/^\/(?!api\/).*/, (req, res, next) => {
   if (req.method !== 'GET') return next();
 
@@ -147,7 +163,20 @@ app.get(/^\/(?!api\/).*/, (req, res, next) => {
   }
 
   if (!DIST_EXISTS) {
-    return res.status(503).json({ error: 'Frontend not built. Run the client build first.' });
+    // Dev shell when the frontend build output has not been (re)generated.
+    // server/public is build output (gitignored, cleaned on checkout) — the
+    // portal becomes fully functional once `npm --prefix ../client run build`
+    // has run and the server is restarted.
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    return res.send(
+      '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cyethack HRM Portal</title></head>' +
+      '<body><h2>Cyethack HRM Portal</h2><p>The frontend build output (server/public) is missing.</p>' +
+      '<p>Run <code>npm --prefix ../client run build</code> (or set FRONTEND_DIST) and restart the server.</p>' +
+      '<p>API endpoints remain available under <code>/api</code>.</p></body></html>',
+    );
   }
 
   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');

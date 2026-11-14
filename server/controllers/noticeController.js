@@ -1,8 +1,10 @@
 /* Notice Board API. Everyone sees Published notices meant for their audience;
- * HR/Admin see everything (incl. drafts) and are the only ones who write. */
+ * HR/Admin see everything (incl. drafts) and are the only ones who write.
+ * Publishing fans out one notification per recipient via the notice service. */
 const Notice = require('../models/Notice');
 const ApiError = require('../utils/ApiError');
 const catchAsync = require('../utils/catchAsync');
+const { publishNotice } = require('../services/noticeService');
 
 const SEES_ALL = ['HR', 'ADMIN', 'SUPER_ADMIN'];
 
@@ -19,11 +21,23 @@ exports.list = catchAsync(async (req, res) => {
 
 exports.create = catchAsync(async (req, res) => {
   if (!req.body.title || !req.body.body) throw ApiError.badRequest('title and body are required.');
-  const notice = await Notice.create({
-    title: req.body.title, body: req.body.body, audience: req.body.audience || 'all',
-    pinned: !!req.body.pinned, status: req.body.status || 'Published', author: req.user._id
-  });
-  res.status(201).json({ notice });
+  const { notice, notificationCount } = await publishNotice(
+    {
+      title: req.body.title,
+      body: req.body.body,
+      audience: req.body.audience || 'all',
+      audienceDepartments: req.body.audienceDepartments,
+      audienceRoles: req.body.audienceRoles,
+      audienceUserIds: req.body.audienceUserIds,
+      startDate: req.body.startDate,
+      expiryDate: req.body.expiryDate,
+      pinned: !!req.body.pinned,
+      status: req.body.status || 'Published',
+    },
+    req.user,
+    req
+  );
+  res.status(201).json({ notice, notificationCount });
 });
 
 exports.update = catchAsync(async (req, res) => {

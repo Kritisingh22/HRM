@@ -9,6 +9,7 @@ const router = express.Router();
 router.use(authenticate);
 router.get('/', ctrl.list);                                      // own + shared (scoped)
 router.post('/', uploadLimiter, upload.single('file'), ctrl.upload); // any user may upload their own (controller scopes)
+router.get('/reference/:referenceId/download', ctrl.downloadByReference); // download by public reference (DOC-YYYY-NNNNNN)
 router.get('/:id/download', ctrl.download);                     // object-level access check; streams from storage
 router.put('/:id/verify', requirePermission('documents:write'), ctrl.verify);
 router.delete('/:id', requirePermission('documents:delete'), ctrl.remove);

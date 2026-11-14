@@ -1309,6 +1309,7 @@ export const LEAVE_REQUESTS: LeaveRequest[] = [
     status: 'Approved',
     managerNote: '',
     decidedAt: '2026-09-29T15:40:00',
+    approvalAuthority: 'Manager',
   },
   {
     id: 'LR-1020',
@@ -1323,6 +1324,7 @@ export const LEAVE_REQUESTS: LeaveRequest[] = [
     status: 'Rejected',
     managerNote: 'Release week — please reschedule',
     decidedAt: '2026-09-11T10:15:00',
+    approvalAuthority: 'Manager',
   },
   {
     id: 'LR-1021',
@@ -1337,6 +1339,7 @@ export const LEAVE_REQUESTS: LeaveRequest[] = [
     status: 'Approved',
     managerNote: '',
     decidedAt: '2026-09-20T09:05:00',
+    approvalAuthority: 'Manager',
   },
   {
     id: 'LR-1022',
@@ -1351,6 +1354,7 @@ export const LEAVE_REQUESTS: LeaveRequest[] = [
     status: 'Approved',
     managerNote: 'Handover completed to Arjun.',
     decidedAt: '2026-09-26T17:20:00',
+    approvalAuthority: 'Manager',
   },
   {
     id: 'LR-1023',
@@ -1365,6 +1369,7 @@ export const LEAVE_REQUESTS: LeaveRequest[] = [
     status: 'Approved',
     managerNote: '',
     decidedAt: '2026-10-12T18:05:00',
+    approvalAuthority: 'Manager',
   },
   {
     id: 'LR-1024',
@@ -1378,6 +1383,7 @@ export const LEAVE_REQUESTS: LeaveRequest[] = [
     appliedOn: '2026-10-13',
     status: 'Pending',
     managerNote: '',
+    approvalAuthority: 'Manager',
   },
   {
     id: 'LR-1025',
@@ -1391,6 +1397,7 @@ export const LEAVE_REQUESTS: LeaveRequest[] = [
     appliedOn: '2026-10-14',
     status: 'Pending',
     managerNote: '',
+    approvalAuthority: 'Manager',
   },
   {
     id: 'LR-1026',
@@ -1404,6 +1411,7 @@ export const LEAVE_REQUESTS: LeaveRequest[] = [
     appliedOn: '2026-10-15',
     status: 'Pending',
     managerNote: '',
+    approvalAuthority: 'Manager',
   },
 ];
 

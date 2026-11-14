@@ -111,7 +111,9 @@ export function mapEmployee(e: Raw): Employee {
     gender: e.gender === 'Female' ? 'Female' : e.gender === 'Male' ? 'Male' : 'Other',
     dob: '',
     dept: e.department || '',
+    departmentId: e.departmentId || undefined,
     designation: e.designation || '',
+    designationId: e.designationId || undefined,
     manager: e.manager || null,
     location: e.location || '',
     employmentType: ['Full-time', 'Part-time', 'Contract', 'Intern'].includes(e.employmentType)
@@ -126,6 +128,10 @@ export function mapEmployee(e: Raw): Employee {
     bloodGroup: e.bloodGroup || undefined,
     emergency: e.emergencyContact || undefined,
     address: e.address || undefined,
+    userId: e.userId || undefined,
+    accountStatus: e.accountStatus || undefined,
+    mustChangePassword: e.mustChangePassword === true,
+    role: e.role || undefined,
   };
 }
 
@@ -152,11 +158,33 @@ export function deriveDesignations(employees: Employee[], departments: Departmen
       id: `DSG-${seen.size + 1}`,
       title: e.designation,
       deptId: deptId.get(e.dept) || '',
-      min: '',
-      max: '',
+      level: '',
+      isActive: true,
     });
   }
   return Array.from(seen.values());
+}
+
+/** Map a raw department document from the server API. */
+export function mapDepartment(d: Raw): Department {
+  return {
+    id: String(d._id || d.id || d.departmentId || ''),
+    name: d.name || '',
+    head: d.headUserId || d.head || null,
+    code: d.code || '',
+    active: d.isActive !== false,
+  };
+}
+
+/** Map a raw designation document from the server API. */
+export function mapDesignation(d: Raw): Designation {
+  return {
+    id: String(d._id || d.id || ''),
+    title: d.name || d.title || '',
+    deptId: String(d.departmentId || d.department || ''),
+    level: d.level || '',
+    isActive: d.isActive !== false,
+  };
 }
 
 /* ---------------- leave ---------------- */
@@ -209,6 +237,9 @@ export function mapAttendanceRecord(raw: Raw): { key: string; record: Attendance
   if (outMin !== null && outMin < 1080) record.earlyOut = `${1080 - outMin} min`;
   if (outMin !== null && outMin > 1125) record.overtime = `${outMin - 1125} min`;
   if (raw.status === 'leave' && raw.note) record.leaveType = String(raw.note);
+  // Server-computed fields from the mandatory attendance model
+  record.activeTime = raw.activeSeconds ?? undefined;
+  record.locationStatus = raw.locationStatus as 'verified' | 'outside' | 'unknown' || undefined;
   return { key: `${empId}|${raw.date}`, record };
 }
 
@@ -484,6 +515,7 @@ export function mapDocument(d: Raw): DocumentRecord {
     size: typeof d.size === 'number' ? d.size : undefined,
     uploadStatus:
       d.uploadStatus === 'missing' || d.uploadStatus === 'deleted' ? d.uploadStatus : 'active',
+    referenceId: typeof d.referenceId === 'string' && d.referenceId ? d.referenceId : undefined,
   };
 }
 

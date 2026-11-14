@@ -8,6 +8,7 @@ const { ROLES } = require('../utils/permissions');
 const ApiError = require('../utils/ApiError');
 const catchAsync = require('../utils/catchAsync');
 const { logAudit } = require('../utils/audit');
+const { propagateUserChange } = require('../services/userService');
 
 /* ---------------------------------------------------------------------------
  * Role-assignment & account-modification guards (backend-enforced RBAC).
@@ -117,13 +118,43 @@ exports.update = catchAsync(async (req, res) => {
   // Admin, and never leave the system without any active admin-level account.
   await assertAdminAvailability(user, roleChange ? req.body.role : undefined, req.body.status);
 
+  /* Capture before/after for change propagation. */
+  const before = {
+    role: user.role,
+    status: user.status,
+    department: user.department,
+    manager: user.manager,
+  };
   if (roleChange) user.role = req.body.role;
-  ['status', 'department', 'designation', 'fullName'].forEach((k) => { if (req.body[k] !== undefined) user[k] = req.body[k]; });
+  ['status', 'department', 'designation', 'fullName', 'manager'].forEach((k) => { if (req.body[k] !== undefined) user[k] = req.body[k]; });
   if (req.body.employeeId) user.employeeId = req.body.employeeId;
   await user.save();
+
+  const after = {
+    role: user.role,
+    status: user.status,
+    department: user.department,
+    manager: user.manager,
+  };
+
+  const changes = {};
+  ['role', 'status', 'department', 'manager'].forEach((k) => {
+    if (String(before[k]) !== String(after[k])) {
+      changes[k] = { before: before[k], after: after[k] };
+    }
+  });
+
   const changed = [];
   if (roleChange) changed.push(`role→${user.role}`);
-  ['status', 'department', 'designation', 'fullName', 'employeeId'].forEach((k) => { if (req.body[k] !== undefined) changed.push(`${k}→${req.body[k]}`); });
+  ['status', 'department', 'designation', 'fullName', 'employeeId', 'manager'].forEach((k) => { if (req.body[k] !== undefined) changed.push(`${k}→${req.body[k]}`); });
   logAudit(req, { action: 'user.update', targetType: 'User', targetId: user._id, description: `Updated ${user.email}: ${changed.join(', ') || 'no change'}` });
+
+  /* Propagate cross-collection effects: revoke tokens on role/status change, notify user. */
+  try {
+    await propagateUserChange(user, changes, req);
+  } catch (err) {
+    console.error('[userController] propagateUserChange failed:', err.message);
+  }
+
   res.json({ user: user.toSafeJSON() });
 });

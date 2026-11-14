@@ -1,14 +1,14 @@
-/* Google Drive provider — the ONLY module that talks to the official Drive API.
+﻿/* Google Drive provider ΓÇö the ONLY module that talks to the official Drive API.
  *
  * Auth (chosen by GOOGLE_DRIVE_AUTH_MODE):
  *   - 'service_account' (default): JSON key file under server/secrets/ (gitignored)
  *     or inline JSON via GOOGLE_SERVICE_ACCOUNT_JSON. The service account can only
- *     reach files/folders that were explicitly shared with its email — and it can
+ *     reach files/folders that were explicitly shared with its email ΓÇö and it can
  *     upload into a My Drive folder that has been shared with it as Editor.
  *   - 'oauth': a stored refresh token acts on behalf of a real user account
  *     (files are then owned by that user). All three GOOGLE_OAUTH_* vars required.
  *
- * Privacy: sharing/permissions on Drive are NEVER modified from here — nothing is
+ * Privacy: sharing/permissions on Drive are NEVER modified from here ΓÇö nothing is
  * ever made public, and no Drive URL is ever sent to clients. Files are private by
  * default and reach users only through authenticated backend endpoints.
  *
@@ -114,7 +114,7 @@ function driveReason(e) {
   return null;
 }
 
-/** Safe, actionable ApiError — never leaks Google payloads or credentials. */
+/** Safe, actionable ApiError ΓÇö never leaks Google payloads or credentials. */
 function mapDriveError(e, context = 'request') {
   if (e instanceof ApiError) return e;
   const status = driveStatus(e);
@@ -122,7 +122,7 @@ function mapDriveError(e, context = 'request') {
   if (status === 404 || reason === 'notFound') return ApiError.notFound('The file was not found in storage.');
   if (reason === 'storageQuotaExceeded') return new ApiError(507, 'Document storage has no free space left.');
   if (status === 403 || reason === 'forbidden' || reason === 'insufficientFilePermissions' || reason === 'appNotAuthorizedToChild') {
-    return new ApiError(502, 'Document storage refused the request — verify the folder is shared with the storage account.');
+    return new ApiError(502, 'Document storage refused the request ΓÇö verify the folder is shared with the storage account.');
   }
   if (status === 401) return new ApiError(502, 'Document storage authentication failed. Check the server credentials.');
   if (status === 429 || reason === 'rateLimitExceeded' || reason === 'userRateLimitExceeded') {
@@ -195,7 +195,7 @@ async function uploadFile({ name, buffer, mimeType, parentId, appProperties }) {
   }, 'upload');
 }
 
-/** Readable stream of the file bytes (downloads are proxied — never redirected). */
+/** Readable stream of the file bytes (downloads are proxied ΓÇö never redirected). */
 async function getFileStream(fileId) {
   return withRetry(async () => {
     const drive = getDrive();
@@ -245,7 +245,7 @@ async function trashFile(fileId) {
   }, 'trash');
 }
 
-/** Permanent delete — used ONLY by test/cleanup scripts on files they created. */
+/** Permanent delete ΓÇö used ONLY by test/cleanup scripts on files they created. */
 async function deleteFile(fileId) {
   return withRetry(async () => {
     const drive = getDrive();
@@ -286,7 +286,7 @@ async function getFolder(folderId) {
   return meta;
 }
 
-/** Find (or create) a subfolder by name — used by the round-trip check + live tests. */
+/** Find (or create) a subfolder by name ΓÇö used by the round-trip check + live tests. */
 async function ensureFolder(parentId, name) {
   const children = await listChildren(parentId);
   const existing = children.find((f) => f.mimeType === FOLDER_MIME && f.name === name);

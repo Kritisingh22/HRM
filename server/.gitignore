@@ -8,3 +8,4 @@ coverage/
 .env.*
 .env.example
 server/.env.example
+.scripts/sync-dist.js

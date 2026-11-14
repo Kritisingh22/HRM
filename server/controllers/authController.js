@@ -14,6 +14,7 @@ const {
 const { permissionsFor } = require('../utils/permissions');
 const { navFor, portalFor } = require('../utils/navigation');
 const { notifyByEmployee } = require('../utils/notifyByEmployee');
+const { logAudit } = require('../utils/audit');
 
 const REFRESH_MS = ttlToMs(cfg.REFRESH_TOKEN_EXPIRES_IN);
 
@@ -25,7 +26,7 @@ const DUMMY_PASSWORD_HASH = bcrypt.hashSync('cyethack-timing-equalizer', cfg.BCR
 function baseCookieOptions() {
   return {
     httpOnly: true,
-    sameSite: cfg.isProd ? 'none' : 'lax',  // 'none' for cross-site in prod (requires secure), 'lax' for dev
+    sameSite: 'strict',                       // refresh cookie is same-site only
     secure: cfg.isProd,          // HTTPS-only in production
     path: '/api'                 // cookie sent to all API routes for token refresh
   };
@@ -79,12 +80,40 @@ function readGpsFromBody(body) {
 // Opens a new LoginSession row and (best-effort) notifies the employee's
 // assigned HR/manager. loginAt/duration are always server time — never
 // anything supplied by the client.
+//
+// Idempotent: if the user already has an Active session, reuse it instead
+// of creating a new row — prevents one document per request under request
+// storms.
 async function startLoginSession(user, req) {
   const employee = await Employee.findOne({
     $or: [{ user: user._id }, { employeeId: user.employeeId }],
   });
 
-  const session = await LoginSession.create({
+  // Reuse an existing Active session instead of creating a duplicate row.
+  let session = await LoginSession.findOne({ user: user._id, status: 'Active' }).sort({ loginAt: -1 });
+  if (session) {
+    // Refresh last-seen only at most once per minute to avoid write storms.
+    const now = new Date();
+    const lastSeen = session.lastSeenAt || session.loginAt;
+    if (now.getTime() - lastSeen.getTime() > 60_000) {
+      session.lastSeenAt = now;
+      session.ip = req.ip;
+      session.userAgent = req.headers['user-agent'];
+      await session.save();
+    }
+    if (employee) {
+      await notifyByEmployee(employee, {
+        type: 'Employee Login',
+        title: `${employee.fullName} logged in`,
+        message: `${employee.fullName} (${employee.employeeId}) logged in at ${session.loginAt.toLocaleString('en-IN')}.`,
+        relatedEntity: { type: 'Other', id: session._id },
+        metadata: { employeeId: employee.employeeId, sessionId: session._id },
+      });
+    }
+    return session;
+  }
+
+  session = await LoginSession.create({
     user: user._id,
     employeeId: user.employeeId || (employee && employee.employeeId),
     role: user.role,
@@ -137,6 +166,26 @@ async function closeActiveSession(user) {
   return session;
 }
 
+/* Response-safe user projection that works on both full Mongoose documents
+ * and the lean plain objects attached by authenticate() (lean docs have no
+ * `toSafeJSON`). Never leaks passwordHash or lockout internals. */
+function safeUserJson(user) {
+  if (user && typeof user.toSafeJSON === 'function') return user.toSafeJSON();
+  return {
+    id: user._id,
+    employeeId: user.employeeId,
+    name: user.fullName,
+    email: user.email,
+    role: user.role,
+    department: user.department,
+    designation: user.designation,
+    status: user.status,
+    accountStatus: user.accountStatus,
+    mustChangePassword: user.mustChangePassword,
+    permissions: user.permissions || [],
+  };
+}
+
 function sendSession(res, user, rawRefresh) {
   res.cookie(cfg.COOKIE_NAME, rawRefresh, refreshCookieOptions());
   // Merge role permissions with user-specific permissions (user perms ADD to role perms)
@@ -146,7 +195,7 @@ function sendSession(res, user, rawRefresh) {
   return {
     accessToken: signAccessToken(user),
     expiresIn: cfg.ACCESS_TOKEN_EXPIRES_IN,
-    user: { ...user.toSafeJSON(), permissions: allPerms, nav: navFor(user.role), portal: portalFor(user.role) }
+    user: { ...safeUserJson(user), permissions: allPerms, nav: navFor(user.role), portal: portalFor(user.role) }
   };
 }
 
@@ -172,12 +221,19 @@ exports.login = catchAsync(async (req, res) => {
 
   if (!user || !passwordOk) {
     if (user) {
+      // Record the failed attempt, but never let a broken record (e.g. a
+      // legacy row missing its password hash) convert a generic 401 into a
+      // 500/400 that would reveal the account exists.
       user.failedLoginAttempts += 1;
       if (user.failedLoginAttempts >= cfg.MAX_FAILED_LOGINS) {
         user.accountLockedUntil = new Date(Date.now() + cfg.ACCOUNT_LOCK_MINUTES * 60000);
         user.failedLoginAttempts = 0;
       }
-      await user.save();
+      try {
+        await user.save();
+      } catch (saveErr) {
+        console.error('[login] failed-attempt save failed:', saveErr.message);
+      }
     }
     throw ApiError.unauthorized('Invalid email or password.'); // generic — no enumeration
   }
@@ -253,7 +309,7 @@ exports.me = catchAsync(async (req, res) => {
   const rolePerms = permissionsFor(req.user.role);
   const userPerms = req.user.permissions || [];
   const allPerms = [...new Set([...rolePerms, ...userPerms])];
-  res.json({ user: { ...req.user.toSafeJSON(), permissions: allPerms, nav: navFor(req.user.role), portal: portalFor(req.user.role) } });
+  res.json({ user: { ...safeUserJson(req.user), permissions: allPerms, nav: navFor(req.user.role), portal: portalFor(req.user.role) } });
 });
 
 /* POST /api/auth/change-password — the logged-in user changes their own password.
@@ -272,8 +328,69 @@ exports.changePassword = catchAsync(async (req, res) => {
   user.password = newPassword;   // hashed on save
   await user.save();
   await RefreshToken.updateMany({ user: user._id }, { revoked: true }); // force re-login elsewhere
+  // Clear first-login / temporary-password flag now that a real password is set.
+  if (user.mustChangePassword) {
+    user.mustChangePassword = false;
+    await user.save();
+  }
   res.clearCookie(cfg.COOKIE_NAME, clearCookieOptions());
   res.json({ ok: true, message: 'Password changed. Please sign in again.' });
+});
+
+/* POST /api/auth/activate-account — new-hire account activation.
+ *
+ * The employee presents the one-time activation token (returned by
+ * POST /api/employees at creation time, delivered out-of-band by HR)
+ * and sets their password. The account transitions from pending-activation
+ * to active and mustChangePassword is cleared.
+ */
+exports.activateAccount = catchAsync(async (req, res) => {
+  const { activationToken, setupToken, newPassword } = req.body || {};
+  const token = activationToken || setupToken;
+  if (!token || !newPassword) {
+    throw ApiError.badRequest('A one-time token and newPassword are required.');
+  }
+  if (String(newPassword).length < 8) {
+    throw ApiError.badRequest('Password must be at least 8 characters.');
+  }
+
+  const isSetup = !!setupToken;
+  const user = await User.findOne({
+    $or: [
+      { activationToken: hashToken(token), activationTokenExpires: { $gt: new Date() }, accountStatus: 'pending-activation' },
+      { passwordResetToken: hashToken(token), passwordResetExpires: { $gt: new Date() }, mustChangePassword: true },
+    ],
+  }).select('+passwordHash');
+
+  if (!user) {
+    throw ApiError.forbidden('Invalid or expired setup/activation token.');
+  }
+
+  // Single-use: consume the token so it cannot be redeemed again.
+  user.password = newPassword;      // hashed on save via pre('validate')
+  user.accountStatus = 'active';
+  user.isVerified = true;
+  user.mustChangePassword = false;
+  user.activationToken = undefined;
+  user.activationTokenExpires = undefined;
+  user.passwordResetToken = undefined;
+  user.passwordResetExpires = undefined;
+  await user.save();
+
+  // Revoke any existing refresh tokens so only the new password works.
+  await RefreshToken.updateMany({ user: user._id }, { revoked: true });
+
+  logAudit(req, {
+    action: isSetup ? 'auth.setup_invite_redeem' : 'auth.activate_account',
+    targetType: 'User',
+    targetId: String(user._id),
+    description: `${isSetup ? 'Redeemed one-time setup invitation' : 'Activated account'} for ${user.email} (${user.employeeId})`,
+  });
+  res.json({
+    ok: true,
+    message: 'Password set. You can now log in with your new password.',
+    user: user.toSafeJSON(),
+  });
 });
 
 /* POST /api/auth/bootstrap-admin — creates the FIRST admin account. Requires BOTH

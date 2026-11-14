@@ -4,10 +4,18 @@
   "version": "1.0.0",
   "description": "Cyethack HR Portal — Express + MongoDB backend with Vite + React SPA frontend.",
   "scripts": {
-    "build": "npm --prefix client ci && npm --prefix client run build && npm --prefix server ci && cp -r client/dist/* server/public/",
+    "build": "npm --prefix client ci && npm --prefix client run build && node scripts/sync-dist.js",
+    "build:client": "npm --prefix client run build",
+    "sync:dist": "node scripts/sync-dist.js",
+    "guard:dist": "scripts/guard-frontend-dist.sh cyethack-hrm-portal:latest",
     "start": "npm --prefix server ci && node server/server.js",
-    "dev": "npm --prefix server run dev & npm --prefix client run dev",
+    "dev:client": "npm --prefix client run dev",
+    "dev:server": "npm --prefix server run dev",
+    "dev": "concurrently \"npm --prefix client run dev\" \"npm --prefix server run dev\"",
     "test": "npm --prefix server test"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
   },
   "engines": {
     "node": ">=18"

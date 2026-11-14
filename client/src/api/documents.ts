@@ -9,7 +9,7 @@
    request.
    ============================================================ */
 import { ApiError } from '@/api/mockServer';
-import { apiRequest } from '@/api/client';
+import { apiRequest, SessionRequiredError } from '@/api/client';
 
 export interface DocumentBlob {
   blob: Blob;
@@ -49,6 +49,22 @@ export async function fetchDocumentBlob(
   };
 }
 
+/** Fetch one stored document by its public reference (DOC-YYYY-NNNNNN). */
+export async function fetchDocumentByReference(
+  referenceId: string,
+  opts: { download?: boolean; fallbackName?: string } = {},
+): Promise<DocumentBlob> {
+  const qs = opts.download ? '?download=1' : '';
+  const res = await apiRequest(`/api/documents/reference/${encodeURIComponent(referenceId)}/download${qs}`);
+  const blob = await res.blob();
+  return {
+    blob,
+    filename:
+      filenameFromHeader(res.headers.get('Content-Disposition')) ?? opts.fallbackName ?? `document-${referenceId}`,
+    mimeType: res.headers.get('Content-Type') ?? blob.type ?? 'application/octet-stream',
+  };
+}
+
 /** Open a stored document inline in a new tab (blob URL — never a Drive link). */
 export async function openDocument(id: string, fallbackName?: string): Promise<void> {
   const { blob } = await fetchDocumentBlob(id, { fallbackName });
@@ -72,8 +88,11 @@ export function downloadBlob(blob: Blob, filename: string): void {
 
 /** Human error text for the document actions. */
 export function documentErrorMessage(err: unknown): string {
+  /* SessionRequiredError carries its own user-facing message ("Please sign in
+     to continue." / the demo-account message) — never remap it. */
+  if (err instanceof SessionRequiredError) return err.message;
   if (err instanceof ApiError) {
-    if (err.status === 401) return 'Your session has expired — sign in again to open documents.';
+    if (err.status === 401) return err.message;
     if (err.status === 403) return 'You do not have access to this document.';
     if (err.status === 404) return 'The file is no longer available on the server.';
     if (err.status === 413) return 'This file is larger than the server upload limit.';

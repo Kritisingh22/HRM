@@ -7,13 +7,23 @@ const ApiError = require('../utils/ApiError');
 const catchAsync = require('../utils/catchAsync');
 const { logAudit } = require('../utils/audit');
 const { calculateLastWorkingDay, validateLastWorkingDay } = require('../utils/noticePeriod');
+const { teamEmployeeIds, managerScope } = require('../utils/teamScope');
+const { completeOffboarding } = require('../services/offboardingService');
 
 const SEES_ALL = ['HR', 'ADMIN', 'SUPER_ADMIN'];
 async function myEmployee(user) { return Employee.findOne({ $or: [{ user: user._id }, { employeeId: user.employeeId }] }); }
 
 exports.list = catchAsync(async (req, res) => {
   let filter = {};
-  if (!SEES_ALL.includes(req.user.role)) { const me = await myEmployee(req.user); filter.employee = me ? me._id : null; }
+  if (SEES_ALL.includes(req.user.role)) {
+    filter = {}; // HR/Admin/Super see everything
+  } else if (req.user.role === 'MANAGER' && managerScope('offboarding') === 'team') {
+    const ids = await teamEmployeeIds(req.user);
+    filter = { employee: { $in: ids } }; // team-scoped: own + direct/indirect reports
+  } else {
+    const me = await myEmployee(req.user);
+    filter.employee = me ? me._id : null; // own
+  }
   const records = await Offboarding.find(filter).populate('employee', 'employeeId fullName department').sort({ createdAt: -1 }).limit(500);
   res.json({ count: records.length, offboarding: records });
 });
@@ -70,15 +80,36 @@ exports.update = catchAsync(async (req, res) => {
     }
   }
 
-  if (rec.status === 'Completed') {
-    // deactivate the employee + their login, but KEEP all historical records
-    const emp = await Employee.findById(rec.employee);
-    if (emp) {
-      emp.status = 'Exited'; await emp.save();
-      if (emp.user) await User.findByIdAndUpdate(emp.user, { status: 'inactive' });
-      logAudit(req, { action: 'offboarding.complete', targetType: 'Employee', targetId: emp.employeeId, description: `Completed offboarding for ${emp.employeeId} (marked Exited, login disabled)` });
+  const wasCompleted = rec.status === 'Completed';
+  const becomingCompleted = req.body.status === 'Completed' && !wasCompleted;
+
+  ['reason', 'resignationDate', 'noticePeriod', 'lastWorkingDate', 'status', 'clearance', 'finalSettlementRef', 'notes'].forEach((k) => {
+    if (req.body[k] !== undefined) rec[k] = req.body[k];
+  });
+
+  // If resignation date or notice period changed, recalculate and validate last working date
+  if (resignationDateChanged || noticePeriodChanged) {
+    const validation = validateLastWorkingDay(rec.resignationDate, rec.noticePeriod, rec.lastWorkingDate);
+    if (!validation.valid) {
+      // Auto-correct to expected value
+      rec.lastWorkingDate = validation.expected;
+      logAudit(req, {
+        action: 'offboarding.lastWorkingDate_corrected',
+        targetType: 'Offboarding',
+        targetId: rec._id,
+        description: `Last working date auto-corrected from ${rec.lastWorkingDate} to ${validation.expected} based on resignation date ${rec.resignationDate} and notice period ${rec.noticePeriod}`,
+      });
     }
   }
+
+  if (becomingCompleted) {
+    /* Use the service for atomic completion: reassign tasks/todos/tickets,
+       deactivate employee+user, revoke tokens, notify — all in a transaction. */
+    const result = await completeOffboarding(rec._id, req.user, req);
+    res.json({ offboarding: result.offboarding, reassigned: result.reassigned });
+    return;
+  }
+
   await rec.save();
   res.json({ offboarding: rec });
 });

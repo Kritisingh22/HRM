@@ -16,7 +16,7 @@ export function can(role: Role | undefined, action: string): boolean {
       'payslipRequests:*', 'tasks:read', 'tasks:write', 'tasks:approve'],
     HR: ['employees:read', 'employees:write', 'employees:delete',
       'leaves:read', 'leaves:write', 'leaves:approve',
-      'attendance:read', 'attendance:write',
+      'attendance:read', 'attendance:write', 'attendance:settings',
       'payroll:read', 'payroll:write',
       'hiring:read', 'hiring:write', 'hiring:delete',
       'performance:read', 'performance:write',
@@ -51,7 +51,10 @@ export function can(role: Role | undefined, action: string): boolean {
       'employees:read_own', 'performance:read_own', 'projects:read_own', 'documents:read_own',
       'documents:write_own', 'helpdesk:write_own', 'dailyReports:read_own', 'dailyReports:write_own',
       'notifications:read_own', 'payslipRequests:read_own', 'payslipRequests:create_own',
-      'transfers:approve', 'transfers:reject', 'transfers:read'],
+      'transfers:approve', 'transfers:reject', 'transfers:read',
+      // team-scoped operational reads
+      'offboarding:read',
+      'trainingAssignments:read'],
     EMPLOYEE: [
       'employees:read_own',
       'leaves:read_own', 'leaves:write_own',

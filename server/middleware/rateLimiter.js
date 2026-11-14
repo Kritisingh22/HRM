@@ -48,4 +48,17 @@ const uploadLimiter = rateLimit({
   message: { error: 'Too many document uploads. Please wait a few minutes and try again.' }
 });
 
-module.exports = { loginLimiter, apiLimiter, bootstrapLimiter, uploadLimiter };
+// Session endpoints (me, list) are polled by the client — cap them per user
+// to prevent a request storm from a misbehaving tab or extension.
+const sessionLimiter = rateLimit({
+  windowMs: 60 * 1000,        // 1 minute
+  max: 30,                    // per user per minute — plenty for normal use
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: skipInTest,
+  keyGenerator: (req) =>
+    req.user && req.user._id ? 'user:' + String(req.user._id) : (rateLimit.ipKeyGenerator ? rateLimit.ipKeyGenerator(req) : req.ip),
+  message: { error: 'Too many session requests. Please slow down.' }
+});
+
+module.exports = { loginLimiter, apiLimiter, bootstrapLimiter, uploadLimiter, sessionLimiter };

@@ -3,13 +3,12 @@ const mongoose = require('mongoose');
 const TeamTask = require('../models/TeamTask');
 const Employee = require('../models/Employee');
 const User = require('../models/User');
-const Notification = require('../models/Notification');
 const ApiError = require('../utils/ApiError');
 const catchAsync = require('../utils/catchAsync');
 const { logAudit } = require('../utils/audit');
 const { userHasPermission } = require('../utils/permissions');
 const { teamEmployeeIds } = require('../utils/teamScope');
-const { notifyByEmployee } = require('../utils/notifyByEmployee');
+const { notifyTaskChange, recomputeProjectProgress, handleTaskStatusChange } = require('../services/teamTaskService');
 
 /* Helper: check if user can access a task */
 async function canAccessTask(user, task) {
@@ -117,24 +116,8 @@ exports.create = catchAsync(async (req, res) => {
   // Add history
   task.addHistory('created', req.user._id, { details: 'Task created' });
 
-  // Notify assignees
-  if (assignedTo.length > 0) {
-    const assigneeEmployees = await Employee.find({ _id: { $in: task.assignedTo } }).populate('user');
-    for (const emp of assigneeEmployees) {
-      if (emp.user) {
-        await Notification.create({
-          user: emp.user._id,
-          type: 'Task Assigned',
-          title: `New Task: ${task.title}`,
-          message: `You have been assigned to "${task.title}" (due ${task.dueDate.toISOString().split('T')[0]})`,
-          relatedEntity: { type: 'TeamTask', id: task._id },
-          channels: { inApp: true, email: false },
-          priority: 'Normal',
-          metadata: { taskId: task._id },
-        });
-      }
-    }
-  }
+  // Notify assignees via service (deduplicated)
+  await notifyTaskChange(task, 'created', req.user, undefined);
 
   // Notify mentioned users in description (simple @mention parsing)
   const mentions = task.description.match(/@(\w+)/g) || [];
@@ -156,6 +139,15 @@ exports.create = catchAsync(async (req, res) => {
   }
 
   await task.save();
+
+  // Recompute parent project progress if linked
+  if (project) {
+    try {
+      await recomputeProjectProgress(project);
+    } catch (err) {
+      console.error('[teamTaskController] recomputeProjectProgress failed:', err.message);
+    }
+  }
 
   logAudit(req, {
     action: 'task.create',
@@ -360,27 +352,43 @@ exports.update = catchAsync(async (req, res) => {
 
   await task.save();
 
-  // Notify new assignees
+  // Notify about assigned-to changes via service
   if (req.body.assignedTo) {
     const newAssignees = req.body.assignedTo.filter(id => 
       !task.assignedTo.some(old => old.toString() === id.toString())
     );
     if (newAssignees.length > 0) {
-      const assigneeEmployees = await Employee.find({ _id: { $in: newAssignees } }).populate('user');
-      for (const emp of assigneeEmployees) {
-        if (emp.user) {
-          await Notification.create({
-            user: emp.user._id,
-            type: 'Task Assigned',
-            title: `New Task: ${task.title}`,
-            message: `You have been assigned to "${task.title}" (due ${task.dueDate.toISOString().split('T')[0]})`,
-            relatedEntity: { type: 'TeamTask', id: task._id },
-            channels: { inApp: true, email: false },
-            priority: 'Normal',
-            metadata: { taskId: task._id },
-          });
-        }
-      }
+      const newAssigneeObjs = task.assignedTo.filter(id =>
+        newAssignees.includes(id.toString())
+      );
+      await notifyTaskChange(task, 'assigned', req.user, {
+        field: 'assignedTo',
+        oldValue: JSON.stringify(oldValues.assignedTo),
+        newValue: JSON.stringify(req.body.assignedTo),
+      });
+    }
+  }
+
+  // Notify about field changes
+  const changedFields = Object.keys(oldValues).filter(field => 
+    JSON.stringify(oldValues[field]) !== JSON.stringify(task[field])
+  );
+  if (changedFields.length > 0) {
+    const primaryChange = changedFields[0];
+    await notifyTaskChange(task, 'updated', req.user, {
+      field: primaryChange,
+      oldValue: JSON.stringify(oldValues[primaryChange]),
+      newValue: JSON.stringify(task[primaryChange]),
+    });
+  }
+
+  // Recompute parent project progress if linked or changed
+  const projectId = req.body.project || task.project;
+  if (projectId) {
+    try {
+      await recomputeProjectProgress(projectId);
+    } catch (err) {
+      console.error('[teamTaskController] recomputeProjectProgress failed:', err.message);
     }
   }
 
@@ -414,13 +422,9 @@ exports.updateStatus = catchAsync(async (req, res) => {
   }
 
   const oldStatus = task.status;
-  task.status = status;
-  task.addHistory('status_changed', req.user._id, {
-    field: 'status',
-    oldValue: oldStatus,
-    newValue: status,
-    details: `Status changed from "${oldStatus}" to "${status}"`
-  });
+  if (oldStatus !== status) {
+    await handleTaskStatusChange(task, status, req.user, `Status changed from "${oldStatus}" to "${status}"`);
+  }
 
   if (status === 'Completed') {
     task.completedAt = new Date();

@@ -317,7 +317,9 @@ export function PayrollPage() {
         'success',
       );
     } catch (err) {
-      tab?.close();
+      if (tab && !tab.closed) {
+        tab.close();
+      }
       toast(payslipErrorMessage(err), 'error');
     } finally {
       setSlipBusy(null);
@@ -1137,7 +1139,7 @@ export function PayrollPage() {
         </div>
       </section>
 
-      {payslip ? <PayslipModal data={data} run={payslip.run} row={payslip.row} onClose={() => setPayslip(null)} onDownload={() => handlePayslipDownload(payslip.run, payslip.row)} /> : null}
+      {payslip ? <PayslipModal data={data} run={payslip.run} row={payslip.row} onClose={() => setPayslip(null)} onPrint={() => printPayslipDocument(payslip.run, payslip.row)} onDownload={() => handlePayslipDownload(payslip.run, payslip.row)} /> : null}
 
       {adjust ? (
         <Modal

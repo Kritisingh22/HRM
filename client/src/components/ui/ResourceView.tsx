@@ -6,7 +6,7 @@
    a toolbar, a table, row actions, a detail dialog and a
    validated create/edit form. This component encodes that once.
    ============================================================ */
-import { useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import { Icon } from '@/components/ui/Icon';
 import { Modal } from '@/components/ui/Modal';
 import { DetailList, EmptyState, StatChip, type DetailRow, type StatChipSpec } from '@/components/ui/primitives';
@@ -37,6 +37,10 @@ export interface FieldDef {
   type?: 'text' | 'number' | 'date' | 'select' | 'textarea' | 'email' | 'tel';
   required?: boolean;
   options?: Array<{ value: string; label: string }>;
+  /** Dynamically computed options based on current form values (for dependent selects). */
+  getOptions?: (values: Record<string, string>) => Array<{ value: string; label: string }>;
+  /** Key of another field this field depends on; when that field changes, this field is cleared. */
+  dependsOn?: string;
   half?: boolean;
   placeholder?: string;
   /** value pre-filled when creating a new record */
@@ -102,6 +106,15 @@ export function ResourceView<T>({
   const [values, setValues] = useState<Record<string, string>>({});
   const [invalid, setInvalid] = useState<Record<string, boolean>>({});
 
+  /* Memoized so the Modal's focus-restore effect does not re-run on every
+     keystroke (ResourceView re-renders as the user types). An inline arrow
+     function here would get a new identity on each render, causing Modal
+     to call first.focus() and steal focus from the input being typed in. */
+  const handleClose = useCallback(() => {
+    setCreating(false);
+    setEditRow(null);
+  }, []);
+
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
     return rows.filter((row) => {
@@ -128,7 +141,7 @@ export function ResourceView<T>({
     setEditRow(row);
   };
 
-  const submit = () => {
+  const submit = async () => {
     if (!form) return;
     const bad: Record<string, boolean> = {};
     form.forEach((f) => {
@@ -136,10 +149,17 @@ export function ResourceView<T>({
     });
     setInvalid(bad);
     if (Object.keys(bad).length) return;
-    if (creating && onCreate) onCreate(values);
-    else if (editRow && onUpdate) onUpdate(editRow, values);
+    try {
+      if (creating && onCreate) await onCreate(values);
+      else if (editRow && onUpdate) await onUpdate(editRow, values);
+    } catch {
+      /* onCreate/onUpdate already surfaced a toast with the error —
+         keep the modal open so the user can correct and retry. */
+      return;
+    }
     setCreating(false);
     setEditRow(null);
+    setValues(initialValues(form, null));
   };
 
   const formFields = form ?? [];
@@ -262,10 +282,7 @@ export function ResourceView<T>({
       {creating || editRow ? (
         <Modal
           title={creating ? (createLabel ?? 'Add record') : 'Edit record'}
-          onClose={() => {
-            setCreating(false);
-            setEditRow(null);
-          }}
+          onClose={handleClose}
           large
           footer={
             <>
@@ -290,7 +307,16 @@ export function ResourceView<T>({
               .filter((f) => !halfRows.includes(f))
               .map((f) => (
                 <div key={f.key} className={`field${invalid[f.key] ? ' invalid' : ''}`}>
-                  {renderFormField(f, values, (v) => setValues((prev) => ({ ...prev, [f.key]: v })))}
+                  {renderFormField(f, values, (v) => {
+                    const next = { ...values, [f.key]: v };
+                    // Clear fields that depend on this one when it changes
+                    formFields
+                      .filter((f2) => f2.dependsOn === f.key)
+                      .forEach((f2) => {
+                        next[f2.key] = '';
+                      });
+                    setValues(next);
+                  })}
                   <div className="err">Please enter the {f.label.toLowerCase()}.</div>
                 </div>
               ))}
@@ -299,7 +325,15 @@ export function ResourceView<T>({
             <div className="form-2col">
               {halfRows.map((f) => (
                 <div key={f.key} className={`field${invalid[f.key] ? ' invalid' : ''}`}>
-                  {renderFormField(f, values, (v) => setValues((prev) => ({ ...prev, [f.key]: v })))}
+                  {renderFormField(f, values, (v) => {
+                    const next = { ...values, [f.key]: v };
+                    formFields
+                      .filter((f2) => f2.dependsOn === f.key)
+                      .forEach((f2) => {
+                        next[f2.key] = '';
+                      });
+                    setValues(next);
+                  })}
                   <div className="err">Please enter the {f.label.toLowerCase()}.</div>
                 </div>
               ))}
@@ -320,11 +354,12 @@ function renderFormField(
   const value = values[f.key] ?? '';
   const label = <label htmlFor={id}>{f.label}</label>;
   if (f.type === 'select') {
+    const options = f.getOptions ? f.getOptions(values) : f.options ?? [];
     return (
       <>
         {label}
         <select id={id} value={value} onChange={(e) => onChange(e.target.value)}>
-          {(f.options ?? []).map((o) => (
+          {options.map((o) => (
             <option key={o.value} value={o.value}>
               {o.label}
             </option>

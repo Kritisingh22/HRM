@@ -16,7 +16,8 @@ import {
   type ReactNode,
 } from 'react';
 import type { LoginSessionRecord, SessionActivity, SessionUser } from '@/types';
-import { api, bootstrap, clearSession, invalidateGetCache, readSession } from '@/api/client';
+import { api, bootstrap, clearSession, invalidateGetCache, readSession, renewRealSession } from '@/api/client';
+import { getMe } from '@/api/attendance';
 import { canManagePeople, canSeeSalary, canVisit } from '@/data/nav';
 import { captureLocation } from '@/lib/geo';
 import { useApp } from '@/store/AppContext';
@@ -61,6 +62,10 @@ interface AuthContextValue {
   canVisitPage: (page: string) => boolean;
   canSeeSalary: boolean;
   canManage: boolean;
+  /** attendance gate state */
+  checkedInToday: boolean;
+  hasOpenSession: boolean;
+  fetchAttendanceState: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -70,6 +75,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<SessionUser | null>(null);
   const [status, setStatus] = useState<AuthStatus>('booting');
   const [activity, setActivity] = useState<SessionSnapshot | null>(null);
+  const [checkedInToday, setCheckedInToday] = useState(false);
+  const [hasOpenSession, setHasOpenSession] = useState(false);
 
   /* Load the navbar session panel data. Failures just leave the
      panel hidden — auth state itself is owned by `me()` / `login()`.
@@ -82,6 +89,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       /* no panel this round */
     }
   }, []);
+
+  const fetchAttendanceState = useCallback(async () => {
+    if (!user) return;
+    try {
+      const data = await getMe();
+      setCheckedInToday(Boolean(data.checkedInToday));
+      setHasOpenSession(Boolean(data.hasOpenSession));
+    } catch {
+      /* attendance state is best-effort */
+    }
+  }, [user]);
 
   /* ---- restore an existing session on boot ---- */
   useEffect(() => {
@@ -106,49 +124,74 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
     }
 
-    if (stored.source === 'api' && tokenIsFresh(stored)) {
-      /* Access token still valid: skip auth/refresh entirely. Refresh the
-         user + dashboard in ONE bootstrap round-trip, in parallel with
-         the shell render (never blocks the first paint). */
-      void bootstrap(stored.accessToken).then((fresh) => {
-        if (cancelled) return;
-        setUser(fresh.user);
-        invalidateGetCache();
-      }).catch(() => {
-        /* keep the stored user; the shell is already painted */
-      });
-      /* Session panel is nice-to-have: load after paint, pause when hidden. */
-      afterPaint(() => void refreshActivity(stored.accessToken));
-      return;
-    }
-
-    /* Access token expired or missing: the serial refresh → me chain.
-       Only runs when a refresh is actually required. */
     if (stored.source === 'api') {
-      api
-        .me(stored.accessToken)
-        .then((fresh) => {
+      /* The access token is short-lived and is never kept in localStorage.
+       * A fresh/stored token goes straight to bootstrap; a stale (remember-me)
+       * marker without a token is restored from the httpOnly refresh cookie. */
+      const go = (token: string) => {
+        void bootstrap(token).then((fresh) => {
           if (cancelled) return;
-          setUser(fresh);
-          setStatus('authenticated');
-          enableApiSession({
-            role: fresh.role,
-            employeeId: fresh.employeeId ?? null,
-            name: fresh.name,
-            email: fresh.email,
-          });
-          void refreshActivity(fresh.accessToken ?? stored.accessToken);
-        })
-        .catch(() => {
-          if (cancelled) return;
-          clearSession();
-          setStatus('guest');
+          /* Only set user when it actually changed — a new object reference
+             with the same data triggers a re-render, which recreates
+             fetchAttendanceState (depends on [user]), which re-runs this
+             effect, which calls go() again → infinite request loop. */
+          if (!user || user.id !== fresh.user.id) {
+            setUser(fresh.user);
+          }
+          invalidateGetCache();
+        }).catch(() => {
+          /* keep the stored user; the shell is already painted */
         });
+        /* Session panel is nice-to-have: load after paint, pause when hidden. */
+        afterPaint(() => void refreshActivity(token));
+        afterPaint(() => void fetchAttendanceState());
+      };
+
+      if (tokenIsFresh(stored)) {
+        /* Access token still valid: skip auth/refresh entirely. */
+        void go(stored.accessToken);
+        return;
+      }
+
+      if (stored.accessToken) {
+        /* Expired token: the serial me → refresh chain. */
+        api
+          .me(stored.accessToken)
+          .then((fresh) => {
+            if (cancelled) return;
+            setUser(fresh);
+            setStatus('authenticated');
+            enableApiSession({
+              role: fresh.role,
+              employeeId: fresh.employeeId ?? null,
+              name: fresh.name,
+              email: fresh.email,
+            });
+            void go(stored.accessToken);
+          })
+          .catch(() => {
+            if (cancelled) return;
+            clearSession();
+            setStatus('guest');
+          });
+        return;
+      }
+
+      /* Remember-me marker without a token: renew from the refresh cookie. */
+      void renewRealSession().then((renewed) => {
+        if (cancelled || !renewed) {
+          if (!renewed) { clearSession(); setStatus('guest'); }
+          return;
+        }
+        setUser(renewed.user);
+        void go(renewed.accessToken);
+      });
+      return;
     }
     return () => {
       cancelled = true;
     };
-  }, [refreshActivity, enableApiSession]);
+  }, [refreshActivity, enableApiSession, fetchAttendanceState]);
 
   const login = useCallback(
     async (email: string, password: string, remember: boolean) => {
@@ -172,6 +215,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         disableApiSession();
       }
       void refreshActivity(session.accessToken);
+      void fetchAttendanceState();
 
       void capture.then(({ point }) => {
         if (!point) return;
@@ -184,7 +228,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         });
       });
     },
-    [logLocation, refreshActivity, enableApiSession, disableApiSession, apiMode],
+    [logLocation, refreshActivity, enableApiSession, disableApiSession, apiMode, fetchAttendanceState],
   );
 
   const logout = useCallback(async (): Promise<LoginSessionRecord | null> => {
@@ -201,6 +245,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     setUser(null);
     setActivity(null);
+    setCheckedInToday(false);
+    setHasOpenSession(false);
     setStatus('guest');
     if (stored?.source === 'api') {
       /* Never leave server data (or the API-mode store) behind a
@@ -225,8 +271,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
       canSeeSalary: role ? canSeeSalary(role) : false,
       canManage: role ? canManagePeople(role) : false,
+      checkedInToday,
+      hasOpenSession,
+      fetchAttendanceState,
     };
-  }, [user, status, activity, login, logout]);
+  }, [user, status, activity, login, logout, checkedInToday, hasOpenSession, fetchAttendanceState]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

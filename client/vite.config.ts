@@ -36,10 +36,12 @@ export default defineConfig({
     react(),
     /* Remove CSS that no page uses (esp. the login page, which uses a
        small fraction of app.css). Runs in production builds only. */
-    htmlPurge({
+    // vite-plugin-purgecss's plugin typing predates Vite's PluginOption shape;
+    // the plugin works correctly at build time — cast to satisfy tsc.
+    (htmlPurge({
       safelist: DYNAMIC_CLASS_SAFELIST,
       /* PurgeCSS scans HTML + JS output for class names. */
-    }),
+    }) as unknown as import('vite').PluginOption),
   ],
   resolve: {
     alias: {
@@ -57,10 +59,9 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    /* 'hidden' generates source maps but omits the sourceMappingURL comment
-       from the built JS/CSS, so they are not publicly referenced. Upload the
-       .map files to your error tracker separately if desired. */
-    sourcemap: 'hidden',
+    /* Source maps are disabled for production builds so build output contains
+       only minified assets (no .map files, no source references). */
+    sourcemap: false,
     /* esbuild minification is on by default in production; make it explicit. */
     cssMinify: 'esbuild',
     /* Split CSS per chunk so lazy route chunks only pull their own styles. */

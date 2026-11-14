@@ -1,8 +1,24 @@
 /* Mounts every API router under /api. */
 const express = require('express');
+const mongoose = require('mongoose');
 const router = express.Router();
 
-router.get('/health', (req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
+/* /api/health reports liveness plus the live MongoDB connection state.
+ * It never leaks host, db name, URI or credentials — only the readyState.
+ * (The zero-DB /health keep-alive endpoint in app.js is untouched.) */
+function databaseState() {
+  const state = mongoose.connection.readyState;
+  const labels = { 0: 'disconnected', 1: 'connected', 2: 'connecting', 3: 'disconnecting' };
+  return labels[state] || 'unknown';
+}
+
+router.get('/health', (req, res) =>
+  res.json({
+    status: 'ok',
+    time: new Date().toISOString(),
+    database: databaseState(),
+  })
+);
 
 router.use('/auth', require('./authRoutes'));
 router.use('/users', require('./userRoutes'));
@@ -30,6 +46,8 @@ router.use('/sessions', require('./sessionRoutes'));
 router.use('/dashboard', require('./dashboardRoutes'));
 router.use('/bootstrap', require('./bootstrapRoutes'));
 router.use('/todos', require('./todoRoutes'));
+router.use('/departments', require('./departments'));
+router.use('/designations', require('./designations'));
 
 // New routes for enhanced HRM features
 router.use('/leave-types', require('./leaveTypeRoutes'));

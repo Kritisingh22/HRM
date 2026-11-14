@@ -2,7 +2,7 @@
    Login — the auth gate. Demo credentials are listed on the card
    so every role can be explored without a backend.
    ============================================================ */
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { Icon } from '@/components/ui/Icon';
 import { useAuth } from '@/context/AuthContext';
@@ -23,6 +23,16 @@ export function LoginPage() {
      production by default (no plaintext credentials exposed). Only enable
      by setting VITE_SHOW_DEMO_ACCOUNTS=true. */
   const showDemoAccounts = import.meta.env.VITE_SHOW_DEMO_ACCOUNTS === 'true';
+
+  /* Surface the message apiRequest stashed before sending us to login
+     ("Please sign in to continue." / the demo-account hint). */
+  useEffect(() => {
+    try {
+      const msg = sessionStorage.getItem('cyethackHRM.loginMessage');
+      sessionStorage.removeItem('cyethackHRM.loginMessage');
+      if (msg) setError(msg);
+    } catch { /* storage unavailable — nothing to surface */ }
+  }, []);
 
   if (status === 'authenticated' && user) return <Navigate to="/" replace />;
 
@@ -102,6 +112,11 @@ export function LoginPage() {
             Keep me signed in
           </label>
           <span className="auth-hint">Session lasts 12 hours</span>
+          <span className="auth-hint">
+            With “Keep me signed in”, opening the portal in a new tab or window restores your
+            session — the access token is never saved to disk (it is re-minted from the server’s
+            refresh cookie). Without it, the session lasts this tab only.
+          </span>
         </div>
 
         <button className="btn btn-primary auth-btn" type="submit" disabled={busy}>

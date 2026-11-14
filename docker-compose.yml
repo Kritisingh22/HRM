@@ -18,7 +18,9 @@ services:
       - mongo-data:/data/db
 
   server:
-    build: ./server
+    build:
+      context: .
+      dockerfile: Dockerfile
     restart: unless-stopped
     depends_on:
       - mongo
@@ -44,6 +46,9 @@ services:
       ACCESS_TOKEN_EXPIRES_IN: ${ACCESS_TOKEN_EXPIRES_IN:-15m}
       REFRESH_TOKEN_EXPIRES_IN: ${REFRESH_TOKEN_EXPIRES_IN:-7d}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5000}
+      # Points the server at the client build output copied into /app/client-dist
+      # by the root Dockerfile (stage 1 -> stage 2).
+      FRONTEND_DIST: ${FRONTEND_DIST:-/app/client-dist}
     ports:
       - "5000:5000"
     volumes:

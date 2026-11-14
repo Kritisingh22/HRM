@@ -42,7 +42,9 @@ const PERMISSIONS = {
     'notifications:read',
     'requirements:*', 'transfers:*',
     'payslipRequests:read', 'payslipRequests:create', 'payslipRequests:review',
-    'tasks:read', 'tasks:write'
+    'tasks:read', 'tasks:write',
+    'attendance:settings',
+    'resources:write'
   ],
 
   MANAGER: [
@@ -67,6 +69,10 @@ const PERMISSIONS = {
     'notifications:read_own', 'payslipRequests:read_own', 'payslipRequests:create_own',
     // transfer ticket approval for team members
     'transfers:approve', 'transfers:reject', 'transfers:read',
+    // team-scoped operational reads
+    'offboarding:read',
+    'trainingAssignments:read',
+    'resources:write'
   ],
 
   EMPLOYEE: [
