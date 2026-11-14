@@ -39,4 +39,10 @@ Thumbs.db
 .vscode/
 .idea/
 *.md
+<<<<<<< HEAD
 !tests/performance/README.md
+=======
+
+
+LIGHTHOUSE_QA_FIX_REPORT.md
+>>>>>>> fix/final-stabilization
