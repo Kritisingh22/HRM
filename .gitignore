@@ -38,5 +38,7 @@ test_payslip.pdf
 Thumbs.db
 .vscode/
 .idea/
+*.md
+
 
 LIGHTHOUSE_QA_FIX_REPORT.md
