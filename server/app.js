@@ -52,20 +52,25 @@ app.use(
       directives: {
         defaultSrc: ["'self'"],
         scriptSrc: ["'self'"],
-        styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
-        fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        fontSrc: ["'self'"],
         imgSrc: ["'self'", 'data:'],
-        connectSrc: ["'self'"]
+        connectSrc: ["'self'", 'http://localhost:5000'],
+        frameAncestors: ["'none'"],
+        baseUri: ["'self'"],
+        objectSrc: ["'none'"]
       }
     },
     hsts: {
-      maxAge: 63072000, // 2 years
+      maxAge: 31536000, // 1 year
       includeSubDomains: true,
       preload: true
     },
     noSniff: true,
     referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
-    crossOriginEmbedderPolicy: false
+    crossOriginEmbedderPolicy: false,
+    crossOriginOpenerPolicy: 'same-origin',
+    frameguard: { action: 'deny' }
   })
 );
 
@@ -77,10 +82,9 @@ app.use((_req, res, next) => {
   res.setHeader(
     'Content-Security-Policy-Report-Only',
     "default-src 'self'; base-uri 'self'; font-src 'self' https://fonts.gstatic.com data:; " +
-    "form-action 'self'; frame-ancestors 'self'; img-src 'self' data:; object-src 'none'; " +
+    "form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; " +
     "script-src 'self'; script-src-attr 'none'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
-    "upgrade-insecure-requests; connect-src 'self'; " +
-    "require-trusted-types-for 'script';"
+    "upgrade-insecure-requests; connect-src 'self';"
   );
   next();
 });
