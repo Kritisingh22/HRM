@@ -131,7 +131,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const go = (token: string) => {
         void bootstrap(token).then((fresh) => {
           if (cancelled) return;
-          setUser(fresh.user);
+          /* Only set user when it actually changed — a new object reference
+             with the same data triggers a re-render, which recreates
+             fetchAttendanceState (depends on [user]), which re-runs this
+             effect, which calls go() again → infinite request loop. */
+          if (!user || user.id !== fresh.user.id) {
+            setUser(fresh.user);
+          }
           invalidateGetCache();
         }).catch(() => {
           /* keep the stored user; the shell is already painted */

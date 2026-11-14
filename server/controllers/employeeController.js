@@ -28,6 +28,11 @@ const {
 } = require("../utils/employeeIdGenerator");
 const { hashToken } = require("../utils/tokens");
 const RefreshToken = require("../models/RefreshToken");
+const {
+  emitToEmployee,
+  emitToRole,
+  emitToTeam,
+} = require("../utils/socketHandler");
 const { putObject } = require("../services/storage");
 const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
 const HR_ACCESS = ["HR", "ADMIN", "SUPER_ADMIN"];
@@ -412,6 +417,96 @@ exports.create = catchAsync(async (req, res) => {
   } catch (e) {
     // Notification failure must not roll back or fail employee creation.
     console.error('[employee.create] creator notification failed:', e.message);
+  }
+
+  // ---- Cross-Module: Notify HR about new employee ----
+  // HR dashboard should show new employee in their assigned roster
+  try {
+    if (creator.role !== 'HR' && emp.assignedHrId) {
+      const hrUser = await User.findOne({ employeeId: emp.assignedHrId }).select('_id').lean();
+      if (hrUser) {
+        await createNotification({
+          user: hrUser._id,
+          type: 'New Employee Assigned',
+          title: 'New employee assigned to you',
+          message: `${emp.fullName} (${emp.employeeId}) has been added to your assigned employees in ${emp.department} department.`,
+          relatedEntity: { type: 'Employee', id: emp._id },
+          priority: 'Normal',
+          metadata: {
+            employeeId: emp.employeeId,
+            employeeName: emp.fullName,
+            department: emp.department,
+            designation: emp.designation,
+            assignedBy: String(creator._id),
+            assignedByRole: creator.role,
+          },
+        });
+      }
+    }
+  } catch (e) {
+    console.error('[employee.create] HR notification failed:', e.message);
+  }
+
+  // ---- Cross-Module: Notify Manager about new report ----
+  // Manager dashboard should show new report in their team
+  try {
+    if (emp.manager && emp.manager !== creator.employeeId) {
+      const managerEmp = await Employee.findOne({ employeeId: emp.manager }).populate('user', '_id').lean();
+      if (managerEmp && managerEmp.user) {
+        await createNotification({
+          user: managerEmp.user._id,
+          type: 'New Report Added',
+          title: 'New team member added',
+          message: `${emp.fullName} (${emp.employeeId}) has been added to your team as ${emp.designation}.`,
+          relatedEntity: { type: 'Employee', id: emp._id },
+          priority: 'Normal',
+          metadata: {
+            employeeId: emp.employeeId,
+            employeeName: emp.fullName,
+            department: emp.department,
+            designation: emp.designation,
+            addedBy: String(creator._id),
+            addedByRole: creator.role,
+          },
+        });
+      }
+    }
+  } catch (e) {
+    console.error('[employee.create] Manager notification failed:', e.message);
+  }
+
+  // ---- Real-Time: Emit employee created event ----
+  try {
+    emitToRole('HR', 'employee.created', {
+      employeeId: emp.employeeId,
+      employeeName: emp.fullName,
+      department: emp.department,
+      designation: emp.designation,
+      role: user.role,
+      status: emp.status,
+      joiningDate: emp.joiningDate,
+      createdBy: String(creator._id),
+      createdByRole: creator.role,
+    });
+    emitToRole('MANAGER', 'employee.created', {
+      employeeId: emp.employeeId,
+      employeeName: emp.fullName,
+      department: emp.department,
+      designation: emp.designation,
+      manager: emp.manager,
+      createdBy: String(creator._id),
+    });
+    if (emp.manager) {
+      emitToEmployee(String(emp.manager), 'employee.created', {
+        employeeId: emp.employeeId,
+        employeeName: emp.fullName,
+        department: emp.department,
+        designation: emp.designation,
+        message: 'New report added to your team',
+      });
+    }
+  } catch (e) {
+    console.error('[employee.create] Socket emit failed:', e.message);
   }
 
   // ---- generate offer letter PDF ----
@@ -862,6 +957,21 @@ exports.setAccountStatus = catchAsync(async (req, res) => {
     emp.status = 'Active';
   }
   await emp.save();
+
+  // ---- Cross-Module: Employee Deactivation → Cancel Pending Leave ----
+  // When an employee is deactivated, cancel their pending leave requests
+  // and mark them as unavailable in attendance.
+  if (nextStatus !== 'active' && previousStatus === 'active') {
+    try {
+      const Leave = require('../models/Leave');
+      await Leave.updateMany(
+        { employee: emp._id, status: 'Pending' },
+        { $set: { status: 'Cancelled', decidedBy: req.user._id, decidedAt: new Date(), rejectionReason: 'Employee account deactivated' } }
+      );
+    } catch (e) {
+      console.error('[employee.setAccountStatus] Leave cancellation failed:', e.message);
+    }
+  }
 
   logAudit(req, {
     action: nextStatus === 'active' ? 'employee.activate' : 'employee.deactivate',

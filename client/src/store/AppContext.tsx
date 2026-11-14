@@ -34,6 +34,7 @@ import { reducer, type AppAction } from '@/store/reducer';
 import { nextSeq } from '@/lib/format';
 import { nowTime, todayISO } from '@/lib/date';
 import { setAttendanceSource } from '@/lib/attendance';
+import type { RefreshKey } from '@/store/apiBridge';
 import {
   bridgeActive,
   bridgedAction,
@@ -42,6 +43,7 @@ import {
   emptyApiPatch,
   hydrateAll,
   localConfigMessage,
+  refetchKeys,
   setBridgeUser,
   type BridgeUser,
 } from '@/store/apiBridge';
@@ -81,6 +83,8 @@ interface AppContextValue {
   enableApiSession: (user: BridgeUser) => void;
   /** leave API mode: wipe server data from the store and re-seed */
   disableApiSession: () => void;
+  /** Re-fetch collections from the server (used by socket.io event handlers). */
+  refetchKeys: (keys: RefreshKey[]) => Promise<void>;
 }
 
 /** Empty app data — used as the initial state before an API session
@@ -276,8 +280,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       hydrated,
       enableApiSession,
       disableApiSession,
+      refetchKeys,
     }),
-    [data, dispatch, nextId, audit, notify, reset, logLocation, currentEmployee, apiMode, hydrated, enableApiSession, disableApiSession],
+    [data, dispatch, nextId, audit, notify, reset, logLocation, currentEmployee, apiMode, hydrated, enableApiSession, disableApiSession, refetchKeys],
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

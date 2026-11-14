@@ -1,6 +1,6 @@
 /* Central configuration, loaded from environment variables (.env). */
 const path = require('path');
-require('dotenv').config();
+require('dotenv').config({ path: path.resolve(__dirname, '..', '.env') });
 
 const NODE_ENV = process.env.NODE_ENV || 'development';
 

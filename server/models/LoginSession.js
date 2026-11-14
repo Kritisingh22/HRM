@@ -31,12 +31,22 @@ const loginSessionSchema = new mongoose.Schema(
     gps: { type: gpsSchema, default: null },
 
     ip: { type: String },
-    userAgent: { type: String }
+    userAgent: { type: String },
+
+    /** Last time the session was seen (heartbeat/check-in). Throttled to
+     *  at most once per minute to avoid write storms under request load. */
+    lastSeenAt: { type: Date },
   },
   { timestamps: true }
 );
 
 loginSessionSchema.index({ user: 1, status: 1 });
+// TTL: auto-remove sessions that logged out more than 30 days ago.
+// Only applies to LoggedOut sessions — Active sessions never expire via TTL.
+loginSessionSchema.index(
+  { logoutAt: 1 },
+  { expireAfterSeconds: 30 * 24 * 60 * 60, partialFilterExpression: { status: 'LoggedOut' } }
+);
 
 // Live duration for an in-progress session: server time minus login time.
 // Never derived from anything the client sends.
@@ -54,6 +64,7 @@ loginSessionSchema.methods.toSafeJSON = function () {
     logoutAt: this.logoutAt,
     status: this.status,
     durationSeconds: this.status === 'Active' ? this.liveDurationSeconds() : this.durationSeconds,
+    lastSeenAt: this.lastSeenAt || null,
     gps: this.gps || null
   };
 };

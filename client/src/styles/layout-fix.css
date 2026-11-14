@@ -169,6 +169,36 @@ body {
 }
 
 /* ============================================================
+   Accessibility: focus-visible rings — every focusable element
+   must have a visible outline so keyboard users know where they are.
+   ============================================================ */
+:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid var(--teal-strong);
+  outline-offset: 2px;
+}
+
+/* Skip link when focused */
+.skip-link:focus {
+  top: 24px;
+  left: 24px;
+  width: auto;
+  height: auto;
+  padding: 8px 16px;
+  background: var(--teal-strong);
+  color: #fff;
+  font-size: 14px;
+}
+
+/* ============================================================
    PHASE 3 continued — Table sticky modifier (opt-in, not applied
    to existing markup per constraints)
    ============================================================ */

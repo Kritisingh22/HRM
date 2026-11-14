@@ -28,6 +28,7 @@ import {
 } from '@/api/attendance';
 import {
   accuracyText,
+  prefetchLocation,
   quickLocation,
   coordText,
   GEO_KIND_LABELS,

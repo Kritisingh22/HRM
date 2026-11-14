@@ -285,7 +285,7 @@ async function fetchTeamTasksPatch(): Promise<Partial<AppData>> {
   return { teamTasks: (body.tasks || []).map(M.mapTeamTask) };
 }
 
-type RefreshKey =
+export type RefreshKey =
   | 'employees'
   | 'departments'
   | 'designations'
@@ -307,7 +307,6 @@ type RefreshKey =
   | 'teamTasks';
 
 const FETCHERS: Record<RefreshKey, () => Promise<Partial<AppData>>> = {
-  employees: fetchEmployeesPatch,
   departments: fetchDepartmentsPatch,
   designations: fetchDesignationsPatch,
   leaves: fetchLeavesPatch,
