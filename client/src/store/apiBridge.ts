@@ -18,6 +18,7 @@
 import type { AppData, AttendanceRecord, Employee, Role } from '@/types';
 import type { AppAction, CollectionKey } from '@/store/reducer';
 import { apiGet, apiGetOptional, apiSend, apiUpload, apiErrorMessage, ApiError } from '@/api/services/http';
+import { invalidateGetCache } from '@/api/client';
 import * as M from '@/api/realMap';
 import { EXIT_ITEMS } from '@/data/seed';
 import { can } from '@/lib/permissions';
@@ -100,7 +101,7 @@ function memberObjIds(ids: string[] | undefined): string[] {
 /* ---------------- fetch: one patch per module ---------------- */
 
 async function fetchEmployeesPatch(): Promise<Partial<AppData>> {
-  const body = await apiGet<{ employees: Raw[] }>('/api/employees');
+  const body = await apiGet<{ employees: Raw[]; departments?: Raw[]; designations?: Raw[] }>('/api/employees');
   rawEmployees = body.employees || [];
   const employees = rawEmployees.map(M.mapEmployee);
   // Fallback: derive departments/designations from employees when the
@@ -280,6 +281,8 @@ async function fetchTeamTasksPatch(): Promise<Partial<AppData>> {
 
 type RefreshKey =
   | 'employees'
+  | 'departments'
+  | 'designations'
   | 'leaves'
   | 'attendance'
   | 'payroll'
@@ -422,6 +425,9 @@ export async function hydrateAll(): Promise<Partial<AppData>> {
 
 /** Re-fetch exactly the collections a mutation touched. */
 export async function refetchKeys(keys: RefreshKey[]): Promise<void> {
+  /* Invalidate the short-lived GET cache so the re-fetch returns
+     persisted truth, not a stale cached snapshot from before the write. */
+  invalidateGetCache();
   const unique = Array.from(new Set(keys));
   const results = await Promise.allSettled(unique.map((k) => FETCHERS[k]()));
   const patch: Partial<AppData> = {};
@@ -511,6 +517,8 @@ export async function officialUpdateSlip(
 
 const HANDLED: Record<string, RefreshKey[]> = {
   employees: ['employees'],
+  departments: ['departments'],
+  designations: ['designations'],
   leaveRequests: ['leaves'],
   announcements: ['notices'],
   tickets: ['helpdesk'],
@@ -781,6 +789,23 @@ async function runAdd(collection: CollectionKey, item: Raw): Promise<void> {
       await apiSend('POST', '/api/employees', body);
       return;
     }
+    case 'departments': {
+      await apiSend('POST', '/api/departments', {
+        name: item.name,
+        description: item.description || undefined,
+        isActive: item.active !== false,
+      });
+      return;
+    }
+    case 'designations': {
+      await apiSend('POST', '/api/designations', {
+        name: item.title,
+        departmentId: item.deptId,
+        description: item.description || undefined,
+        isActive: item.active !== false,
+      });
+      return;
+    }
     case 'leaveRequests': {
       await apiSend('POST', '/api/leaves', {
         type: M.leaveTypeToApi(String(item.type || 'Casual Leave')),
@@ -924,6 +949,23 @@ async function runUpdate(collection: CollectionKey, id: string, patch: Raw): Pro
       await apiSend('PUT', `/api/employees/${id}`, employeePatchToApi(patch));
       return;
     }
+    case 'departments': {
+      const body: Record<string, unknown> = {};
+      if (patch.name !== undefined) body.name = patch.name;
+      if (patch.description !== undefined) body.description = patch.description;
+      if (patch.active !== undefined) body.isActive = patch.active;
+      await apiSend('PATCH', `/api/departments/${encodeURIComponent(id)}`, body);
+      return;
+    }
+    case 'designations': {
+      const body: Record<string, unknown> = {};
+      if (patch.title !== undefined) body.name = patch.title;
+      if (patch.deptId !== undefined) body.departmentId = patch.deptId;
+      if (patch.description !== undefined) body.description = patch.description;
+      if (patch.active !== undefined) body.isActive = patch.active;
+      await apiSend('PATCH', `/api/designations/${encodeURIComponent(id)}`, body);
+      return;
+    }
     case 'leaveRequests': {
       await apiSend('PUT', `/api/leaves/${id}`, {
         status: patch.status,
@@ -1042,6 +1084,12 @@ async function runRemove(collection: CollectionKey, id: string): Promise<void> {
   switch (collection) {
     case 'employees':
       await apiSend('DELETE', `/api/employees/${id}`);
+      return;
+    case 'departments':
+      await apiSend('DELETE', `/api/departments/${encodeURIComponent(id)}`);
+      return;
+    case 'designations':
+      await apiSend('DELETE', `/api/designations/${encodeURIComponent(id)}`);
       return;
     case 'leaveRequests':
       await apiSend('DELETE', `/api/leaves/${id}`);

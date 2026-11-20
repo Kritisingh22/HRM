@@ -15,7 +15,9 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
-const PUBLIC_DIR = process.env.FRONTEND_DIST || path.join(ROOT, 'public');
+const PUBLIC_DIR = process.env.FRONTEND_DIST
+  ? path.resolve(ROOT, process.env.FRONTEND_DIST)
+  : path.join(ROOT, 'public');
 const INDEX_HTML = path.join(PUBLIC_DIR, 'index.html');
 
 function fail(message) {

@@ -120,6 +120,7 @@ export interface Employee {
 export interface Department {
   id: string;
   name: string;
+  description?: string;
   head: string | null;
   budget: string;
   active: boolean;
@@ -129,8 +130,125 @@ export interface Designation {
   id: string;
   title: string;
   deptId: string;
+  description?: string;
+  active?: boolean;
   min: string;
   max: string;
+}
+
+/* ---------------- Employee Profile & User Account ---------------- */
+
+export interface UserAccount {
+  id: string;
+  employeeId: string | null;
+  username: string;
+  email: string;
+  role: Role;
+  department: string;
+  designation: string | null;
+  status: string;
+  accountStatus: string;
+  mustChangePassword: boolean;
+  isVerified: boolean;
+  lastLogin?: string;
+  createdAt?: string;
+}
+
+export interface EmployeeDepartment {
+  id: string;
+  name: string;
+  description?: string;
+  code?: string;
+  isActive: boolean;
+}
+
+export interface EmployeeDesignation {
+  id: string;
+  name: string;
+  description?: string;
+  level?: string;
+  isActive: boolean;
+  departmentId: string;
+}
+
+export interface EmployeeProfile {
+  employeeId: string;
+  id: string;
+  name: string;
+  firstName?: string;
+  lastName?: string;
+  email: string;
+  personalEmail?: string;
+  phone: string;
+  gender?: string;
+  dateOfBirth?: string;
+  dob: string;
+  address?: string;
+  city?: string;
+  emergencyContact?: string;
+  bloodGroup?: string;
+  department: string;
+  departmentId?: string;
+  designation: string;
+  designationId?: string;
+  manager: string | null;
+  reportingManagerId?: string;
+  employmentType: EmploymentType;
+  workMode?: string;
+  workLocation?: string;
+  joining: string;
+  joiningDate?: string;
+  status: EmployeeStatus;
+  probation: boolean;
+  experience: string;
+  salary?: number;
+  grade: string;
+  emergency?: string;
+  userId?: string;
+  createdBy?: string;
+  accountStatus?: AccountStatus;
+  mustChangePassword?: boolean;
+  role?: string;
+  user?: UserAccount | null;
+  departmentDetails?: EmployeeDepartment | null;
+  designationDetails?: EmployeeDesignation | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface EmployeeDocumentData {
+  document: {
+    employeeId: string;
+    fullName: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    personalEmail: string;
+    phone: string;
+    gender: string;
+    dateOfBirth: string;
+    address: string;
+    city: string;
+    emergencyContact: string;
+    bloodGroup: string;
+    department: string;
+    designation: string;
+    manager: string;
+    employmentType: string;
+    workMode: string;
+    workLocation: string;
+    joiningDate: string;
+    status: string;
+    grade: string;
+    salary: string | number;
+    bankName: string;
+    accountNumber: string;
+    ifsc: string;
+    accountHolderName: string;
+    createdAt: string;
+    updatedAt: string;
+  };
+  generatedAt: string;
 }
 
 /* ---------------- Recruitment ---------------- */

@@ -173,6 +173,7 @@ export function mapDepartment(d: Raw): Department {
     head: d.headUserId || d.head || null,
     budget: d.budget || '',
     active: d.isActive !== false,
+    description: d.description || '',
   };
 }
 
@@ -184,6 +185,8 @@ export function mapDesignation(d: Raw): Designation {
     deptId: String(d.departmentId || d.department || ''),
     min: d.min || '',
     max: d.max || '',
+    description: d.description || '',
+    active: d.isActive !== false,
   };
 }
 

@@ -62,6 +62,8 @@ interface AuthContextValue {
   canVisitPage: (page: string) => boolean;
   canSeeSalary: boolean;
   canManage: boolean;
+  /** true when the account must change its password before accessing features */
+  mustChangePassword: boolean;
   /** attendance gate state */
   checkedInToday: boolean;
   hasOpenSession: boolean;
@@ -77,6 +79,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [activity, setActivity] = useState<SessionSnapshot | null>(null);
   const [checkedInToday, setCheckedInToday] = useState(false);
   const [hasOpenSession, setHasOpenSession] = useState(false);
+  const [mustChangePassword, setMustChangePassword] = useState(false);
 
   /* Load the navbar session panel data. Failures just leave the
      panel hidden — auth state itself is owned by `me()` / `login()`.
@@ -132,6 +135,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         void bootstrap(token).then((fresh) => {
           if (cancelled) return;
           setUser(fresh.user);
+          setMustChangePassword(Boolean(fresh.user.mustChangePassword));
           invalidateGetCache();
         }).catch(() => {
           /* keep the stored user; the shell is already painted */
@@ -154,6 +158,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           .then((fresh) => {
             if (cancelled) return;
             setUser(fresh);
+            setMustChangePassword(Boolean(fresh.mustChangePassword));
             setStatus('authenticated');
             enableApiSession({
               role: fresh.role,
@@ -178,6 +183,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return;
         }
         setUser(renewed.user);
+        setMustChangePassword(Boolean(renewed.user.mustChangePassword));
         void go(renewed.accessToken);
       });
       return;
@@ -196,6 +202,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const session = await api.login(email, password, remember);
       setUser(session.user);
       setStatus('authenticated');
+      setMustChangePassword(Boolean(session.user.mustChangePassword));
       if (session.source === 'api') {
         /* Real accounts get the real workspace — official server data. */
         enableApiSession({
@@ -265,11 +272,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
       canSeeSalary: role ? canSeeSalary(role) : false,
       canManage: role ? canManagePeople(role) : false,
+      mustChangePassword,
       checkedInToday,
       hasOpenSession,
       fetchAttendanceState,
     };
-  }, [user, status, activity, login, logout, checkedInToday, hasOpenSession, fetchAttendanceState]);
+  }, [user, status, activity, login, logout, mustChangePassword, checkedInToday, hasOpenSession, fetchAttendanceState]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

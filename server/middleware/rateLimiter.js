@@ -48,4 +48,28 @@ const uploadLimiter = rateLimit({
   message: { error: 'Too many document uploads. Please wait a few minutes and try again.' }
 });
 
-module.exports = { loginLimiter, apiLimiter, bootstrapLimiter, uploadLimiter };
+/* Reset-password limiter — per authenticated user, not per IP. This avoids the
+ * problem where multiple users behind a shared office/Corporate proxy IP all
+ * consume the same global apiLimiter quota and one user's activity blocks
+ * everyone else. Applied AFTER authenticate so req.user._id is available. */
+const resetPasswordLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,        // 1 hour
+  max: 5,                          // per user per hour — generous for legitimate resets
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    /* Identify by authenticated user ID where possible, fall back to IP. */
+    if (req.user && req.user._id) return 'user:' + String(req.user._id);
+    return rateLimit.ipKeyGenerator ? rateLimit.ipKeyGenerator(req) : req.ip;
+  },
+  /* On genuine rate-limit breach, tell the client how long to wait. */
+  handler: (req, res) => {
+    const retryAfter = Math.ceil(res.getHeader('Retry-After') || 3600);
+    res.status(429).json({
+      error: 'Too many password-reset requests. Please try again later.',
+      retryAfter,
+    });
+  },
+});
+
+module.exports = { loginLimiter, apiLimiter, bootstrapLimiter, uploadLimiter, resetPasswordLimiter };

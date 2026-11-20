@@ -19,22 +19,38 @@ import { useDrill } from '@/lib/useDrill';
 import { deptName, empName, teamIds, filterDemoEmployees } from '@/lib/lookups';
 import { buildRosterId, money } from '@/lib/format';
 import { dateRange, niceDate } from '@/lib/date';
-import { canSeeSalary } from '@/data/nav';
+import { canCreateEmployees, canSeeSalary } from '@/data/nav';
 import { isApiSession } from '@/api/client';
 import {
   createEmployee as createEmployeeApi,
   updateEmployee as updateEmployeeApi,
   resetEmployeePassword,
+  resetEmployeeCredentials,
   inviteEmployee,
   setAccountStatus,
   type CreateEmployeeParams,
   type ResetPasswordResponse,
+  type ResetCredentialsResponse,
   type InviteResponse,
   type SetAccountStatusResponse,
 } from '@/api/employees';
 import {
+  listActiveDepartments,
+  createDepartment as createDeptApi,
+  updateDepartment as updateDeptApi,
+  setDepartmentStatus as setDeptStatusApi,
+} from '@/api/departments';
+import {
+  listActiveDesignations,
+  createDesignation as createDesigApi,
+  updateDesignation as updateDesigApi,
+  setDesignationStatus as setDesigStatusApi,
+} from '@/api/designations';
+import { refetchKeys } from '@/store/apiBridge';
+import {
   CredentialModal,
   ResetPasswordDialog,
+  ResetCredentialsDialog,
   InviteDialog,
   AccountStatusDialog,
   ActivityHistory,
@@ -57,7 +73,7 @@ const CAN_MANAGE_CREDENTIALS = (role: string | undefined) =>
 type TabKey = 'directory' | 'departments' | 'designations' | 'promotions' | 'training' | 'exit';
 
 export function EmployeesPage() {
-  const { data, dispatch, audit, notify, nextId } = useApp();
+  const { data, dispatch, audit, notify, nextId, apiMode, hydrated } = useApp();
   const { user, canSeeSalary, canManage } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
@@ -77,16 +93,17 @@ export function EmployeesPage() {
     designation: string;
     role: string;
     accountStatus: string;
-    temporaryPassword: string;
+    username: string;
+    tempPassword: string;
+    welcomeText: string;
     activationToken: string;
     creatorName: string;
     creatorRole: string;
   } | null>(null);
-  const [resetOpen, setResetOpen] = useState(false);
-  const [inviteOpen, setInviteOpen] = useState(false);
-  const [statusOpen, setStatusOpen] = useState(false);
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [credTarget, setCredTarget] = useState<{ id: string; name: string; status: AccountStatus } | null>(null);
+  /** Single modal state — only one credential/action modal may be open at a time. */
+  const [modal, setModal] = useState<'reset' | 'reset-credentials' | 'invite' | 'status' | 'history' | null>(null);
+  const [credTarget, setCredTarget] = useState<{ id: string; name: string; email: string; status: AccountStatus } | null>(null);
+  const [resetCredentialsResult, setResetCredentialsResult] = useState<ResetCredentialsResponse | null>(null);
 
   useEffect(() => {
     setDeptDrill(seedDept);
@@ -176,7 +193,9 @@ export function EmployeesPage() {
         label: 'Department',
         type: 'select',
         required: true,
-        options: data.departments.map((d) => ({ value: d.id, label: d.name })),
+        options: data.departments
+          .filter((d) => d.active)
+          .map((d) => ({ value: d.id, label: d.name })),
       },
       {
         key: 'designation',
@@ -186,7 +205,7 @@ export function EmployeesPage() {
           const deptId = values.dept;
           if (!deptId) return [];
           return data.designations
-            .filter((d) => d.deptId === deptId)
+            .filter((d) => d.deptId === deptId && d.active)
             .map((d) => ({ value: d.id, label: d.title }));
         },
         dependsOn: 'dept',
@@ -233,6 +252,10 @@ export function EmployeesPage() {
 
   const createEmployee = async (values: Record<string, string>) => {
     const fullName = [values.firstName, values.lastName].filter(Boolean).join(' ').trim();
+    /* Resolve the selected department/designation from their store IDs so the
+       server receives both the human-readable name and the MongoDB reference. */
+    const dept = data.departments.find((d) => d.id === values.dept);
+    const desig = data.designations.find((d) => d.id === values.designation);
     if (isApiSession()) {
       const params: CreateEmployeeParams = {
         fullName,
@@ -245,10 +268,10 @@ export function EmployeesPage() {
         dateOfBirth: values.dateOfBirth || undefined,
         address: values.address.trim() || undefined,
         emergencyContact: values.emergencyContact.trim() || undefined,
-        department: values.dept,
-        departmentId: values.deptId || undefined,
-        designation: values.designation || '—',
-        designationId: values.designationId || undefined,
+        department: dept?.name || values.dept,
+        departmentId: values.dept || undefined,
+        designation: desig?.title || values.designation || '—',
+        designationId: values.designation || undefined,
         manager: values.manager || undefined,
         location: values.location || 'office',
         employmentType: (values.employmentType as CreateEmployeeParams['employmentType']) || 'Full-time',
@@ -265,16 +288,18 @@ export function EmployeesPage() {
        * them exactly once. After the modal closes they cannot be retrieved. */
       setCreatingCredential({
         employeeId: res.employee.employeeId,
-        loginUserId: res.account.loginUserId,
+        loginUserId: res.employee.userId,
         employeeName: res.employee.fullName,
         department: res.employee.department,
         designation: res.employee.designation,
-        role: res.account.role,
-        accountStatus: res.account.accountStatus,
-        temporaryPassword: res.temporaryPassword,
-        activationToken: res.activationToken,
-        creatorName: res.creator?.name ?? user?.name ?? '—',
-        creatorRole: res.creator?.role ?? user?.role ?? '—',
+        role: 'EMPLOYEE',
+        accountStatus: 'pending-activation',
+        username: res.credentials.username,
+        tempPassword: res.credentials.tempPassword,
+        welcomeText: res.welcomeText,
+        activationToken: '', // no longer returned by the server
+        creatorName: user?.name ?? '—',
+        creatorRole: user?.role ?? '—',
       });
       toast(`${res.employee.fullName} joined with ID ${res.employee.employeeId}. One-time credentials shown below.`, 'success');
       return;
@@ -288,8 +313,8 @@ export function EmployeesPage() {
       phone: values.phone || '—',
       gender: 'Male',
       dob: '1995-01-01',
-      dept: values.dept,
-      designation: values.designation || '—',
+      dept: dept?.name || values.dept,
+      designation: desig?.title || values.designation || '—',
       manager: values.manager || null,
       location: values.location || 'Noida',
       employmentType: (values.employmentType as Employee['employmentType']) || 'Full-time',
@@ -307,14 +332,18 @@ export function EmployeesPage() {
   };
 
   const updateEmployee = async (row: Employee, values: Record<string, string>) => {
+    /* Resolve the selected department/designation from their store IDs so the
+       server receives both the human-readable name and the MongoDB reference. */
+    const dept = data.departments.find((d) => d.id === values.dept);
+    const desig = data.designations.find((d) => d.id === values.designation);
     const patch: Record<string, unknown> = {
       name: values.name.trim(),
       email: values.email.trim(),
       phone: values.phone,
-      dept: values.dept,
-      designation: values.designation,
-      departmentId: values.deptId,
-      designationId: values.designationId,
+      dept: dept?.name || values.dept,
+      designation: desig?.title || values.designation,
+      departmentId: values.dept || undefined,
+      designationId: values.designation || undefined,
       manager: values.manager || null,
       location: values.location,
       employmentType: values.employmentType,
@@ -375,26 +404,46 @@ export function EmployeesPage() {
     },
   ];
 
-  const createDepartment = (values: Record<string, string>) => {
-    const id = nextId('DEP-', 2);
-    dispatch({
-      type: 'add',
-      collection: 'departments',
-      item: { id, name: values.name, head: values.head || null, budget: values.budget || '—', active: values.active !== 'false' },
-    });
-    audit('Department added', `${values.name} (${id})`);
-    toast('Department created.', 'success');
+  const createDepartment = async (values: Record<string, string>) => {
+    if (!isApiSession()) {
+      toast('Department management requires a real HR/Admin account.', 'error');
+      return;
+    }
+    try {
+      const res = await createDeptApi({
+        name: values.name,
+        description: undefined,
+        isActive: values.active !== 'false',
+      });
+      await refetchKeys(['departments']);
+      audit('Department added', `${res.department.name} (${res.department._id || res.department.id})`);
+      toast('Department created.', 'success');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to create department.';
+      toast(msg, 'error');
+      throw err;
+    }
   };
 
-  const updateDepartment = (row: Department, values: Record<string, string>) => {
-    dispatch({
-      type: 'update',
-      collection: 'departments',
-      id: row.id,
-      patch: { name: values.name, head: values.head || null, budget: values.budget, active: values.active !== 'false' },
-    });
-    audit('Department updated', row.id);
-    toast('Department updated.', 'success');
+  const updateDepartment = async (row: Department, values: Record<string, string>) => {
+    if (!isApiSession()) {
+      toast('Department management requires a real HR/Admin account.', 'error');
+      return;
+    }
+    try {
+      const res = await updateDeptApi(row.id, {
+        name: values.name,
+        description: undefined,
+        isActive: values.active !== 'false',
+      });
+      await refetchKeys(['departments']);
+      audit('Department updated', res.department._id || res.department.id);
+      toast('Department updated.', 'success');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to update department.';
+      toast(msg, 'error');
+      throw err;
+    }
   };
 
   /* -------- designations -------- */
@@ -415,32 +464,57 @@ export function EmployeesPage() {
       key: 'deptId',
       label: 'Department',
       type: 'select',
-      options: data.departments.map((d) => ({ value: d.id, label: d.name })),
+      required: true,
+      options: data.departments
+        .filter((d) => d.active)
+        .map((d) => ({ value: d.id, label: d.name })),
     },
     { key: 'min', label: 'Minimum band', placeholder: '₹5.0L' },
     { key: 'max', label: 'Maximum band', placeholder: '₹9.0L' },
   ];
 
-  const createDesignation = (values: Record<string, string>) => {
-    const id = nextId('DSG-', 2);
-    dispatch({
-      type: 'add',
-      collection: 'designations',
-      item: { id, title: values.title, deptId: values.deptId, min: values.min || '—', max: values.max || '—' },
-    });
-    audit('Designation added', `${values.title} (${id})`);
-    toast('Designation created.', 'success');
+  const createDesignation = async (values: Record<string, string>) => {
+    if (!isApiSession()) {
+      toast('Designation management requires a real HR/Admin account.', 'error');
+      return;
+    }
+    try {
+      const res = await createDesigApi({
+        name: values.title,
+        departmentId: values.deptId,
+        description: undefined,
+        isActive: true,
+      });
+      await refetchKeys(['designations']);
+      audit('Designation added', `${res.designation.name} (${res.designation._id || res.designation.id})`);
+      toast('Designation created.', 'success');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to create designation.';
+      toast(msg, 'error');
+      throw err;
+    }
   };
 
-  const updateDesignation = (row: Designation, values: Record<string, string>) => {
-    dispatch({
-      type: 'update',
-      collection: 'designations',
-      id: row.id,
-      patch: { title: values.title, deptId: values.deptId, min: values.min, max: values.max },
-    });
-    audit('Designation updated', row.id);
-    toast('Designation updated.', 'success');
+  const updateDesignation = async (row: Designation, values: Record<string, string>) => {
+    if (!isApiSession()) {
+      toast('Designation management requires a real HR/Admin account.', 'error');
+      return;
+    }
+    try {
+      const res = await updateDesigApi(row.id, {
+        name: values.title,
+        departmentId: values.deptId,
+        description: undefined,
+        isActive: true,
+      });
+      await refetchKeys(['designations']);
+      audit('Designation updated', res.designation._id || res.designation.id);
+      toast('Designation updated.', 'success');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to update designation.';
+      toast(msg, 'error');
+      throw err;
+    }
   };
 
   /* -------- promotions & transfers -------- */
@@ -685,6 +759,12 @@ export function EmployeesPage() {
 
         <Tabs tabs={tabs} active={tab} onChange={(key) => setTab(key as TabKey)} />
 
+        {apiMode && !hydrated ? (
+          <div style={{ marginTop: 16, color: 'var(--text-2)', textAlign: 'center' }}>
+            <span className="chip">Loading departments and designations from the server…</span>
+          </div>
+        ) : null}
+
         {(deptDrill || seedQuery) && tab === 'directory' ? (
           <div style={{ marginTop: 12 }}>
             <span className="ana-drill-note">
@@ -713,6 +793,8 @@ export function EmployeesPage() {
               actions={(e) => {
                 if (!canManage) return [];
                 const credActions: Array<{ key: string; label: string; variant?: 'outline' | 'danger' | 'ghost' }> = [
+                  { key: 'view', label: 'View profile', variant: 'outline' },
+                  { key: 'reset-credentials', label: 'Reset credentials', variant: 'danger' },
                   { key: 'reset', label: 'Reset password', variant: 'danger' },
                   { key: 'invite', label: 'Send invitation' },
                   { key: 'status', label: e.accountStatus === 'active' ? 'Deactivate' : 'Activate' },
@@ -726,12 +808,18 @@ export function EmployeesPage() {
                   navigate(PAGE_PATH.Documents, { state: { query: e.name } });
                   return;
                 }
+                if (key === 'view') {
+                  navigate(`/employee-profile/${e.id}`);
+                  return;
+                }
                 if (!CAN_MANAGE_CREDENTIALS(user?.role)) return;
-                setCredTarget({ id: e.id, name: e.name, status: (e.accountStatus as AccountStatus) || 'active' });
-                if (key === 'reset') setResetOpen(true);
-                if (key === 'invite') setInviteOpen(true);
-                if (key === 'status') setStatusOpen(true);
-                if (key === 'history') setHistoryOpen(true);
+                setCredTarget({ id: e.id, name: e.name, email: e.email, status: (e.accountStatus as AccountStatus) || 'active' });
+                if (key === 'reset-credentials') {
+                  setResetCredentialsResult(null);
+                  setModal('reset-credentials');
+                  return;
+                }
+                setModal(key as 'reset' | 'invite' | 'status' | 'history');
               }}
               detail={(e) => [
                 'Employment',
@@ -755,8 +843,8 @@ export function EmployeesPage() {
                 ['Date of birth', niceDate(e.dob)],
                 ['Blood group', e.bloodGroup ?? '—'],
               ]}
-              form={canManage ? employeeForm : undefined}
-              onCreate={canManage ? createEmployee : undefined}
+              form={canCreateEmployees(user?.role) ? employeeForm : undefined}
+              onCreate={canCreateEmployees(user?.role) ? createEmployee : undefined}
               onUpdate={canManage ? updateEmployee : undefined}
               createLabel="Add employee"
               searchPlaceholder="Search name, id, email…"
@@ -918,45 +1006,66 @@ export function EmployeesPage() {
         ) : null}
 
         {/* Credential management dialogs (permission-aware). */}
-        {credTarget ? (
+        {credTarget && modal ? (
           <>
-            <ResetPasswordDialog
-              open={resetOpen}
-              onClose={() => setResetOpen(false)}
-              employeeId={credTarget.id}
-              employeeName={credTarget.name}
-              onSuccess={() => {
-                setResetOpen(false);
-                setCredTarget(null);
-              }}
-            />
-            <InviteDialog
-              open={inviteOpen}
-              onClose={() => setInviteOpen(false)}
-              employeeId={credTarget.id}
-              employeeName={credTarget.name}
-              onSuccess={() => {
-                setInviteOpen(false);
-                setCredTarget(null);
-              }}
-            />
-            <AccountStatusDialog
-              open={statusOpen}
-              onClose={() => setStatusOpen(false)}
-              employeeId={credTarget.id}
-              employeeName={credTarget.name}
-              currentStatus={credTarget.status}
-              onSuccess={() => {
-                setStatusOpen(false);
-                setCredTarget(null);
-              }}
-            />
-            <ActivityHistory
-              open={historyOpen}
-              onClose={() => setHistoryOpen(false)}
-              employeeId={credTarget.id}
-              employeeName={credTarget.name}
-            />
+            {modal === 'reset' && (
+              <ResetPasswordDialog
+                open
+                onClose={() => { setModal(null); setCredTarget(null); }}
+                employeeId={credTarget.id}
+                employeeName={credTarget.name}
+                employeeEmail={credTarget.email}
+                onSuccess={() => {
+                  setModal(null);
+                  setCredTarget(null);
+                }}
+              />
+            )}
+            {modal === 'reset-credentials' && (
+              <ResetCredentialsDialog
+                open
+                onClose={() => { setModal(null); setCredTarget(null); }}
+                employeeId={credTarget.id}
+                employeeName={credTarget.name}
+                onSuccess={() => {
+                  setModal(null);
+                  setCredTarget(null);
+                }}
+              />
+            )}
+            {modal === 'invite' && (
+              <InviteDialog
+                open
+                onClose={() => { setModal(null); setCredTarget(null); }}
+                employeeId={credTarget.id}
+                employeeName={credTarget.name}
+                onSuccess={() => {
+                  setModal(null);
+                  setCredTarget(null);
+                }}
+              />
+            )}
+            {modal === 'status' && (
+              <AccountStatusDialog
+                open
+                onClose={() => { setModal(null); setCredTarget(null); }}
+                employeeId={credTarget.id}
+                employeeName={credTarget.name}
+                currentStatus={credTarget.status}
+                onSuccess={() => {
+                  setModal(null);
+                  setCredTarget(null);
+                }}
+              />
+            )}
+            {modal === 'history' && (
+              <ActivityHistory
+                open
+                onClose={() => { setModal(null); setCredTarget(null); }}
+                employeeId={credTarget.id}
+                employeeName={credTarget.name}
+              />
+            )}
           </>
         ) : null}
       </section>

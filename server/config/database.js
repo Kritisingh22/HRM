@@ -17,6 +17,7 @@ async function connectDB(uri = cfg.MONGODB_URI) {
   console.log(
     "MongoDB connected:",
     mongoose.connection.host + "/" + mongoose.connection.name,
+    "(database:", mongoose.connection.name, ")",
   );
   return mongoose.connection;
 }

@@ -7,6 +7,7 @@ import { apiSend } from './services/http';
 export async function changePassword(params: {
   currentPassword: string;
   newPassword: string;
-}): Promise<{ ok: boolean; message: string }> {
+  confirmPassword: string;
+}): Promise<{ ok: boolean; message: string; mustChangePassword?: boolean }> {
   return apiSend('POST', '/api/auth/change-password', params);
 }

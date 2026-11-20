@@ -101,16 +101,20 @@ async function api(method, path, { access, cookie, body } = {}) {
       if (created.status === 201) {
         const e = created.data;
         ok(`${label} returns employeeId`, typeof e.employee.employeeId === "string" && e.employee.employeeId.length > 0);
-        ok(`${label} returns loginUserId`, typeof e.account.loginUserId === "string" && e.account.loginUserId.length > 0);
+        ok(`${label} returns userId`, typeof e.employee.userId === "string" && e.employee.userId.length > 0);
         ok(`${label} returns employee name`, e.employee.fullName === `New ${label} Hire`);
         ok(`${label} returns department`, e.employee.department === "Engineering");
         ok(`${label} returns designation`, e.employee.designation === "Developer");
-        ok(`${label} returns role`, e.account.role === "EMPLOYEE");
-        ok(`${label} returns accountStatus pending-activation`, e.account.accountStatus === "pending-activation");
-        ok(`${label} mustChangePassword true`, e.account.mustChangePassword === true);
-        ok(`${label} returns creator info`, e.creator && e.creator.id === creator.user.id);
-        ok(`${label} returns temporaryPassword ONCE`, typeof e.temporaryPassword === "string" && e.temporaryPassword.length > 0);
-        ok(`${label} returns activationToken`, typeof e.activationToken === "string" && e.activationToken.length > 0);
+        ok(`${label} returns credentials`, !!e.credentials && typeof e.credentials.username === "string");
+        ok(`${label} returns tempPassword ONCE`, typeof e.credentials.tempPassword === "string" && e.credentials.tempPassword.length > 0);
+        ok(`${label} returns welcomeText`, typeof e.welcomeText === "string" && e.welcomeText.length > 0);
+        ok(`${label} welcomeText contains temp password`, e.welcomeText.includes(e.credentials.tempPassword));
+        ok(`${label} welcomeText contains portal URL`, e.welcomeText.includes("http://localhost:5000"));
+        ok(`${label} welcomeText contains employeeId`, e.welcomeText.includes(e.employee.employeeId));
+        ok(`${label} welcomeText contains username`, e.welcomeText.includes(e.credentials.username));
+        ok(`${label} no account wrapper`, !e.account);
+        ok(`${label} no activationToken`, !e.activationToken);
+        ok(`${label} no creator wrapper`, !e.creator);
       }
     }
 
@@ -181,18 +185,28 @@ async function api(method, path, { access, cookie, body } = {}) {
     }
 
     // ============ E. Password reset + session invalidation ============
-    // Create + activate an employee so it has a live refresh session, then reset its password.
+    // Create an employee, log in with temp password, change password, then reset.
     const sessEmp = await api("POST", "/api/employees", { access: hr.access, body: { fullName: "Session Emp", email: `sess.${ts()}@cyethack.com`, department: "Engineering", designation: "Dev", joiningDate: "2026-11-01" } });
     let sessCookie = null;
     let sessEmpId = null;
     if (sessEmp.status === 201) {
       sessEmpId = sessEmp.data.employee.employeeId;
-      const actTok = sessEmp.data.activationToken;
-      const activated = await api("POST", "/api/auth/activate-account", { body: { activationToken: actTok, newPassword: "SessPassword@123" } });
-      ok("session test employee activated → 200", activated.status === 200);
-      const sl = await login(`sess.${ts()}@cyethack.com`, "SessPassword@123");
-      ok("session test employee logs in → 200", sl.status === 200);
-      sessCookie = sl.cookie;
+      const tempPw = sessEmp.data.credentials.tempPassword;
+      // Login with temp password (mustChangePassword = true)
+      const sl = await login(`sess.${ts()}@cyethack.com`, tempPw);
+      ok("session test employee logs in with temp password → 200", sl.status === 200);
+      if (sl.status === 200) {
+        // Change password
+        const changed = await api("POST", "/api/auth/change-password", {
+          access: sl.access,
+          body: { currentPassword: tempPw, newPassword: "SessPassword@123" },
+        });
+        ok("session test employee change-password → 200", changed.status === 200);
+        // Login with new password to get a live refresh session
+        const sl2 = await login(`sess.${ts()}@cyethack.com`, "SessPassword@123");
+        ok("session test employee logs in with new password → 200", sl2.status === 200);
+        if (sl2.status === 200) sessCookie = sl2.cookie;
+      }
     }
     // Reset this same employee's password (HR-initiated).
     const reset = await api("POST", `/api/employees/${sessEmpId}/reset-password`, { access: hr.access });
@@ -216,23 +230,28 @@ async function api(method, path, { access, cookie, body } = {}) {
     ok("reset initiator notification created", !!resetNotif);
     if (resetNotif) ok("reset notif no plaintext password", !JSON.stringify(resetNotif).toLowerCase().includes("temporarypassword"));
 
-    // ============ F. First-login change password (activate via setup/invite path) ============
-    // Use the activationToken returned at creation to set password.
+    // ============ F. First-login change password flow ============
     const createdForActivate = await api("POST", "/api/employees", { access: hr.access, body: { fullName: "Activate Me", email: `activate.${ts()}@cyethack.com`, department: "Engineering", designation: "Dev", joiningDate: "2026-11-01" } });
     if (createdForActivate.status === 201) {
-      const actTok = createdForActivate.data.activationToken;
+      const tempPw = createdForActivate.data.credentials.tempPassword;
       const empIdForActivate = createdForActivate.data.employee.employeeId;
-      const empDoc = await Employee.findOne({ employeeId: empIdForActivate });
       const userDoc = await User.findOne({ employeeId: empIdForActivate });
       ok("mustChangePassword true after create", userDoc.mustChangePassword === true);
-      const activated = await api("POST", "/api/auth/activate-account", { body: { activationToken: actTok, newPassword: "NewSecure@123" } });
-      ok("activate account → 200", activated.status === 200);
-      if (activated.status === 200) {
+      // Login with temp password
+      const tempLogin = await login(`activate.${ts()}@cyethack.com`, tempPw);
+      ok("temp password login → 200", tempLogin.status === 200);
+      ok("temp login mustChangePassword true", tempLogin.user && tempLogin.user.mustChangePassword === true);
+      // Change password
+      const changed = await api("POST", "/api/auth/change-password", {
+        access: tempLogin.access,
+        body: { currentPassword: tempPw, newPassword: "NewSecure@123" },
+      });
+      ok("change-password → 200", changed.status === 200);
+      if (changed.status === 200) {
         const after = await User.findOne({ employeeId: empIdForActivate });
         ok("mustChangePassword cleared", after.mustChangePassword === false);
-        ok("accountStatus active", after.accountStatus === "active");
         // temp password no longer works
-        const bad = await login(`activate.${ts()}@cyethack.com`, createdForActivate.data.temporaryPassword);
+        const bad = await login(`activate.${ts()}@cyethack.com`, tempPw);
         ok("temp password rejected after change", bad.status === 401);
         // new password works
         const good = await login(`activate.${ts()}@cyethack.com`, "NewSecure@123");

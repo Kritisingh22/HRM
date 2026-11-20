@@ -19,8 +19,12 @@ app.disable('x-powered-by');
 
 // ---- Resolve frontend dist directory ----
 // Defaults to server/public (where client build output is copied).
-// Override with FRONTEND_DIST env var if building elsewhere.
-const FRONTEND_DIST = process.env.FRONTEND_DIST || path.join(__dirname, 'public');
+// FRONTEND_DIST may be absolute or relative to the repo root
+// (the parent of __dirname, i.e. the server directory's parent).
+const REPO_ROOT = path.resolve(__dirname, '..');
+const FRONTEND_DIST = process.env.FRONTEND_DIST
+  ? path.resolve(REPO_ROOT, process.env.FRONTEND_DIST)
+  : path.join(__dirname, 'public');
 const DIST_EXISTS = fs.existsSync(path.join(FRONTEND_DIST, 'index.html'));
 
 if (cfg.isProd && !DIST_EXISTS) {
@@ -54,8 +58,11 @@ app.use(
         scriptSrc: ["'self'"],
         styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
         fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
-        imgSrc: ["'self'", 'data:'],
-        connectSrc: ["'self'"]
+        imgSrc: ["'self'", 'data:', 'blob:'],
+        connectSrc: ["'self'"],
+        frameAncestors: ["'none'"],
+        baseUri: ["'self'"],
+        formAction: ["'self'"]
       }
     },
     hsts: {

@@ -1998,9 +1998,166 @@ table.data tbody tr:hover {
 .cal-flag.static-pill {
   position: static;
   margin-left: auto;
+}
+
+/* ============================================================
+   Auth page styles (login, change-password, etc.)
+   These classes are referenced by LoginPage and ChangePasswordPage
+   but were missing from the stylesheet, causing blank/unstyled pages.
+   ============================================================ */
+.auth-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100dvh;
+  padding: 24px;
+  box-sizing: border-box;
+}
+.auth-card {
+  width: 100%;
+  max-width: 400px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 32px 24px;
+  box-shadow: var(--shadow-pop);
+  box-sizing: border-box;
+}
+.auth-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+.auth-brand img {
+  width: 32px;
+  height: 32px;
   flex: 0 0 auto;
-  font-size: 10px;
-  padding: 3px 8px;
+}
+.auth-brand .nm {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
+}
+.auth-brand .sl {
+  font-size: 11px;
+  color: var(--text-2);
+  display: block;
+  margin-top: 2px;
+}
+.auth-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+.auth-sub {
+  font-size: 13px;
+  color: var(--text-2);
+  margin-bottom: 24px;
+}
+.auth-error {
+  font-size: 12px;
+  color: var(--red);
+  margin-bottom: 16px;
+  padding: 8px 12px;
+  background: var(--red-tint);
+  border-radius: var(--radius-s);
+}
+.auth-field {
+  margin-bottom: 14px;
+}
+.auth-field label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-2);
+  margin-bottom: 6px;
+}
+.auth-inwrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.auth-inwrap input {
+  width: 100%;
+  height: 40px;
+  padding: 0 36px 0 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 13px;
+  box-sizing: border-box;
+}
+.auth-inwrap input.invalid {
+  border-color: var(--red);
+}
+.auth-toggle {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--text-2);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+.auth-toggle:hover {
+  color: var(--text);
+}
+.auth-btn {
+  width: 100%;
+  height: 44px;
+  background: var(--teal);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: var(--radius-s);
+  border: none;
+  cursor: pointer;
+  margin-top: 4px;
+}
+.auth-btn:hover:not(:disabled) {
+  background: var(--teal-bright);
+}
+.auth-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Demo credentials table on login page */
+.auth-demo {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+.auth-demo table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.auth-demo th {
+  text-align: left;
+  color: var(--text-2);
+  font-weight: 500;
+  padding: 6px 8px;
+}
+.auth-demo td {
+  padding: 6px 8px;
+  color: var(--text);
+}
+.auth-demo td.num {
+  font-family: var(--mono);
+  color: var(--muted);
+}
+.cal-flag.static-pill {
+  position: static;
+  margin-left: auto;
 }
 .leave-side {
   display: flex;

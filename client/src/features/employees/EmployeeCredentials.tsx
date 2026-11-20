@@ -23,12 +23,15 @@ import {
 import { Icon } from '@/components/ui/Icon';
 import {
   resetEmployeePassword,
+  resetEmployeeCredentials,
   inviteEmployee,
   setAccountStatus,
   type ResetPasswordResponse,
+  type ResetCredentialsResponse,
   type InviteResponse,
   type SetAccountStatusResponse,
 } from '@/api/employees';
+import { ApiError } from '@/api/services/http';
 import { useToast } from '@/context/ToastContext';
 import { useAuth } from '@/context/AuthContext';
 import { niceDate } from '@/lib/date';
@@ -46,7 +49,9 @@ interface CredentialModalProps {
     designation: string;
     role: string;
     accountStatus: string;
-    temporaryPassword: string;
+    username: string;
+    tempPassword: string;
+    welcomeText: string;
     activationToken: string;
     creatorName: string;
     creatorRole: string;
@@ -57,93 +62,144 @@ interface CredentialModalProps {
 export function CredentialModal({ open, onClose, data }: CredentialModalProps) {
   if (!open || !data) return null;
 
+  const { toast } = useToast();
+
+  const downloadWelcomeText = () => {
+    const blob = new Blob([data.welcomeText], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `welcome-${data.employeeId}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <Modal
       title="Employee created — one-time credentials"
       onClose={onClose}
       large
       footer={
-        <button className="btn btn-primary" onClick={onClose} type="button">
-          I have saved the credentials
-        </button>
+        <>
+          <button
+            className="btn btn-outline"
+            onClick={() => navigator.clipboard.writeText(data.welcomeText).then(() => toast('Welcome text copied'))}
+            type="button"
+          >
+            Copy welcome text
+          </button>
+          <button className="btn btn-outline" onClick={downloadWelcomeText} type="button">
+            Download .txt
+          </button>
+          <button className="btn btn-primary" onClick={onClose} type="button">
+            I have saved the credentials
+          </button>
+        </>
       }
     >
-      <div className="form-2col" style={{ gap: 16 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {/* Welcome text — the main copyable block */}
         <div>
           <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-2)', marginBottom: 6 }}>
-            Employee ID
+            Welcome message (copy and deliver to the employee)
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-            <code style={{ fontSize: 15, fontWeight: 600, background: 'var(--surface)', padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)' }}>
-              {data.employeeId}
-            </code>
-            <CopyButton value={data.employeeId} label="Copy Employee ID" size={14} />
-          </div>
-
-          <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-2)', marginBottom: 6 }}>
-            Login User ID
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-            <code style={{ fontSize: 15, fontWeight: 600, background: 'var(--surface)', padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)' }}>
-              {data.loginUserId}
-            </code>
-            <CopyButton value={data.loginUserId} label="Copy Login User ID" size={14} />
-          </div>
-
-          <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-2)', marginBottom: 6 }}>
-            Temporary password (shown once)
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-            <code style={{ fontSize: 15, fontWeight: 600, background: 'var(--surface)', padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)' }}>
-              {data.temporaryPassword}
-            </code>
-            <CopyButton value={data.temporaryPassword} label="Copy temporary password" size={14} />
-          </div>
-
-          <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-2)', marginBottom: 6 }}>
-            Activation token (invitation alternative)
-          </div>
-          <div style={{ marginBottom: 14 }}>
-            <code style={{ fontSize: 12, wordBreak: 'break-all', background: 'var(--surface)', padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', display: 'block' }}>
-              {data.activationToken}
-            </code>
-          </div>
-
-          <div style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.5 }}>
-            <p style={{ marginBottom: 6 }}>
-              Deliver the temporary password to {data.employeeName} out-of-band. It is shown <b>once only</b> — if this
-              modal is closed, use the password-reset workflow instead of retrieving the original password.
+          <textarea
+            readOnly
+            value={data.welcomeText}
+            style={{
+              width: '100%',
+              minHeight: 160,
+              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+              fontSize: 12,
+              lineHeight: 1.6,
+              background: 'var(--surface)',
+              border: '1px solid var(--border)',
+              borderRadius: 6,
+              padding: 10,
+              resize: 'vertical',
+            }}
+          />
+          <div style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.5, marginTop: 8 }}>
+            <p style={{ marginBottom: 4, fontWeight: 600, color: 'var(--text-1)' }}>
+              ⚠ The temporary password is shown <b>once only</b>. If this modal is closed,
+              it cannot be retrieved — use the password-reset workflow instead.
             </p>
             <p style={{ margin: 0 }}>
-              Account must be activated at first login (<b>must change password</b>).
+              Deliver this welcome text to <b>{data.employeeName}</b> out-of-band. The account
+              must be activated at first login (the employee <b>must change their password</b>).
             </p>
           </div>
         </div>
 
-        <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span style={{ fontSize: 11, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Employee</span>
-            <span style={{ fontWeight: 600 }}>{data.employeeName}</span>
+        <div className="form-2col" style={{ gap: 16 }}>
+          <div>
+            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-2)', marginBottom: 6 }}>
+              Employee ID
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+              <code style={{ fontSize: 15, fontWeight: 600, background: 'var(--surface)', padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)' }}>
+                {data.employeeId}
+              </code>
+              <CopyButton value={data.employeeId} label="Copy Employee ID" size={14} />
+            </div>
+
+            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-2)', marginBottom: 6 }}>
+              Username
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+              <code style={{ fontSize: 15, fontWeight: 600, background: 'var(--surface)', padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)' }}>
+                {data.username}
+              </code>
+              <CopyButton value={data.username} label="Copy username" size={14} />
+            </div>
+
+            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-2)', marginBottom: 6 }}>
+              Temporary password (shown once)
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+              <code style={{ fontSize: 15, fontWeight: 600, background: 'var(--surface)', padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)' }}>
+                {data.tempPassword}
+              </code>
+              <CopyButton value={data.tempPassword} label="Copy temporary password" size={14} />
+            </div>
+
+            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-2)', marginBottom: 6 }}>
+              Activation token (invitation alternative)
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <code style={{ fontSize: 12, wordBreak: 'break-all', background: 'var(--surface)', padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', display: 'block' }}>
+                {data.activationToken}
+              </code>
+            </div>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span style={{ fontSize: 11, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Department</span>
-            <span>{data.department}</span>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span style={{ fontSize: 11, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Designation</span>
-            <span>{data.designation}</span>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span style={{ fontSize: 11, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Assigned role</span>
-            <span>{data.role}</span>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span style={{ fontSize: 11, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Account status</span>
-            <Pill status={data.accountStatus} />
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span style={{ fontSize: 11, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Created by</span>
-            <span>{data.creatorName} · {data.creatorRole}</span>
+
+          <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span style={{ fontSize: 11, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Employee</span>
+              <span style={{ fontWeight: 600 }}>{data.employeeName}</span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span style={{ fontSize: 11, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Department</span>
+              <span>{data.department}</span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span style={{ fontSize: 11, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Designation</span>
+              <span>{data.designation}</span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span style={{ fontSize: 11, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Assigned role</span>
+              <span>{data.role}</span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span style={{ fontSize: 11, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Account status</span>
+              <Pill status={data.accountStatus} />
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span style={{ fontSize: 11, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Created by</span>
+              <span>{data.creatorName} · {data.creatorRole}</span>
+            </div>
           </div>
         </div>
       </div>
@@ -155,6 +211,7 @@ interface ResetPasswordDialogProps {
   open: boolean;
   employeeId: string;
   employeeName: string;
+  employeeEmail: string;
   onClose: () => void;
   onSuccess?: () => void;
 }
@@ -164,6 +221,7 @@ export function ResetPasswordDialog({
   open,
   employeeId,
   employeeName,
+  employeeEmail,
   onClose,
   onSuccess,
 }: ResetPasswordDialogProps) {
@@ -180,12 +238,40 @@ export function ResetPasswordDialog({
       toast(`Temporary password generated for ${employeeName}. Shown once only.`, 'success');
       onSuccess?.();
     } catch (err) {
+      if (err instanceof ApiError && err.status === 429) {
+        const retryAfter = err.details?.retryAfter || 60;
+        const minutes = Math.ceil(retryAfter / 60);
+        toast(`Too many reset requests. Please try again in ${minutes} minute(s).`, 'error');
+        return;
+      }
       const msg = err instanceof Error ? err.message : 'Password reset failed.';
       toast(msg, 'error');
     } finally {
       setBusy(false);
     }
   }, [employeeId, employeeName, toast, onSuccess]);
+
+  const handleCopyEmail = () => {
+    navigator.clipboard.writeText(result.credentials.email).then(() => toast('Email copied')).catch(() => {/* silent fail */});
+  };
+
+  const handleCopyUsername = () => {
+    navigator.clipboard.writeText(result.credentials.username).then(() => toast('Username copied')).catch(() => {/* silent fail */});
+  };
+
+  const handleCopyPassword = () => {
+    navigator.clipboard.writeText(result.credentials.temporaryPassword).then(() => toast('Password copied')).catch(() => {/* silent fail */});
+  };
+
+  const handleCopyAll = () => {
+    const creds = [
+      `Employee Name: ${result.credentials.employeeName}`,
+      `Username: ${result.credentials.username}`,
+      `Email: ${result.credentials.email}`,
+      `Temporary Password: ${result.credentials.temporaryPassword}`,
+    ].join('\n');
+    navigator.clipboard.writeText(creds).then(() => toast('All credentials copied')).catch(() => {/* silent fail */});
+  };
 
   return (
     <Modal
@@ -211,19 +297,47 @@ export function ResetPasswordDialog({
         <div className="form-2col" style={{ gap: 16 }}>
           <div>
             <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-2)', marginBottom: 6 }}>
-              Temporary password (shown once)
+              Employee Name
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+              <code style={{ fontSize: 14, fontWeight: 500, background: 'var(--surface)', padding: '6px 10px', borderRadius: 4, border: '1px solid var(--border)', flex: 1, minWidth: 200 }}>
+                {result.credentials.employeeName}
+              </code>
+            </div>
+            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-2)', marginBottom: 6 }}>
+              Username
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-              <code style={{ fontSize: 15, fontWeight: 600, background: 'var(--surface)', padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)' }}>
-                {result.temporaryPassword}
+              <code style={{ fontSize: 14, fontWeight: 500, background: 'var(--surface)', padding: '6px 10px', borderRadius: 4, border: '1px solid var(--border)', flex: 1, minWidth: 200 }}>
+                {result.credentials.username}
               </code>
-              <CopyButton value={result.temporaryPassword} label="Copy temporary password" size={14} />
+              <button onClick={handleCopyUsername} style={{ padding: '0 8px', background: 'transparent', border: 'none', color: 'var(--primary)', fontSize: 12, cursor: 'pointer' }} title="Copy username">
+                Copy
+              </button>
             </div>
-            <div style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.5, marginTop: 8 }}>
-              Deliver this to {employeeName} out-of-band. It cannot be retrieved again —
-              if this dialog is closed, use the reset workflow again. The employee must
-              change it at next login.
+            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-2)', marginBottom: 6 }}>
+              Temporary Password (shown once)
             </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+              <code
+                style={{
+                  fontSize: 14, fontWeight: 600, background: 'var(--surface)', padding: '6px 10px', borderRadius: 4, border: '1px solid var(--border)',
+                  ...(tempPasswordVisible ? {} : 'user-select: none'),
+                }}
+                onClick={tempPasswordVisible ? undefined : () => setTempPasswordVisible(true)}
+                title={tempPasswordVisible ? 'Hide password' : 'Show password'}
+              >
+                {tempPasswordVisible ? result.credentials.temporaryPassword : '••••••••••••••••'}
+              </code>
+              <button onClick={handleCopyPassword} style={{ padding: '0 8px', background: 'transparent', border: 'none', color: 'var(--primary)', fontSize: 12, cursor: 'pointer' }} title="Copy password">
+                Copy
+              </button>
+            </div>
+            {result.credentials.expiresAt && (
+              <div style={{ fontSize: 11, color: 'var(--text-2)', marginBottom: 6 }}>
+                Expires: {new Date(result.credentials.expiresAt).toLocaleString()}
+              </div>
+            )}
           </div>
           <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: 16 }}>
             <DetailList rows={[
@@ -235,10 +349,152 @@ export function ResetPasswordDialog({
               ['Message', result.message],
             ]} />
           </div>
+          <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: 16, marginTop: 12 }}>
+            <DetailList rows={{
+              ['Username', result.credentials.username],
+              ['Email', result.credentials.email],
+              ['Must change password', result.credentials.mustChangePassword ? 'Yes' : 'No'],
+            ]} />
+          </div>
         </div>
       ) : (
         <div style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.6, padding: 10 }}>
-          Resetting the password for <b>{employeeName}</b> will:<br />
+          Share these credentials securely with the employee. The temporary password must be changed immediately after the first login.
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+interface ResetCredentialsDialogProps {
+  open: boolean;
+  employeeId: string;
+  employeeName: string;
+  onClose: () => void;
+  onSuccess?: () => void;
+}
+
+/** HR-initiated credentials reset: generates a new temp password and shows a
+ *  new welcome text (password shown once only). */
+export function ResetCredentialsDialog({
+  open,
+  employeeId,
+  employeeName,
+  onClose,
+  onSuccess,
+}: ResetCredentialsDialogProps) {
+  const { toast } = useToast();
+  const { user } = useAuth();
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<ResetCredentialsResponse | null>(null);
+
+  const downloadWelcomeText = () => {
+    const blob = new Blob([result!.welcomeText], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `welcome-${employeeId}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const run = useCallback(async () => {
+    setBusy(true);
+    try {
+      const res = await resetEmployeeCredentials(employeeId);
+      setResult(res);
+      toast(`Credentials reset for ${employeeName}. Temporary password shown once.`, 'success');
+      onSuccess?.();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Credentials reset failed.';
+      toast(msg, 'error');
+    } finally {
+      setBusy(false);
+    }
+  }, [employeeId, employeeName, toast, onSuccess]);
+
+  return (
+    <Modal
+      title={`Reset credentials — ${employeeName}`}
+      onClose={onClose}
+      large
+      footer={
+        <>
+          <button className="btn btn-ghost" onClick={onClose} type="button">
+            Cancel
+          </button>
+          {result ? (
+            <>
+              <button className="btn btn-outline" onClick={() => navigator.clipboard.writeText(result.welcomeText)} type="button">
+                Copy welcome text
+              </button>
+              <button className="btn btn-outline" onClick={downloadWelcomeText} type="button">
+                Download .txt
+              </button>
+            </>
+          ) : (
+            <button
+              className="btn btn-danger-outline"
+              disabled={busy || !!result}
+              onClick={run}
+              type="button"
+            >
+              {busy ? 'Resetting…' : 'Generate new credentials'}
+            </button>
+          )}
+        </>
+      }
+    >
+      {result ? (
+        <div className="form-2col" style={{ gap: 16 }}>
+          <div>
+            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-2)', marginBottom: 6 }}>
+              Welcome message (copy and deliver to the employee)
+            </div>
+            <textarea
+              readOnly
+              value={result.welcomeText}
+              style={{
+                width: '100%',
+                minHeight: 160,
+                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                fontSize: 12,
+                lineHeight: 1.6,
+                background: 'var(--surface)',
+                border: '1px solid var(--border)',
+                borderRadius: 6,
+                padding: 10,
+                resize: 'vertical',
+              }}
+            />
+            <div style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.5, marginTop: 8 }}>
+              <p style={{ marginBottom: 4, fontWeight: 600, color: 'var(--text-1)' }}>
+                ⚠ The temporary password is shown <b>once only</b>. If this dialog is closed,
+                it cannot be retrieved — use the reset workflow again.
+              </p>
+              <p style={{ margin: 0 }}>
+                Deliver this welcome text to <b>{employeeName}</b> out-of-band. The employee
+                <b>must change their password</b> at next login.
+              </p>
+            </div>
+          </div>
+          <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: 16 }}>
+            <DetailList rows={[
+              ['Employee ID', result.employeeId],
+              ['Login User ID', result.loginUserId],
+              ['Username', result.username],
+              ['Employee', result.employeeName],
+              ['Must change password', result.mustChangePassword ? 'Yes' : 'No'],
+              ['Initiated by', user?.name ?? '—'],
+              ['Message', result.message],
+            ]} />
+          </div>
+        </div>
+      ) : (
+        <div style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.6, padding: 10 }}>
+          Resetting the credentials for <b>{employeeName}</b> will:<br />
           · Generate a new temporary password (shown once)<br />
           · Force a password change at next login<br />
           · Revoke all existing refresh sessions<br />

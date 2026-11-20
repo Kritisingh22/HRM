@@ -172,6 +172,12 @@ export function canManagePeople(role: Role): boolean {
   return canSeeSalary(role);
 }
 
+/** Who may create new employee records: HR/Admin/SuperAdmin/Manager. */
+export function canCreateEmployees(role: Role | undefined): boolean {
+  if (!role) return false;
+  return role === 'SUPER_ADMIN' || role === 'ADMIN' || role === 'HR' || role === 'MANAGER';
+}
+
 /* ------------------------------------------------------------
    Portal-specific page labels — "Employees" reads "My Team"
    for a manager and screens become self-service for employees.

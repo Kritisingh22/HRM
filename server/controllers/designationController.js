@@ -13,50 +13,92 @@ const catchAsync = require('../utils/catchAsync');
 
 const MANAGE_ROLES = ['HR', 'ADMIN', 'SUPER_ADMIN'];
 
-/* GET /api/designations?departmentId= — designations, optionally filtered by department */
+function requireManage(req) {
+  if (!MANAGE_ROLES.includes(req.user.role)) {
+    throw ApiError.forbidden('You do not have permission to perform this action.');
+  }
+}
+
+/* Normalise a designation name for duplicate detection within a department. */
+function normaliseName(name) {
+  return String(name || '').trim().toLowerCase();
+}
+
+/* GET /api/designations — all designations (optionally filtered by department) */
 exports.list = catchAsync(async (req, res) => {
+  const filter = {};
+  if (req.query.departmentId) filter.departmentId = req.query.departmentId;
+  const designations = await Designation.find(filter)
+    .sort({ order: 1, name: 1 })
+    .select('name description departmentId level isActive order createdAt updatedAt');
+  res.json({ count: designations.length, designations });
+});
+
+/* GET /api/designations/active — active designations only */
+exports.listActive = catchAsync(async (req, res) => {
   const filter = { isActive: true };
   if (req.query.departmentId) filter.departmentId = req.query.departmentId;
   const designations = await Designation.find(filter)
     .sort({ order: 1, name: 1 })
-    .select('name departmentId level isActive order createdAt updatedAt');
+    .select('name description departmentId level isActive order createdAt updatedAt');
   res.json({ count: designations.length, designations });
+});
+
+/* GET /api/designations/department/:departmentId — designations for a department */
+exports.listByDepartment = catchAsync(async (req, res) => {
+  const { departmentId } = req.params;
+  const dept = await Department.findById(departmentId);
+  if (!dept) throw ApiError.notFound('Department not found.');
+  const designations = await Designation.find({ departmentId })
+    .sort({ order: 1, name: 1 })
+    .select('name description departmentId level isActive order createdAt updatedAt');
+  res.json({ count: designations.length, department: dept, designations });
 });
 
 /* POST /api/designations — create a designation (HR/Admin/Super Admin) */
 exports.create = catchAsync(async (req, res) => {
-  if (!MANAGE_ROLES.includes(req.user.role)) {
-    throw ApiError.forbidden('You do not have permission to create designations.');
-  }
-  const { name, departmentId, level } = req.body;
+  requireManage(req);
+  const { name, departmentId, description, level, isActive, order } = req.body;
   if (!name || !name.trim()) throw ApiError.badRequest('Designation name is required.');
   if (!departmentId) throw ApiError.badRequest('departmentId is required.');
   const dept = await Department.findById(departmentId);
   if (!dept || !dept.isActive) throw ApiError.badRequest('Invalid or inactive department.');
-  const existing = await Designation.findOne({ name: name.trim(), departmentId });
+  const normalized = normaliseName(name);
+  const existing = await Designation.findOne({ departmentId, nameLower: normalized });
   if (existing) throw ApiError.conflict('A designation with this name already exists in this department.');
   const desig = await Designation.create({
     name: name.trim(),
+    description: description ? String(description).trim() : '',
     departmentId,
-    level: level ? level.trim() : undefined,
+    level: level ? String(level).trim() : undefined,
+    isActive: isActive !== false,
+    order: order !== undefined ? Number(order) : 0,
     createdBy: req.user.employeeId || req.user.id || undefined,
   });
+  // eslint-disable-next-line no-console
+  console.log(
+    '[Designation.create] persisted to MongoDB:',
+    desig._id,
+    desig.name,
+    'under department', departmentId,
+    'by', req.user.employeeId || req.user.id,
+  );
   res.status(201).json({ designation: desig });
 });
 
-/* PATCH /api/designations/:id — update or soft-delete (HR/Admin/Super Admin) */
+/* PATCH /api/designations/:id — update a designation (HR/Admin/Super Admin) */
 exports.update = catchAsync(async (req, res) => {
-  if (!MANAGE_ROLES.includes(req.user.role)) {
-    throw ApiError.forbidden('You do not have permission to update designations.');
-  }
+  requireManage(req);
   const desig = await Designation.findById(req.params.id);
   if (!desig) throw ApiError.notFound('Designation not found.');
-  const { name, departmentId, level, isActive, order } = req.body;
+  const { name, departmentId, description, level, isActive, order } = req.body;
   if (name !== undefined) {
     if (!name || !name.trim()) throw ApiError.badRequest('Designation name is required.');
+    const normalized = normaliseName(name);
+    const targetDeptId = departmentId !== undefined ? departmentId : desig.departmentId;
     const clash = await Designation.findOne({
-      name: name.trim(),
-      departmentId: departmentId !== undefined ? departmentId : desig.departmentId,
+      departmentId: targetDeptId,
+      nameLower: normalized,
       _id: { $ne: desig._id },
     });
     if (clash) throw ApiError.conflict('A designation with this name already exists in this department.');
@@ -67,21 +109,46 @@ exports.update = catchAsync(async (req, res) => {
     if (!dept || !dept.isActive) throw ApiError.badRequest('Invalid or inactive department.');
     desig.departmentId = departmentId;
   }
-  if (level !== undefined) desig.level = level ? level.trim() : undefined;
+  if (description !== undefined) desig.description = String(description).trim();
+  if (level !== undefined) desig.level = level ? String(level).trim() : undefined;
   if (isActive !== undefined) desig.isActive = Boolean(isActive);
   if (order !== undefined) desig.order = Number(order);
   await desig.save();
   res.json({ designation: desig });
 });
 
-/* DELETE /api/designations/:id — soft-delete; blocked if employees reference it */
-exports.remove = catchAsync(async (req, res) => {
-  if (!MANAGE_ROLES.includes(req.user.role)) {
-    throw ApiError.forbidden('You do not have permission to delete designations.');
+/* PATCH /api/designations/:id/status — activate/deactivate (HR/Admin/Super Admin) */
+exports.setStatus = catchAsync(async (req, res) => {
+  requireManage(req);
+  const { isActive } = req.body;
+  if (typeof isActive !== 'boolean') {
+    throw ApiError.badRequest('isActive must be a boolean.');
   }
   const desig = await Designation.findById(req.params.id);
   if (!desig) throw ApiError.notFound('Designation not found.');
-  const usedBy = await Employee.countDocuments({ designation: desig.name });
+  if (!isActive) {
+    const usedBy = await Employee.countDocuments({
+      $or: [{ designation: desig.name }, { designationId: desig._id }],
+    });
+    if (usedBy > 0) {
+      throw ApiError.conflict(
+        `Cannot deactivate "${desig.name}": ${usedBy} employee(s) are still assigned to it. Reassign them first.`
+      );
+    }
+  }
+  desig.isActive = isActive;
+  await desig.save();
+  res.json({ designation: desig });
+});
+
+/* DELETE /api/designations/:id — soft-delete; blocked if employees reference it */
+exports.remove = catchAsync(async (req, res) => {
+  requireManage(req);
+  const desig = await Designation.findById(req.params.id);
+  if (!desig) throw ApiError.notFound('Designation not found.');
+  const usedBy = await Employee.countDocuments({
+    $or: [{ designation: desig.name }, { designationId: desig._id }],
+  });
   if (usedBy > 0) {
     throw ApiError.conflict(
       `Cannot deactivate "${desig.name}": ${usedBy} employee(s) are still assigned to it. Reassign them first.`

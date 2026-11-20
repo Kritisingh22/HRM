@@ -37,8 +37,24 @@ export function ChangePasswordPage({ redirectTo }: ChangePasswordPageProps) {
       setError('Enter your current password.');
       return;
     }
-    if (!newPassword || newPassword.length < 8) {
-      setError('New password must be at least 8 characters.');
+    if (!newPassword || newPassword.length < 12) {
+      setError('New password must be at least 12 characters.');
+      return;
+    }
+    if (!/[A-Za-z]/.test(newPassword)) {
+      setError('New password must contain at least one letter.');
+      return;
+    }
+    if (!/[0-9]/.test(newPassword)) {
+      setError('New password must contain at least one number.');
+      return;
+    }
+    if (!/[^A-Za-z0-9]/.test(newPassword)) {
+      setError('New password must contain at least one special character.');
+      return;
+    }
+    if (newPassword === currentPassword) {
+      setError('New password must differ from your current password.');
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -47,11 +63,11 @@ export function ChangePasswordPage({ redirectTo }: ChangePasswordPageProps) {
     }
     setBusy(true);
     try {
-      await changePasswordApi({ currentPassword, newPassword });
-      // First-login change clears mustChangePassword and revokes old sessions.
-      // Sign in again with the new password to obtain a fresh session.
+      await changePasswordApi({ currentPassword, newPassword, confirmPassword });
+      // Password changed successfully. The backend clears mustChangePassword
+      // and revokes old sessions. Sign in again with the new password.
       await logout();
-      navigate(redirectTo ?? '/', { replace: true });
+      navigate(redirectTo ?? '/login', { replace: true });
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Password change failed. Please try again.';
       setError(msg);

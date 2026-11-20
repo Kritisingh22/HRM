@@ -32,7 +32,8 @@ export interface CreateEmployeeParams {
   assignedHrId?: string;
 }
 
-/** Returned by POST /api/employees — includes the one-time credentials. */
+/** Returned by POST /api/employees — includes the one-time credentials
+ *  and a copyable welcome text with login details. */
 export interface CreateEmployeeResponse {
   employee: {
     employeeId: string;
@@ -46,22 +47,13 @@ export interface CreateEmployeeResponse {
     status: string;
     userId: string;
   };
-  account: {
-    employeeId: string;
-    loginUserId: string;
-    email: string;
-    role: string;
-    accountStatus: string;
-    mustChangePassword: boolean;
+  /** One-time login credentials (tempPassword shown once only). */
+  credentials: {
+    username: string;
+    tempPassword: string;
   };
-  creator: {
-    id: string;
-    name: string;
-    email: string;
-    role: string;
-  };
-  activationToken: string;
-  temporaryPassword: string;
+  /** Copyable welcome message with login details (never re-sent). */
+  welcomeText: string;
   offerLetter?: {
     documentId: string;
     referenceId: string;
@@ -73,15 +65,31 @@ export interface CreateEmployeeResponse {
   };
 }
 
-/** Result of an admin-initiated password reset (temporary password shown ONCE). */
-export interface ResetPasswordResponse {
+/** Result of an HR-initiated credentials reset (temporary password shown ONCE). */
+export interface ResetCredentialsResponse {
   ok: boolean;
   employeeId: string;
   loginUserId: string;
   employeeName: string;
-  temporaryPassword: string;
+  username: string;
+  tempPassword: string;
   mustChangePassword: boolean;
+  welcomeText: string;
   message: string;
+}
+
+/** Result of an admin-initiated password reset (temporary password shown ONCE). */
+export interface ResetPasswordResponse {
+  success: boolean;
+  message: string;
+  credentials: {
+    employeeName: string;
+    username: string;
+    email: string;
+    temporaryPassword: string;
+    mustChangePassword: boolean;
+    expiresAt: string;
+  };
 }
 
 /** Result of generating a one-time password-setup invitation. */
@@ -129,11 +137,34 @@ export async function getEmployee(employeeId: string) {
 }
 
 /**
+ * Get full employee profile with linked User, Department and Designation details.
+ */
+export async function getEmployeeProfile(employeeId: string) {
+  return apiGet(`/api/employees/${encodeURIComponent(employeeId)}`);
+}
+
+/**
+ * Download employee profile documentation data for PDF generation.
+ */
+export async function downloadEmployeeProfilePDF(employeeId: string) {
+  return apiGet(`/api/employees/${encodeURIComponent(employeeId)}/document`);
+}
+
+/**
  * Administrator-initiated password reset.
  * Returns a temporary password shown ONCE (never stored or logged plaintext).
  */
 export async function resetEmployeePassword(employeeId: string): Promise<ResetPasswordResponse> {
   return apiSend('POST', `/api/employees/${encodeURIComponent(employeeId)}/reset-password`);
+}
+
+/**
+ * HR-initiated credentials reset for an existing employee.
+ * Generates a new temp password, forces change on next login, returns welcomeText.
+ * The plain temp password is returned ONCE only.
+ */
+export async function resetEmployeeCredentials(employeeId: string): Promise<ResetCredentialsResponse> {
+  return apiSend('POST', `/api/employees/${encodeURIComponent(employeeId)}/reset-credentials`);
 }
 
 /**

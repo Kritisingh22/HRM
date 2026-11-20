@@ -116,7 +116,9 @@ exports.list = catchAsync(async (req, res) => {
   res.json({ count: employees.length, employees });
 });
 
-/* GET /api/employees/:id  (id = Mongo _id or employeeId) */
+/* GET /api/employees/:id  (id = Mongo _id or employeeId)
+ * Returns the employee with populated User, Department and Designation
+ * information. Salary and bank details are omitted for unauthorized roles. */
 exports.getOne = catchAsync(async (req, res) => {
   const emp = await findByIdOrEmployeeId(req.params.id);
   if (!emp) throw ApiError.notFound("Employee not found.");
@@ -124,12 +126,148 @@ exports.getOne = catchAsync(async (req, res) => {
     throw ApiError.forbidden(
       "You do not have permission to view this employee.",
     );
-  let out = emp;
+
+  const salary = emp.salary;
+  const out = emp.toObject ? emp.toObject() : { ...emp };
+
+  // Populate linked User account
+  let linkedUser = null;
+  if (out.userId || out.user) {
+    const userId = out.userId || String(out.user);
+    const linked = await User.findById(userId).select('-passwordHash -activationToken -passwordResetToken');
+    if (linked) {
+      linkedUser = {
+        id: linked._id,
+        employeeId: linked.employeeId,
+        username: linked.username,
+        email: linked.email,
+        role: linked.role,
+        department: linked.department,
+        designation: linked.designation,
+        status: linked.status,
+        accountStatus: linked.accountStatus,
+        mustChangePassword: linked.mustChangePassword,
+        isVerified: linked.isVerified,
+        lastLogin: linked.lastLogin,
+        createdAt: linked.createdAt,
+      };
+    }
+  }
+
+  // Populate Department details
+  let departmentDetails = null;
+  if (out.departmentId) {
+    const dept = await Department.findById(out.departmentId).select('name description code isActive order');
+    if (dept) {
+      departmentDetails = {
+        id: dept._id,
+        name: dept.name,
+        description: dept.description,
+        code: dept.code,
+        isActive: dept.isActive,
+      };
+    }
+  }
+
+  // Populate Designation details
+  let designationDetails = null;
+  if (out.designationId) {
+    const desig = await Designation.findById(out.designationId).select('name description level isActive order departmentId');
+    if (desig) {
+      designationDetails = {
+        id: desig._id,
+        name: desig.name,
+        description: desig.description,
+        level: desig.level,
+        isActive: desig.isActive,
+        departmentId: desig.departmentId,
+      };
+    }
+  }
+
+  // Omit salary and bank details for unauthorized roles
   if (!canSeeSalary(req.user)) {
-    out = emp.toObject();
     delete out.salary;
-  } // omit compensation for non-payroll roles (property absent, not null)
-  res.json({ employee: out });
+    delete out.bankName;
+    delete out.accountNumber;
+    delete out.ifsc;
+    delete out.accountHolderName;
+  }
+
+  res.json({
+    employee: out,
+    user: linkedUser,
+    department: departmentDetails,
+    designation: designationDetails,
+  });
+});
+
+/* GET /api/employees/:id/document
+ * Returns authorized employee documentation data for profile/PDF generation.
+ * Salary and bank details are included only for payroll-authorized roles. */
+exports.getDocument = catchAsync(async (req, res) => {
+  const emp = await findByIdOrEmployeeId(req.params.id);
+  if (!emp) throw ApiError.notFound("Employee not found.");
+  if (!canAccess(req.user, emp))
+    throw ApiError.forbidden(
+      "You do not have permission to view this employee's documents.",
+    );
+
+  const salary = emp.salary;
+  const out = emp.toObject ? emp.toObject() : { ...emp };
+
+  // Omit salary and bank details for unauthorized roles
+  if (!canSeeSalary(req.user)) {
+    delete out.salary;
+    delete out.bankName;
+    delete out.accountNumber;
+    delete out.ifsc;
+    delete out.accountHolderName;
+  }
+
+  // Format dates for display
+  const formatDate = (v) => {
+    if (!v) return 'Not provided';
+    try {
+      return new Date(v).toLocaleDateString('en-IN', {
+        day: 'numeric', month: 'long', year: 'numeric',
+      });
+    } catch { return String(v); }
+  };
+
+  const documentData = {
+    employeeId: out.employeeId,
+    fullName: out.fullName,
+    firstName: out.firstName || '',
+    lastName: out.lastName || '',
+    email: out.email || 'Not provided',
+    personalEmail: out.personalEmail || 'Not provided',
+    phone: out.phone || 'Not provided',
+    gender: out.gender || 'Not provided',
+    dateOfBirth: formatDate(out.dateOfBirth),
+    address: out.address || 'Not provided',
+    city: out.location || 'Not provided',
+    emergencyContact: out.emergencyContact || 'Not provided',
+    bloodGroup: out.bloodGroup || 'Not provided',
+    department: out.department || 'Not assigned',
+    designation: out.designation || 'Not assigned',
+    manager: out.manager || 'Not assigned',
+    employmentType: out.employmentType || 'Full-time',
+    workMode: out.workMode || 'On-site',
+    workLocation: out.workLocation || 'office',
+    joiningDate: formatDate(out.joiningDate),
+    status: out.status || 'Active',
+    grade: out.grade || 'Not provided',
+    salary: canSeeSalary(req.user) ? (salary != null ? salary : 'Not provided') : 'Restricted',
+    bankName: canSeeSalary(req.user) ? (out.bankName || 'Not provided') : 'Restricted',
+    accountNumber: canSeeSalary(req.user) ? (out.accountNumber || 'Not provided') : 'Restricted',
+    ifsc: canSeeSalary(req.user) ? (out.ifsc || 'Not provided') : 'Restricted',
+    accountHolderName: canSeeSalary(req.user) ? (out.accountHolderName || 'Not provided') : 'Restricted',
+    createdAt: formatDate(out.createdAt),
+    updatedAt: formatDate(out.updatedAt),
+  };
+
+  res.json({ document: documentData, generatedAt: new Date().toISOString() });
 });
 
 /* POST /api/employees   (employees:write / employees:update)
@@ -238,6 +376,18 @@ exports.create = catchAsync(async (req, res) => {
     department: body.department,
   });
 
+  // ---- generate a unique login username from employeeId or email prefix ----
+  const emailPrefix = emailLower.split('@')[0];
+  let username = emailPrefix.replace(/[^a-z0-9]/gi, '').toLowerCase() || body.employeeId;
+  if (!username || username.length < 3) username = body.employeeId.toLowerCase();
+  let usernameAttempt = username;
+  let usernameSuffix = 0;
+  while (await User.findOne({ username: usernameAttempt })) {
+    usernameSuffix += 1;
+    usernameAttempt = `${username}${usernameSuffix}`;
+  }
+  body.username = usernameAttempt;
+
   // ---- temporary password + activation token (never stored plaintext) ----
   const tempPassword = crypto.randomBytes(16).toString('base64url'); // secure temp password
   const activationToken = crypto.randomBytes(32).toString('base64url');
@@ -291,6 +441,7 @@ exports.create = catchAsync(async (req, res) => {
 
         user = await User.create([{
           employeeId: body.employeeId,
+          username: body.username,
           fullName: body.fullName,
           email: emailLower,
           passwordHash,
@@ -358,6 +509,7 @@ exports.create = catchAsync(async (req, res) => {
     });
     user = await User.create({
       employeeId: body.employeeId,
+      username: body.username,
       fullName: body.fullName,
       email: emailLower,
       passwordHash,
@@ -423,6 +575,22 @@ exports.create = catchAsync(async (req, res) => {
     console.error('[employee.create] offer letter generation failed:', e.message);
   }
 
+  /* Build the one-time welcome text. The plain temporary password exists
+   * ONLY in this response — never stored, never logged, never re-sent. */
+  const joiningDate = new Date(emp.joiningDate).toLocaleDateString('en-IN', {
+    day: 'numeric', month: 'short', year: 'numeric',
+  });
+  const welcomeText = [
+    `Welcome to ${cfg.COMPANY_NAME}, ${emp.fullName}!`,
+    `Joining date: ${joiningDate}`,
+    `Employee ID: ${emp.employeeId}`,
+    `Role: ${emp.designation}, ${emp.department}`,
+    `Login URL: ${cfg.PORTAL_URL}`,
+    `Username: ${user.username}`,
+    `Temporary password: ${tempPassword}`,
+    'Please log in and change your password on first login.',
+  ].join('\n');
+
   /* The temporary password exists only in this response. It is never written
    * to MongoDB (only its hash is), never logged, never emailed, and never
    * returned on any subsequent GET. If the creator closes this modal they must
@@ -440,22 +608,11 @@ exports.create = catchAsync(async (req, res) => {
       status: emp.status,
       userId: emp.userId,
     },
-    account: {
-      employeeId: user.employeeId,
-      loginUserId: String(user._id),
-      email: user.email,
-      role: user.role,
-      accountStatus: user.accountStatus,
-      mustChangePassword: user.mustChangePassword,
+    credentials: {
+      username: user.username,
+      tempPassword, // returned ONCE
     },
-    creator: {
-      id: String(creator._id),
-      name: creator.fullName || creator.name,
-      email: creator.email,
-      role: creator.role,
-    },
-    temporaryPassword: tempPassword, // returned ONCE
-    activationToken, // one-time invitation alternative, returned ONCE
+    welcomeText,
     offerLetter: offerLetterResult,
   });
 });
@@ -680,11 +837,13 @@ exports.resetPassword = catchAsync(async (req, res) => {
 
   const tempPassword = crypto.randomBytes(16).toString('base64url');
   const passwordHash = await bcrypt.hash(tempPassword, cfg.BCRYPT_ROUNDS);
+  const temporaryPasswordExpiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
 
   linked.passwordHash = passwordHash;
   linked.accountStatus = 'active';
   linked.isVerified = true;
   linked.mustChangePassword = true;
+  linked.temporaryPasswordExpiresAt = temporaryPasswordExpiresAt;
   linked.passwordResetToken = undefined;
   linked.passwordResetExpires = undefined;
   linked.activationToken = undefined;
@@ -731,13 +890,109 @@ exports.resetPassword = catchAsync(async (req, res) => {
   }
 
   res.json({
+    success: true,
+    message: 'Password reset successfully',
+    credentials: {
+      employeeName: emp.fullName,
+      username: linked.username,
+      email: linked.email,
+      temporaryPassword: tempPassword, // returned ONCE — never stored or logged plaintext
+      mustChangePassword: true,
+      expiresAt: temporaryPasswordExpiresAt.toISOString(),
+    },
+  });
+});
+
+/* POST /api/employees/:id/reset-credentials
+ * HR-only: generate a fresh temporary password for an existing employee,
+ * force a password change on next login, revoke all sessions, and return
+ * a new welcome text (plain password shown ONCE). */
+exports.resetCredentials = catchAsync(async (req, res) => {
+  const emp = await findByIdOrEmployeeId(req.params.id);
+  if (!emp) throw ApiError.notFound("Employee not found.");
+  if (!canAccess(req.user, emp))
+    throw ApiError.forbidden("You do not have permission to reset this employee's credentials.");
+
+  const linked = await resolveLinkedUser(emp.employeeId, true);
+  if (!linked) throw ApiError.notFound('No login account is linked to this employee.');
+  assertCanTouchAccount(req.user, linked);
+
+  const tempPassword = crypto.randomBytes(16).toString('base64url');
+  const passwordHash = await bcrypt.hash(tempPassword, cfg.BCRYPT_ROUNDS);
+
+  linked.passwordHash = passwordHash;
+  linked.accountStatus = 'active';
+  linked.isVerified = true;
+  linked.mustChangePassword = true;
+  linked.passwordResetToken = undefined;
+  linked.passwordResetExpires = undefined;
+  linked.activationToken = undefined;
+  linked.activationTokenExpires = undefined;
+  await linked.save();
+
+  // Invalidate every existing refresh session so old credentials cannot be used.
+  await RefreshToken.updateMany({ user: linked._id }, { revoked: true });
+
+  logAudit(req, {
+    action: 'employee.reset_credentials',
+    targetType: 'Employee',
+    targetId: emp.employeeId,
+    description: `Credentials reset for ${emp.employeeId} (${emp.fullName}) by ${req.user.role} ${req.user.employeeId || req.user._id}. New temporary password issued, mustChangePassword set, sessions revoked.`,
+  });
+
+  const joiningDate = new Date(emp.joiningDate).toLocaleDateString('en-IN', {
+    day: 'numeric', month: 'short', year: 'numeric',
+  });
+  const welcomeText = [
+    `Welcome to ${cfg.COMPANY_NAME}, ${emp.fullName}!`,
+    `Joining date: ${joiningDate}`,
+    `Employee ID: ${emp.employeeId}`,
+    `Role: ${emp.designation}, ${emp.department}`,
+    `Login URL: ${cfg.PORTAL_URL}`,
+    `Username: ${linked.username}`,
+    `Temporary password: ${tempPassword}`,
+    'Please log in and change your password on first login.',
+  ].join('\n');
+
+  // Notify the employee — generic message, NEVER the password.
+  try {
+    await createNotification({
+      user: linked._id,
+      type: 'Credentials Reset',
+      title: 'Your login credentials have been reset',
+      message: `Your login credentials were reset by an administrator (Employee ID: ${emp.employeeId}). Use the temporary credential shared with you to sign in, then set a new password.`,
+      relatedEntity: { type: 'Employee', id: emp._id },
+      priority: 'High',
+    });
+  } catch (e) {
+    console.error('[employee.resetCredentials] employee notification failed:', e.message);
+  }
+
+  // Notify the administrator who initiated the reset.
+  try {
+    await createNotification({
+      user: req.user._id,
+      type: 'Credentials Reset Initiated',
+      title: 'Credentials reset completed',
+      message: `You reset the login credentials for employee ${emp.employeeId} (${emp.fullName}). A temporary password was generated and is shown only in this response.`,
+      relatedEntity: { type: 'Employee', id: emp._id },
+      priority: 'Normal',
+      metadata: { employeeId: emp.employeeId, employeeName: emp.fullName, resetBy: String(req.user._id) },
+    });
+  } catch (e) {
+    console.error('[employee.resetCredentials] initiator notification failed:', e.message);
+  }
+
+  res.json({
     ok: true,
     employeeId: emp.employeeId,
     loginUserId: String(linked._id),
     employeeName: emp.fullName,
-    temporaryPassword: tempPassword, // returned ONCE — never stored or logged plaintext
+    username: linked.username,
+    tempPassword, // returned ONCE — never stored or logged plaintext
     mustChangePassword: true,
-    message: 'Temporary password generated. Show it to the employee once; it cannot be retrieved again.',
+    welcomeText,
+    message: 'New temporary credentials generated. Show them to the employee once; they cannot be retrieved again.',
   });
 });
 

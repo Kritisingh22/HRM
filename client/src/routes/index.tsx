@@ -128,6 +128,9 @@ const TeamTaskCalendarPage = lazy(() =>
 const TodoPage = lazy(() =>
   import('@/features/todo/TodoPage').then((m) => ({ default: m.TodoPage })),
 );
+const EmployeeProfilePage = lazy(() =>
+  import('@/features/employees/EmployeeProfilePage').then((m) => ({ default: m.EmployeeProfilePage })),
+);
 
 /* Page name → lazy element; keys mirror PAGE_PATH exactly. */
 const PAGES: Record<string, ReactNode> = {
@@ -180,6 +183,14 @@ export function AppRoutes() {
               }
             />
           ))}
+          <Route
+            path="/employee-profile/:id"
+            element={
+              <Suspense fallback={<RouteSkeleton />}>
+                <EmployeeProfilePage />
+              </Suspense>
+            }
+          />
           <Route path="*" element={<NotFound />} />
         </Route>
       </Route>

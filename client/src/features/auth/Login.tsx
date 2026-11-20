@@ -64,7 +64,7 @@ export function LoginPage() {
         ) : null}
 
         <div className="auth-field">
-          <label htmlFor="loginEmail">Work email</label>
+          <label htmlFor="loginEmail">Work email or username</label>
           <div className="auth-inwrap">
             <input
               id="loginEmail"

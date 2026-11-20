@@ -17,6 +17,13 @@ const userSchema = new mongoose.Schema(
       trim: true,
       index: true,
     },
+    username: {
+      type: String,
+      unique: true,
+      sparse: true,
+      trim: true,
+      index: true,
+    }, // login username; generated from employeeId or email prefix at provisioning
     passwordHash: { type: String, required: true, select: false }, // never sent to clients
     role: { type: String, enum: ROLES, default: "EMPLOYEE", index: true },
     // Granular permissions: array of "module:action" strings (e.g., "leave:approve", "payroll:read")
@@ -39,6 +46,8 @@ const userSchema = new mongoose.Schema(
       index: true,
     }, // new hires start pending-activation until first login sets a password
     mustChangePassword: { type: Boolean, default: false }, // forces password reset on next login
+    temporaryPasswordExpiresAt: { type: Date, select: false }, // temp password expiry for mandatory reset
+    passwordChangedAt: { type: Date, select: false }, // when the permanent password was last set
     activationToken: { type: String, select: false }, // hashed one-time activation token
     activationTokenExpires: { type: Date, select: false },
     // Password reset / one-time setup (admin-initiated). Only the SHA-256 hash
@@ -96,6 +105,7 @@ userSchema.methods.toSafeJSON = function () {
   return {
     id: this._id,
     employeeId: this.employeeId,
+    username: this.username,
     name: this.fullName,
     email: this.email,
     role: this.role,

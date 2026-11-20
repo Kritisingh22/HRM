@@ -19,6 +19,15 @@ import { niceDate, todayISO } from '@/lib/date';
 import type { Department, Designation, Holiday, AttendanceSettings } from '@/types';
 import { getAttendanceSettings, updateAttendanceSettings } from '@/api/attendance';
 import { attendanceErrorMessage } from '@/api/attendance';
+import {
+  createDepartment as createDeptApi,
+  updateDepartment as updateDeptApi,
+} from '@/api/departments';
+import {
+  createDesignation as createDesigApi,
+  updateDesignation as updateDesigApi,
+} from '@/api/designations';
+import { refetchKeys } from '@/store/apiBridge';
 
 type TabKey = 'roles' | 'config' | 'workspace';
 
@@ -61,54 +70,75 @@ export function SettingsPage() {
     },
   ];
 
-  const saveDepartment = (values: Record<string, string>, row?: Department) => {
-    if (row) {
-      dispatch({
-        type: 'update',
-        collection: 'departments',
-        id: row.id,
-        patch: { name: values.name, head: values.head || null, budget: values.budget, active: values.active !== 'false' },
-      });
-      audit('Department updated', row.id);
-      toast('Department updated.', 'success');
-    } else {
-      const id = nextId('DEP-', 2);
-      dispatch({
-        type: 'add',
-        collection: 'departments',
-        item: { id, name: values.name, head: values.head || null, budget: values.budget || '—', active: values.active !== 'false' },
-      });
-      audit('Department added', `${values.name} (${id})`);
-      toast('Department created.', 'success');
+  const saveDepartment = async (values: Record<string, string>, row?: Department) => {
+    try {
+      if (row) {
+        await updateDeptApi(row.id, {
+          name: values.name,
+          description: undefined,
+          isActive: values.active !== 'false',
+        });
+        await refetchKeys(['departments']);
+        audit('Department updated', row.id);
+        toast('Department updated.', 'success');
+      } else {
+        const res = await createDeptApi({
+          name: values.name,
+          description: undefined,
+          isActive: values.active !== 'false',
+        });
+        await refetchKeys(['departments']);
+        audit('Department added', `${res.department.name} (${res.department._id || res.department.id})`);
+        toast('Department created.', 'success');
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to save department.';
+      toast(msg, 'error');
+      throw err;
     }
   };
 
   const designationForm: FieldDef[] = [
     { key: 'title', label: 'Title', required: true },
-    { key: 'deptId', label: 'Department', type: 'select', options: data.departments.map((d) => ({ value: d.id, label: d.name })) },
+    {
+      key: 'deptId',
+      label: 'Department',
+      type: 'select',
+      options: data.departments
+        .filter((d) => d.active)
+        .map((d) => ({ value: d.id, label: d.name })),
+    },
     { key: 'min', label: 'Minimum band', placeholder: '₹5.0L' },
     { key: 'max', label: 'Maximum band', placeholder: '₹9.0L' },
   ];
 
-  const saveDesignation = (values: Record<string, string>, row?: Designation) => {
-    if (row) {
-      dispatch({
-        type: 'update',
-        collection: 'designations',
-        id: row.id,
-        patch: { title: values.title, deptId: values.deptId, min: values.min, max: values.max },
-      });
-      audit('Designation updated', row.id);
-      toast('Designation updated.', 'success');
-    } else {
-      const id = nextId('DSG-', 2);
-      dispatch({
-        type: 'add',
-        collection: 'designations',
-        item: { id, title: values.title, deptId: values.deptId, min: values.min || '—', max: values.max || '—' },
-      });
-      audit('Designation added', `${values.title} (${id})`);
-      toast('Designation created.', 'success');
+  const saveDesignation = async (values: Record<string, string>, row?: Designation) => {
+    try {
+      if (row) {
+        await updateDesigApi(row.id, {
+          name: values.title,
+          departmentId: values.deptId,
+          description: undefined,
+          isActive: true,
+        });
+        await refetchKeys(['designations']);
+        audit('Designation updated', row.id);
+        toast('Designation updated.', 'success');
+      } else {
+        const res = await createDesigApi({
+          name: values.title,
+          departmentId: values.deptId,
+          description: undefined,
+          isActive: true,
+        });
+        await refetchKeys(['designations']);
+        audit('Designation added', `${res.designation.name} (${res.designation._id || res.designation.id})`);
+        toast('Designation created.', 'success');
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to save designation.';
+      toast(msg, 'error');
+      throw err;
     }
   };
 

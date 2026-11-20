@@ -8,7 +8,7 @@ const cfg = {
   NODE_ENV,
   isProd: NODE_ENV === 'production',
   PORT: parseInt(process.env.PORT || '5000', 10),
-  MONGODB_URI: process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/cyethack_hr',
+  MONGODB_URI: process.env.MONGODB_URI || 'mongodb+srv://singhkirti1860_db_user:Kritisingh123@cluster0.jqbnuni.mongodb.net/cyethack_hr?retryWrites=true&w=majority&compressors=zlib',
 
   JWT_SECRET: process.env.JWT_SECRET || 'dev-access-secret-change-me',
   JWT_REFRESH_SECRET: process.env.JWT_REFRESH_SECRET || 'dev-refresh-secret-change-me',
@@ -19,6 +19,11 @@ const cfg = {
   // match the browser's Origin header, which never includes a path) and as a
   // prefix for links built elsewhere as `${FRONTEND_URL}/some/path` (e.g. emails).
   FRONTEND_URL: process.env.FRONTEND_URL || 'https://hrm-portal.pages.dev',
+
+  // Public portal origin used in welcome-text login links. On Render this is the
+  // public service URL (e.g. https://cyethack-hrm-portal.onrender.com); locally it
+  // defaults to http://localhost:5000 so the welcome link works in development.
+  PORTAL_URL: process.env.PORTAL_URL || 'http://localhost:5000',
   COOKIE_NAME: 'cyethack_refresh',
 
   // One-time setup token for POST /api/auth/bootstrap-admin. Bootstrap requires
@@ -48,25 +53,7 @@ const cfg = {
   COMPANY_WEBSITE: process.env.COMPANY_WEBSITE || '',
   PAYROLL_CURRENCY: (process.env.PAYROLL_CURRENCY || 'INR').toUpperCase(),
   EMAIL_FROM: process.env.EMAIL_FROM || 'HRM Portal <noreply@cyethack.com>',
-
-  // ---- Document storage (object storage provider for uploaded files) ----
-  // Bytes live OUTSIDE the repository/database; MongoDB stores metadata + the
-  // file key. Select the provider with DOCUMENT_STORAGE:
-  //   'local'           -> <cwd>/uploads on disk (dev / tests; never served directly)
-  //   'google-drive'    -> private Google Drive folder (legacy; requires GOOGLE_* vars)
-  //   'cloudflare-r2'   -> Cloudflare R2 (production; requires R2_* vars below)
-  // Unset / unknown = automatic: R2 when fully configured, else Google Drive when
-  // fully configured, else local disk. Every record remembers its provider, so
-  // pre-existing files keep working when the provider changes.
-  DOCUMENT_STORAGE: (process.env.DOCUMENT_STORAGE || '').toLowerCase(),
-  GOOGLE_DRIVE_FOLDER_ID: process.env.GOOGLE_DRIVE_FOLDER_ID || '',
-  GOOGLE_DRIVE_AUTH_MODE: (process.env.GOOGLE_DRIVE_AUTH_MODE || 'service_account').toLowerCase(),
-  GOOGLE_SERVICE_ACCOUNT_FILE: process.env.GOOGLE_SERVICE_ACCOUNT_FILE || path.join(__dirname, '..', 'secrets', 'gdrive-sa.json'),
-  GOOGLE_SERVICE_ACCOUNT_JSON: process.env.GOOGLE_SERVICE_ACCOUNT_JSON || '',
-  GOOGLE_OAUTH_CLIENT_ID: process.env.GOOGLE_OAUTH_CLIENT_ID || '',
-  GOOGLE_OAUTH_CLIENT_SECRET: process.env.GOOGLE_OAUTH_CLIENT_SECRET || '',
-  GOOGLE_OAUTH_REFRESH_TOKEN: process.env.GOOGLE_OAUTH_REFRESH_TOKEN || '',
-  GOOGLE_DRIVE_TEST_FOLDER_ID: process.env.GOOGLE_DRIVE_TEST_FOLDER_ID || '',
+  
   // Cloudflare R2 credentials (backend-only — never exposed to React).
   R2_ACCOUNT_ID: process.env.R2_ACCOUNT_ID || '',
   R2_ACCESS_KEY_ID: process.env.R2_ACCESS_KEY_ID || '',

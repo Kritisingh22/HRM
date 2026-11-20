@@ -6,6 +6,8 @@ const cfg = require("../config/env");
 const { connectDB, disconnectDB } = require("../config/database");
 const User = require("../models/User");
 const Employee = require("../models/Employee");
+const Department = require("../models/Department");
+const Designation = require("../models/Designation");
 const Leave = require("../models/Leave");
 const Attendance = require("../models/Attendance");
 const Payroll = require("../models/Payroll");
@@ -290,6 +292,8 @@ async function seedDatabase() {
   await Promise.all([
     User.deleteMany({}),
     Employee.deleteMany({}),
+    Department.deleteMany({}),
+    Designation.deleteMany({}),
     Leave.deleteMany({}),
     Attendance.deleteMany({}),
     Payroll.deleteMany({}),
@@ -305,10 +309,52 @@ async function seedDatabase() {
     AttendanceEvent.deleteMany({}),
   ]);
 
-  // employees first
+  // ---------- Seed departments & designations (master data) ----------
+  // Derive the canonical set from the employee fixtures so the seeded
+  // roster and master tables stay in sync.
+  const deptNames = Array.from(
+    new Set(EMPLOYEES.map((e) => e.department).filter(Boolean)),
+  ).sort();
+  const deptNameToId = new Map();
+  for (const name of deptNames) {
+    const d = await Department.create({ name, description: "", isActive: true, order: 0, createdBy: "seed" });
+    deptNameToId.set(name, d._id);
+  }
+
+  // Collect distinct (department, designation) pairs from the fixtures.
+  const desigPairs = [];
+  const seenDesig = new Set();
+  for (const e of EMPLOYEES) {
+    if (!e.department || !e.designation) continue;
+    const key = `${e.department}|${e.designation}`;
+    if (seenDesig.has(key)) continue;
+    seenDesig.add(key);
+    desigPairs.push({ department: e.department, designation: e.designation });
+  }
+  const desigNameToId = new Map();
+  for (const { department, designation } of desigPairs) {
+    const deptId = deptNameToId.get(department);
+    const d = await Designation.create({
+      name: designation,
+      departmentId: deptId,
+      description: "",
+      isActive: true,
+      order: 0,
+      createdBy: "seed",
+    });
+    desigNameToId.set(`${department}|${designation}`, d._id);
+  }
+
+  // employees first (master data must exist before we link references)
   const empDocs = {};
   for (const e of EMPLOYEES) {
-    empDocs[e.employeeId] = await Employee.create(e);
+    const deptId = e.department ? deptNameToId.get(e.department) : null;
+    const desigId = e.department && e.designation ? desigNameToId.get(`${e.department}|${e.designation}`) : null;
+    empDocs[e.employeeId] = await Employee.create({
+      ...e,
+      departmentId: deptId || null,
+      designationId: desigId || null,
+    });
   }
 
   // users (hashed via the model's virtual), linked to employees where applicable

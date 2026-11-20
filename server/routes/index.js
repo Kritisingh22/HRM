@@ -1,8 +1,22 @@
 /* Mounts every API router under /api. */
 const express = require('express');
 const router = express.Router();
+const mongoose = require('mongoose');
 
-router.get('/health', (req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
+/* Health endpoint that verifies both server and database connectivity.
+   Returns non-success HTTP status if MongoDB is unavailable. */
+router.get('/health', async (req, res) => {
+  const dbState = mongoose.connection.readyState;
+  const dbConnected = dbState === 1; // 1 = connected
+  const status = dbConnected ? 'ok' : 'degraded';
+  const httpStatus = dbConnected ? 200 : 503;
+  res.status(httpStatus).json({
+    success: dbConnected,
+    server: 'running',
+    database: dbConnected ? 'connected' : 'disconnected',
+    timestamp: new Date().toISOString(),
+  });
+});
 
 router.use('/auth', require('./authRoutes'));
 router.use('/users', require('./userRoutes'));

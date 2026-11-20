@@ -4,6 +4,7 @@ const authenticate = require('../middleware/authenticate');
 const { requirePermission } = require('../middleware/authorize');
 const { hasPermission } = require('../utils/permissions');
 const ApiError = require('../utils/ApiError');
+const { resetPasswordLimiter } = require('../middleware/rateLimiter');
 
 const router = express.Router();
 router.use(authenticate); // every employee route requires a valid session
@@ -17,6 +18,7 @@ router.put('/me/profile', ctrl.updateOwnProfile);
 // reads are row-level scoped inside the controller (own / team / all)
 router.get('/', ctrl.list);
 router.get('/:id', ctrl.getOne);
+router.get('/:id/document', ctrl.getDocument);
 
 // writes need explicit permissions (HR / Admin / Super Admin via employees:write,
 // Manager via employees:update — team scoping is enforced in the controller)
@@ -33,7 +35,9 @@ router.delete('/:id', requirePermission('employees:delete'), ctrl.remove);
 
 /* Account credential & status management (HR/Admin/Super Admin company-wide;
    Manager scoped to their team via canAccess in the controller). */
-router.post('/:id/reset-password', canWriteOrUpdate, ctrl.resetPassword);
+router.post('/:id/reset-password', canWriteOrUpdate, resetPasswordLimiter, ctrl.resetPassword);
+// HR-only: reset credentials and return a one-time welcome text.
+router.post('/:id/reset-credentials', requirePermission('employees:write'), ctrl.resetCredentials);
 router.post('/:id/invite', canWriteOrUpdate, ctrl.invite);
 router.put('/:id/status', canWriteOrUpdate, ctrl.setAccountStatus);
 

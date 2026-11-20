@@ -151,13 +151,14 @@ function sendSession(res, user, rawRefresh) {
   };
 }
 
-/* POST /api/auth/login */
+/* POST /api/auth/login — accepts either the work email or the username. */
 exports.login = catchAsync(async (req, res) => {
-  const email = String(req.body.email || '').trim().toLowerCase();
+  const loginId = String(req.body.email || '').trim();
   const password = String(req.body.password || '');
-  if (!email || !password) throw ApiError.badRequest('Email and password are required.');
+  if (!loginId || !password) throw ApiError.badRequest('Email or username and password are required.');
 
-  const user = await User.findOne({ email }).select('+passwordHash');
+  const isEmail = loginId.includes('@');
+  const user = await User.findOne(isEmail ? { email: loginId.toLowerCase() } : { username: loginId }).select('+passwordHash');
 
   // account lock check (only meaningful when the user exists)
   if (user && user.isLocked()) {
@@ -259,27 +260,48 @@ exports.me = catchAsync(async (req, res) => {
 
 /* POST /api/auth/change-password — the logged-in user changes their own password.
  * Verifies the current password, sets the new one (hashed), and revokes all this
- * user's refresh tokens so other sessions must sign in again. */
+ * user's refresh tokens so other sessions must sign in again. Used both for
+ * voluntary changes and for mandatory password change after a temporary password
+ * login. The current password may be a temporary one issued by an administrator. */
 exports.changePassword = catchAsync(async (req, res) => {
   const currentPassword = String(req.body.currentPassword || '');
   const newPassword = String(req.body.newPassword || '');
+  const confirmPassword = String(req.body.confirmPassword || '');
   if (!currentPassword || !newPassword) throw ApiError.badRequest('currentPassword and newPassword are required.');
-  if (newPassword.length < 8) throw ApiError.badRequest('New password must be at least 8 characters.');
+  if (newPassword !== confirmPassword) throw ApiError.badRequest('New password and confirmation do not match.');
+  if (newPassword.length < 12) throw ApiError.badRequest('New password must be at least 12 characters.');
+  if (!/[A-Za-z]/.test(newPassword)) throw ApiError.badRequest('New password must contain at least one letter.');
+  if (!/[0-9]/.test(newPassword)) throw ApiError.badRequest('New password must contain at least one number.');
+  if (!/[^A-Za-z0-9]/.test(newPassword)) throw ApiError.badRequest('New password must contain at least one special character.');
+  if (newPassword === currentPassword) throw ApiError.badRequest('New password must differ from the current password.');
 
-  const user = await User.findById(req.user._id).select('+passwordHash');
+  const user = await User.findById(req.user._id).select('+passwordHash +temporaryPasswordExpiresAt');
   const ok = await user.comparePassword(currentPassword);
   if (!ok) throw ApiError.unauthorized('Current password is incorrect.');
 
-  user.password = newPassword;   // hashed on save
+  // If the account is under mandatory password change, verify the temporary password
+  // has not expired before accepting it as the current password.
+  if (user.mustChangePassword && user.temporaryPasswordExpiresAt) {
+    const expiry = new Date(user.temporaryPasswordExpiresAt).getTime();
+    if (Date.now() > expiry) {
+      throw ApiError.forbidden('Temporary password has expired. Please request a new reset from your administrator.');
+    }
+  }
+
+  user.password = newPassword;   // hashed on save via pre('validate')
   await user.save();
   await RefreshToken.updateMany({ user: user._id }, { revoked: true }); // force re-login elsewhere
-  // Clear first-login / temporary-password flag now that a real password is set.
-  if (user.mustChangePassword) {
-    user.mustChangePassword = false;
-    await user.save();
-  }
+  // Clear mandatory-change and temporary-password metadata now that a real password is set.
+  user.mustChangePassword = false;
+  user.temporaryPasswordExpiresAt = undefined;
+  user.passwordChangedAt = new Date();
+  await user.save();
   res.clearCookie(cfg.COOKIE_NAME, clearCookieOptions());
-  res.json({ ok: true, message: 'Password changed. Please sign in again.' });
+  res.json({
+    ok: true,
+    message: 'Password changed successfully. You can now log in with your new password.',
+    mustChangePassword: false,
+  });
 });
 
 /* POST /api/auth/activate-account — new-hire account activation.

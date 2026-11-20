@@ -280,7 +280,11 @@ async function tryRealLogin(email: string, password: string): Promise<StoredSess
   } catch {
     return null; // API not running / offline → the demo answers instead
   }
-  if (!res.ok) return null; // unknown account, wrong password, locked…
+  if (!res.ok) {
+    // Surface HTTP errors as ApiError so the caller can show the right message
+    // (wrong password, rate limited, server error) instead of "server unreachable".
+    throw await errorFromResponse(res);
+  }
   try {
     const body = (await res.json()) as { accessToken?: string; expiresIn?: string; user?: SessionUser };
     if (!body.accessToken || !body.user) return null;
