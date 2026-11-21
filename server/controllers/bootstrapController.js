@@ -7,6 +7,7 @@ Identity and scope always come from req.user (set by authenticate), never
 from the client. */
 const Notification = require('../models/Notification');
 const dashboard = require('./dashboardController');
+const serializeUser = require('../utils/serializeUser');
 const ApiError = require('../utils/ApiError');
 const catchAsync = require('../utils/catchAsync');
 
@@ -31,8 +32,10 @@ exports.summary = catchAsync(async (req, res) => {
     throw ApiError.forbidden('No dashboard is available for your role.');
   }
 
+  const safeUser = serializeUser(user);
+
   res.json({
-    user: { ...user.toSafeJSON(), permissions: allPerms, nav: navFor(user.role), portal: portalFor(user.role) },
+    user: { ...safeUser, permissions: allPerms, nav: navFor(user.role), portal: portalFor(user.role) },
     unreadCount,
     dashboard: dashboardPayload,
   });

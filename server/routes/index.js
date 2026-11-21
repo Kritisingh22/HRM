@@ -55,7 +55,6 @@ router.use('/employee-documents', require('./employeeDocumentRoutes'));
 router.use('/training', require('./trainingRoutes'));
 router.use('/certifications', require('./certificationRoutes'));
 router.use('/notifications', require('./notificationRoutes'));
-router.use('/calendar-policy', require('./calendarRoutes'));
 router.use('/transfer-tickets', require('./transferTicketRoutes'));
 router.use('/team-tasks', require('./teamTaskRoutes'));
 

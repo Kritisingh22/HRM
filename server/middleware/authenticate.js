@@ -41,9 +41,9 @@ module.exports = catchAsync(async (req, res, next) => {
 
   /* Mandatory password change: restrict to change-password / logout / me only. */
   if (user.mustChangePassword) {
-    const isChangePassword = req.path === '/change-password';
-    const isLogout = req.path === '/logout';
-    const isMe = req.path === '/me';
+    const isChangePassword = req.path === '/api/auth/change-password' || req.path === '/change-password';
+    const isLogout = req.path === '/api/auth/logout' || req.path === '/logout';
+    const isMe = req.path === '/api/auth/me' || req.path === '/me';
     if (!(isChangePassword || isLogout || isMe)) {
       throw ApiError.forbidden('You must change your password before accessing other features. Please use the change-password endpoint.');
     }

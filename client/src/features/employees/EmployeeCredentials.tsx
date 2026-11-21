@@ -36,6 +36,7 @@ import { useToast } from '@/context/ToastContext';
 import { useAuth } from '@/context/AuthContext';
 import { niceDate } from '@/lib/date';
 import { statusClass } from '@/lib/format';
+import { downloadEmployeeCredentialsTxt } from '@/lib/credentials';
 
 interface CredentialModalProps {
   open: boolean;
@@ -229,23 +230,67 @@ export function ResetPasswordDialog({
   const { user } = useAuth();
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ResetPasswordResponse | null>(null);
+  const [tempPasswordVisible, setTempPasswordVisible] = useState(false);
 
   const run = useCallback(async () => {
     setBusy(true);
     try {
       const res = await resetEmployeePassword(employeeId);
+      if (!res || !res.success || !res.credentials) {
+        throw new Error('Invalid reset response from server.');
+      }
       setResult(res);
-      toast(`Temporary password generated for ${employeeName}. Shown once only.`, 'success');
+
+      // Auto-download the TXT credentials file after successful reset.
+      try {
+        downloadEmployeeCredentialsTxt({
+          employeeName: res.credentials.employeeName,
+          employeeId: undefined, // backend reset-password response does not include employeeId at top level
+          username: res.credentials.username,
+          email: res.credentials.email,
+          temporaryPassword: res.credentials.temporaryPassword,
+          mustChangePassword: res.credentials.mustChangePassword,
+          expiresAt: res.credentials.expiresAt,
+        });
+      } catch {
+        /* best-effort download; modal still offers manual download */
+      }
+
+      toast(`Temporary password generated for ${employeeName}. Credentials downloaded.`, 'success');
       onSuccess?.();
     } catch (err) {
-      if (err instanceof ApiError && err.status === 429) {
-        const retryAfter = err.details?.retryAfter || 60;
-        const minutes = Math.ceil(retryAfter / 60);
-        toast(`Too many reset requests. Please try again in ${minutes} minute(s).`, 'error');
-        return;
+      if (err instanceof ApiError) {
+        switch (err.status) {
+          case 401:
+            toast('Unauthorized — please log in again.', 'error');
+            break;
+          case 403:
+            toast('Forbidden — you do not have permission to reset this password.', 'error');
+            break;
+          case 404:
+            toast('Employee not found.', 'error');
+            break;
+          case 429:
+            const retryAfter = err.details?.retryAfter || 60;
+            const minutes = Math.ceil(retryAfter / 60);
+            toast(`Too many reset requests. Please try again in ${minutes} minute(s).`, 'error');
+            break;
+          case 500:
+            toast('Internal server error. Please try again later.', 'error');
+            break;
+          default:
+            toast(err.message || 'Password reset failed.', 'error');
+        }
+      } else if (err instanceof Error) {
+        const msg = err.message.toLowerCase();
+        if (msg.includes('network') || msg.includes('fetch') || msg.includes('timeout')) {
+          toast('Network error — the reset may still have been processed. Do not retry blindly.', 'error');
+        } else {
+          toast(err.message || 'Password reset failed.', 'error');
+        }
+      } else {
+        toast('An unexpected error occurred.', 'error');
       }
-      const msg = err instanceof Error ? err.message : 'Password reset failed.';
-      toast(msg, 'error');
     } finally {
       setBusy(false);
     }
@@ -271,6 +316,23 @@ export function ResetPasswordDialog({
       `Temporary Password: ${result.credentials.temporaryPassword}`,
     ].join('\n');
     navigator.clipboard.writeText(creds).then(() => toast('All credentials copied')).catch(() => {/* silent fail */});
+  };
+
+  const handleDownloadTxt = () => {
+    if (!result) return;
+    try {
+      downloadEmployeeCredentialsTxt({
+        employeeName: result.credentials.employeeName,
+        username: result.credentials.username,
+        email: result.credentials.email,
+        temporaryPassword: result.credentials.temporaryPassword,
+        mustChangePassword: result.credentials.mustChangePassword,
+        expiresAt: result.credentials.expiresAt,
+      });
+      toast('Credentials file downloaded.', 'success');
+    } catch {
+      toast('Could not generate credentials file.', 'error');
+    }
   };
 
   return (
@@ -341,10 +403,10 @@ export function ResetPasswordDialog({
           </div>
           <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: 16 }}>
             <DetailList rows={[
-              ['Employee ID', result.employeeId],
-              ['Login User ID', result.loginUserId],
-              ['Employee', result.employeeName],
-              ['Must change password', result.mustChangePassword ? 'Yes' : 'No'],
+              ['Employee ID', employeeId],
+              ['Login User ID', '—'],
+              ['Employee', result.credentials.employeeName],
+              ['Must change password', result.credentials.mustChangePassword ? 'Yes' : 'No'],
               ['Initiated by', user?.name ?? '—'],
               ['Message', result.message],
             ]} />
@@ -357,6 +419,56 @@ export function ResetPasswordDialog({
             ]} />
           </div>
         </div>
+
+          <div style={{ marginTop: 16, padding: 12, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6 }}>
+            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-2)', marginBottom: 8 }}>
+              Actions
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button
+                className="btn btn-outline"
+                onClick={handleDownloadTxt}
+                type="button"
+                style={{ fontSize: 12, padding: '6px 12px' }}
+              >
+                📄 Download Credentials (.txt)
+              </button>
+              <button
+                className="btn btn-outline"
+                onClick={handleCopyPassword}
+                type="button"
+                style={{ fontSize: 12, padding: '6px 12px' }}
+              >
+                🔐 Copy Password
+              </button>
+              <button
+                className="btn btn-outline"
+                onClick={handleCopyUsername}
+                type="button"
+                style={{ fontSize: 12, padding: '6px 12px' }}
+              >
+                👤 Copy Username
+              </button>
+              <button
+                className="btn btn-outline"
+                onClick={handleCopyAll}
+                type="button"
+                style={{ fontSize: 12, padding: '6px 12px' }}
+              >
+                📋 Copy All Credentials
+              </button>
+            </div>
+            <div style={{ marginTop: 10, fontSize: 12, color: 'var(--text-2)', lineHeight: 1.5 }}>
+              <p style={{ marginBottom: 4, fontWeight: 600, color: 'var(--text-1)' }}>
+                Share these credentials securely with the employee.
+              </p>
+              <p style={{ margin: 0 }}>
+                The employee must change this temporary password after their first login.
+                The password is shown only once — if this dialog closes, it cannot be
+                retrieved. Perform another reset to generate a new temporary password.
+              </p>
+            </div>
+          </div>
       ) : (
         <div style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.6, padding: 10 }}>
           Share these credentials securely with the employee. The temporary password must be changed immediately after the first login.

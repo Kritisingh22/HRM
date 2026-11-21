@@ -48,7 +48,8 @@ function RequireAuth() {
   const { status, user } = useAuth();
   if (status === 'booting') return <BootSplash />;
   if (status !== 'authenticated' || !user) return <Navigate to="/login" replace />;
-  if (user.mustChangePassword && window.location.pathname !== '/change-password') {
+  const hashPath = window.location.hash.replace(/^#\/?/, '') || window.location.pathname;
+  if (user.mustChangePassword && hashPath !== 'change-password') {
     return <Navigate to="/change-password" replace />;
   }
   return <Outlet />;

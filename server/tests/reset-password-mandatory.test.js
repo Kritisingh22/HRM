@@ -126,9 +126,10 @@ async function api(method, path, { access, cookie, body } = {}) {
       access: hr.access,
     });
     ok("HR reset password → 200", resetRes.status === 200);
-    ok("Returns temporary password", typeof resetRes.data.temporaryPassword === "string" && resetRes.data.temporaryPassword.length > 0);
-    ok("Returns expiry timestamp", typeof resetRes.data.temporaryPasswordExpiresAt === "string");
-    ok("mustChangePassword is true", resetRes.data.mustChangePassword === true);
+    ok("Returns credentials object", typeof resetRes.data.credentials === "object" && resetRes.data.credentials !== null);
+    ok("Returns temporary password", typeof resetRes.data.credentials.temporaryPassword === "string" && resetRes.data.credentials.temporaryPassword.length > 0);
+    ok("Returns expiry timestamp", typeof resetRes.data.credentials.expiresAt === "string");
+    ok("mustChangePassword is true", resetRes.data.credentials.mustChangePassword === true);
 
     // Verify temporaryPasswordExpiresAt is set on the user after reset
     const userWithExpiry = await User.findById(newUserId).select('+temporaryPasswordExpiresAt');
@@ -140,7 +141,7 @@ async function api(method, path, { access, cookie, body } = {}) {
     ok("Old temp password rejected", oldPasswordWorks === false);
 
     // Verify new temp password works
-    const newTempWorks = await userAfterReset.comparePassword(resetRes.data.temporaryPassword);
+    const newTempWorks = await userAfterReset.comparePassword(resetRes.data.credentials.temporaryPassword);
     ok("New temp password works", newTempWorks === true);
 
     // Verify refresh tokens revoked
@@ -150,7 +151,7 @@ async function api(method, path, { access, cookie, body } = {}) {
     ok("No active refresh tokens remain", activeTokens === 0);
 
     // ---------- TEST 4: Employee logs in with temp password → mustChangePassword ----------
-    const tempLogin = await login("qa.engineer@cyethack.com", resetRes.data.temporaryPassword);
+    const tempLogin = await login("qa.engineer@cyethack.com", resetRes.data.credentials.temporaryPassword);
     ok("Temp password login → 200", tempLogin.status === 200);
     ok("Login response has mustChangePassword", tempLogin.body.user.mustChangePassword === true);
 
@@ -163,7 +164,7 @@ async function api(method, path, { access, cookie, body } = {}) {
     const changeRes = await api("POST", "/api/auth/change-password", {
       access: tempLogin.access,
       body: {
-        currentPassword: resetRes.data.temporaryPassword,
+        currentPassword: resetRes.data.credentials.temporaryPassword,
         newPassword: "NewP@ssw0rd123!",
         confirmPassword: "NewP@ssw0rd123!",
       },
@@ -173,7 +174,7 @@ async function api(method, path, { access, cookie, body } = {}) {
     ok("mustChangePassword cleared", changeRes.data.mustChangePassword === false);
 
     // ---------- TEST 7: Old temp password no longer works ----------
-    const tempLoginAgain = await login("qa.engineer@cyethack.com", resetRes.data.temporaryPassword);
+    const tempLoginAgain = await login("qa.engineer@cyethack.com", resetRes.data.credentials.temporaryPassword);
     ok("Temp password rejected after change → 401", tempLoginAgain.status === 401);
 
     // ---------- TEST 8: New password works ----------

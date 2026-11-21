@@ -891,7 +891,7 @@ exports.resetPassword = catchAsync(async (req, res) => {
 
   res.json({
     success: true,
-    message: 'Password reset successfully',
+    message: 'Temporary password generated successfully',
     credentials: {
       employeeName: emp.fullName,
       username: linked.username,

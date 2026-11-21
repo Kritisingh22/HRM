@@ -40,3 +40,10 @@ Thumbs.db
 .idea/
 
 LIGHTHOUSE_QA_FIX_REPORT.md
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/

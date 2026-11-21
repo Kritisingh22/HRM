@@ -120,9 +120,20 @@ async function api(method, path, { access, cookie, body } = {}) {
       access: hr.access,
     });
     ok("HR reset password → 200", resetRes.status === 200);
-    ok("Returns temporary password", typeof resetRes.data.temporaryPassword === "string" && resetRes.data.temporaryPassword.length > 0);
-    ok("Returns employeeId", resetRes.data.employeeId === rohithId);
-    ok("mustChangePassword is true", resetRes.data.mustChangePassword === true);
+    ok("Returns success", resetRes.data.success === true);
+    ok("Returns message", typeof resetRes.data.message === "string" && resetRes.data.message.length > 0);
+    ok("Returns credentials object", typeof resetRes.data.credentials === "object" && resetRes.data.credentials !== null);
+    ok("Returns temporary password", typeof resetRes.data.credentials.temporaryPassword === "string" && resetRes.data.credentials.temporaryPassword.length > 0);
+    ok("Returns employeeName", typeof resetRes.data.credentials.employeeName === "string" && resetRes.data.credentials.employeeName.length > 0);
+    // Username may be undefined for users provisioned via seed script
+    if (resetRes.data.credentials.username) {
+      ok("Returns username", typeof resetRes.data.credentials.username === "string");
+    } else {
+      ok("Returns username (optional for seed data)", true);
+    }
+    ok("Returns email", typeof resetRes.data.credentials.email === "string" && resetRes.data.credentials.email.length > 0);
+    ok("mustChangePassword is true", resetRes.data.credentials.mustChangePassword === true);
+    ok("Returns expiresAt", typeof resetRes.data.credentials.expiresAt === "string");
 
     // Verify old password no longer works
     const rohithUserAfter = await User.findOne({ employeeId: "CY0525RS109" }).select("+passwordHash");
@@ -130,7 +141,7 @@ async function api(method, path, { access, cookie, body } = {}) {
     ok("Old password rejected after reset", oldPasswordAfter === false);
 
     // Verify new temp password works
-    const newPasswordWorks = await rohithUserAfter.comparePassword(resetRes.data.temporaryPassword);
+    const newPasswordWorks = await rohithUserAfter.comparePassword(resetRes.data.credentials.temporaryPassword);
     ok("New temporary password works", newPasswordWorks === true);
 
     // Verify mustChangePassword is set

@@ -212,8 +212,8 @@ async function api(method, path, { access, cookie, body } = {}) {
     const reset = await api("POST", `/api/employees/${sessEmpId}/reset-password`, { access: hr.access });
     ok("admin reset password → 200", reset.status === 200);
     if (reset.status === 200) {
-      ok("reset returns temporaryPassword", typeof reset.data.temporaryPassword === "string" && reset.data.temporaryPassword.length > 0);
-      ok("reset mustChangePassword true", reset.data.mustChangePassword === true);
+      ok("reset returns temporaryPassword", typeof reset.data.credentials?.temporaryPassword === "string" && reset.data.credentials.temporaryPassword.length > 0);
+      ok("reset mustChangePassword true", reset.data.credentials?.mustChangePassword === true);
       // temp password cannot be retrieved again via GET
       const got2 = await api("GET", `/api/employees/${sessEmpId}`, { access: hr.access });
       ok("GET omits temporary password after reset", got2.status === 200 && !JSON.stringify(got2.data).toLowerCase().includes("temporarypassword"));
