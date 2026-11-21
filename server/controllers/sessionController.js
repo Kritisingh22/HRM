@@ -13,7 +13,9 @@ const { teamEmployeeIds } = require('../utils/teamScope');
 /* GET /api/sessions/me — the caller's current/most recent session, with a
  * live duration if still Active (computed from server time, not stored). */
 exports.me = catchAsync(async (req, res) => {
-  const session = await LoginSession.findOne({ user: req.user._id }).sort({ loginAt: -1 });
+  const session = await LoginSession.findOne({ user: req.user._id })
+    .select('+employeeId +role +status +loginAt +logoutAt +durationSeconds +gps')
+    .sort({ loginAt: -1 });
   res.json({ session: session ? session.toSafeJSON() : null });
 });
 

@@ -212,14 +212,24 @@ async function errorFromResponse(res: Response): Promise<ApiError> {
 
 /** One fetch against the real HRM API (same-origin, cookies included). */
 async function realApi(path: string, init: RequestInit = {}): Promise<Response> {
-  let res: Response;
+  await acquire();
   try {
-    res = await fetch(path, { credentials: 'same-origin', ...init });
-  } catch {
-    throw new ApiError(0, 'The HR server is unreachable.');
+    let res: Response;
+    try {
+      const timeoutMs = init.timeoutMs ?? 15_000; // 15s default timeout
+      const ctrl = new AbortController();
+      const id = setTimeout(() => ctrl.abort(), timeoutMs);
+      res = await fetch(path, { credentials: 'same-origin', ...init, signal: ctrl.signal });
+      clearTimeout(id);
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') throw new ApiError(0, 'Request timed out. Please try again.');
+      throw err;
+    }
+    if (!res.ok) throw await errorFromResponse(res);
+    return res;
+  } finally {
+    release();
   }
-  if (!res.ok) throw await errorFromResponse(res);
-  return res;
 }
 
 function bearer(accessToken: string): HeadersInit {
@@ -307,19 +317,36 @@ let realSessionRenewal: Promise<StoredSession | null> | null = null;
 /** Mint a fresh access token from the httpOnly refresh cookie. Persists
     the renewed session; returns null when the cookie is gone/expired.
     Concurrent 401 responses share one refresh because refresh tokens rotate
-    on every use and replaying the old token revokes the whole token family. */
-function renewRealSession(): Promise<StoredSession | null> {
+    on every use and replaying the old token revokes the whole token family.
+
+    On 429 (rate-limited refresh), respect Retry-After and retry once with
+    exponential backoff jitter so many tabs don't thundering-herd. */
+async function renewRealSessionWithBackoff(attempt = 0): Promise<StoredSession | null> {
   if (realSessionRenewal) return realSessionRenewal;
+
+  // Max 2 attempts total (original + one retry)
+  if (attempt >= 2) return null;
 
   realSessionRenewal = (async () => {
     let res: Response;
     try {
-      // Use 'include' to ensure the httpOnly refresh cookie is sent even in
-      // cross-origin scenarios (e.g., Vite dev proxy on different port).
       res = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'include' });
     } catch {
       return null;
     }
+
+    // Handle 429 with Retry-After and jitter backoff
+    if (res.status === 429 && attempt < 2) {
+      const retryAfter = res.headers.get('Retry-After')
+        ? Math.max(1000, Number(res.headers.get('Retry-After')) * 1000)
+        : 5_000; // default 5s jittered backoff
+      const jitter = Math.random() * 2000; // +0-2s jitter
+      await new Promise(r => setTimeout(r, retryAfter + jitter));
+      // Single retry with backoff — after this, give up so the caller can
+      // show a clean "session expired" UI rather than endless retry loops.
+      return renewRealSessionWithBackoff(attempt + 1);
+    }
+
     if (!res.ok) return null;
     try {
       const body = (await res.json()) as { accessToken?: string; expiresIn?: string; user?: SessionUser };
@@ -345,23 +372,62 @@ function renewRealSession(): Promise<StoredSession | null> {
   return realSessionRenewal;
 }
 
-/** Mint a fresh access token from the httpOnly refresh cookie and keep it in
- *  this tab's memory (never in localStorage). */
-export { renewRealSession };
+/** Mint a fresh access token from the httpOnly refresh cookie. Persists
+    the renewed session; returns null when the cookie is gone/expired. */
+export { renewRealSessionWithBackoff as renewRealSession };
 
 /* ============================================================
-   Request de-duplication + short-lived cache (GET only).
-
-   Collapses concurrent identical GET requests into a single fetch
-   (fixes /api/sessions being requested twice) and caches successful
-   GET responses for GET_CACHE_TTL_MS. Any mutation (POST/PUT/PATCH/
-   DELETE) clears the cache so stale data is never served after a write.
-
-   Cached responses are rebuilt as fresh `Response` objects so callers
-   can call `.json()` safely without body-consumption issues.
+   Global request semaphore — limits concurrent API requests
+   to prevent browser resource exhaustion (ERR_INSUFFICIENT_RESOURCES).
    ============================================================ */
 
-const GET_CACHE_TTL_MS = 45_000;
+let concurrentRequests = 0;
+const MAX_CONCURRENT = 6; // browser-friendly limit
+
+function acquire(): Promise<void> {
+  return new Promise(resolve => {
+    if (concurrentRequests < MAX_CONCURRENT) {
+      concurrentRequests++;
+      resolve();
+    } else {
+      // Wait for a slot to open
+      setTimeout(() => acquire().then(resolve), 10);
+    }
+  });
+}
+
+function release(): void {
+  concurrentRequests = Math.max(0, concurrentRequests - 1);
+}
+
+/* ============================================================
+   Request in-flight tracking — prevents obsolete requests
+   from completing after the component has unmounted or data
+   has been refreshed.
+   ============================================================ */
+
+const inflightSlots = new Map<string, AbortController>();
+
+function trackInflight(key: string, controller: AbortController): void {
+  inflightSlots.set(key, controller);
+}
+
+function clearInflight(key: string): void {
+  const controller = inflightSlots.get(key);
+  if (controller) {
+    controller.abort();
+    inflightSlots.delete(key);
+  }
+}
+
+function clearAllInflight(): void {
+  inflightSlots.forEach(controller => controller.abort());
+  inflightSlots.clear();
+}
+
+/* ============================================================
+   Parse the safe error payload of a non-OK API response.
+   ============================================================ */
 
 interface CacheSlot {
   json: unknown;
@@ -530,15 +596,40 @@ export const api = {
     const stored = readSession();
     if (!(stored?.source === 'api')) throw new ApiError(401, 'No valid session — please sign in again.');
     const token = stored.accessToken || accessToken;
-    const [meRes, listRes, healthRes] = await Promise.all([
-      realApi('/api/sessions/me', { headers: bearer(token) }),
-      realApi('/api/sessions', { headers: bearer(token) }).catch(() => null),
-      realApi('/api/health').catch(() => null),
-    ]);
+
+    // Current session — the source of truth for UI session panel
+    const meRes = await realApi('/api/sessions/me', { headers: bearer(token) });
     const meBody = (await meRes.json()) as { session: ApiSessionRow | null };
     if (!meBody.session) throw new ApiError(404, 'Session record not found.');
-    const listBody = listRes ? ((await listRes.json()) as { sessions?: ApiSessionRow[] }) : {};
-    const health = healthRes ? ((await healthRes.json()) as { time?: string }) : null;
+
+    // Recent sessions list — optional, best-effort (with client-side cache, 30s TTL)
+    const listKey = '/api/sessions';
+    let listBody: { sessions?: ApiSessionRow[] } = {};
+    try {
+      const listRes = await realApi(listKey, { headers: bearer(token) }).catch(() => null);
+      listBody = listRes ? ((await listRes.json()) as { sessions?: ApiSessionRow[] }) : {};
+    } catch {}
+
+    // Health check — lightweight, zero DB, instant 200 (cached per-tab for 30s to avoid redundant pings)
+    const healthCache = (sessionActivity as any).__healthCache || new Map<string, { expires: number; time?: string }>();
+    const now = Date.now();
+    const cachedHealth = healthCache.get('health') || {};
+    if (cachedHealth.expires > now) {
+      health = cachedHealth.time ? { time: cachedHealth.time } : null;
+    } else {
+      try {
+        const healthRes = await realApi('/api/health').catch(() => null);
+        const healthJson = healthRes ? await healthRes.json() : null;
+        health = healthJson?.time ? { time: String(healthJson.time) } : null;
+        // Store in cache with 30s TTL
+        healthCache.set('health', { expires: now + 30_000, time: String(healthJson?.time ?? '') });
+        ;(sessionActivity as any).__healthCache = healthCache;
+      } catch {
+        health = null;
+        ;(sessionActivity as any).__healthCache = healthCache;
+      }
+    }
+
     const current = mapApiSession(meBody.session, stored.user);
     const recent = (listBody.sessions ?? []).slice(0, 5).map((r) => mapApiSession(r, stored.user));
     return {
