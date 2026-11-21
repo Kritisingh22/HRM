@@ -1,9 +1,0 @@
-{
-  "name": "Cyethack HR Portal",
-  "description": "Private HR portal for employee management, payroll, leave, attendance, and HR analytics.",
-  "version": "1.0.0",
-  "pages": [
-    { "path": "/login", "title": "Login" },
-    { "path": "/", "title": "Dashboard" }
-  ]
-}

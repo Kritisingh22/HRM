@@ -591,47 +591,48 @@ export const api = {
   /**
    * The caller's live login session (plus recent history and the
    * server clock) for the topbar session panel.
+   *
+   * All three sub-requests are cached per-tab (30s TTL) so repeated
+   * calls within the same session don't hit the server again.
+   * GET requests are also de-duplicated via getCached().
    */
   async sessionActivity(accessToken: string): Promise<SessionActivity> {
     const stored = readSession();
     if (!(stored?.source === 'api')) throw new ApiError(401, 'No valid session — please sign in again.');
     const token = stored.accessToken || accessToken;
+    const headers = bearer(token);
+    const now = Date.now();
+
+    /* Per-tab cache shared across all calls to sessionActivity. */
+    const cache = (sessionActivity as any).__cache || new Map<string, { expires: number; json: unknown }>();
+    ;(sessionActivity as any).__cache = cache;
+
+    const getCachedJson = async (path: string): Promise<unknown> => {
+      const entry = cache.get(path);
+      if (entry && entry.expires > now) return entry.json;
+      try {
+        const res = await realApi(path, { headers });
+        const json = await res.json();
+        cache.set(path, { expires: now + 30_000, json });
+        return json;
+      } catch {
+        return null;
+      }
+    };
 
     // Current session — the source of truth for UI session panel
-    const meRes = await realApi('/api/sessions/me', { headers: bearer(token) });
-    const meBody = (await meRes.json()) as { session: ApiSessionRow | null };
-    if (!meBody.session) throw new ApiError(404, 'Session record not found.');
+    const meBody = (await getCachedJson('/api/sessions/me')) as { session: ApiSessionRow | null } | null;
+    if (!meBody?.session) throw new ApiError(404, 'Session record not found.');
 
-    // Recent sessions list — optional, best-effort (with client-side cache, 30s TTL)
-    const listKey = '/api/sessions';
-    let listBody: { sessions?: ApiSessionRow[] } = {};
-    try {
-      const listRes = await realApi(listKey, { headers: bearer(token) }).catch(() => null);
-      listBody = listRes ? ((await listRes.json()) as { sessions?: ApiSessionRow[] }) : {};
-    } catch {}
+    // Recent sessions list — optional, best-effort
+    const listBody = (await getCachedJson('/api/sessions')) as { sessions?: ApiSessionRow[] } | null;
 
-    // Health check — lightweight, zero DB, instant 200 (cached per-tab for 30s to avoid redundant pings)
-    const healthCache = (sessionActivity as any).__healthCache || new Map<string, { expires: number; time?: string }>();
-    const now = Date.now();
-    const cachedHealth = healthCache.get('health') || {};
-    if (cachedHealth.expires > now) {
-      health = cachedHealth.time ? { time: cachedHealth.time } : null;
-    } else {
-      try {
-        const healthRes = await realApi('/api/health').catch(() => null);
-        const healthJson = healthRes ? await healthRes.json() : null;
-        health = healthJson?.time ? { time: String(healthJson.time) } : null;
-        // Store in cache with 30s TTL
-        healthCache.set('health', { expires: now + 30_000, time: String(healthJson?.time ?? '') });
-        ;(sessionActivity as any).__healthCache = healthCache;
-      } catch {
-        health = null;
-        ;(sessionActivity as any).__healthCache = healthCache;
-      }
-    }
+    // Health check — lightweight, zero DB, instant 200 (cached per-tab for 30s)
+    const healthJson = (await getCachedJson('/api/health')) as { time?: string } | null;
+    const health = healthJson?.time ? { time: String(healthJson.time) } : null;
 
     const current = mapApiSession(meBody.session, stored.user);
-    const recent = (listBody.sessions ?? []).slice(0, 5).map((r) => mapApiSession(r, stored.user));
+    const recent = (listBody?.sessions ?? []).slice(0, 5).map((r) => mapApiSession(r, stored.user));
     return {
       session: current,
       recent: recent.some((r) => r.id === current.id) ? recent : [current, ...recent].slice(0, 5),

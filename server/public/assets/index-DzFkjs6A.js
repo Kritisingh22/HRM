@@ -1,1 +1,0 @@
-const e=["Applied","Screening","Shortlisted","Interview","Technical Round","HR Round","Selected","Offer Sent","Offer Accepted","Hired","Rejected"],d=["To Do","In Progress","Review","Blocked","Completed","Overdue"];export{e as P,d as T};

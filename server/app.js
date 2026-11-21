@@ -50,6 +50,10 @@ app.get('/health', (_req, res) => {
 });
 
 // ---- Security headers ----
+// Non-CSP protections are enforced via helmet(). CSP itself starts as
+// report-only so violations are logged but not blocked. Once the client
+// runs clean, switch to enforced contentSecurityPolicy by removing
+// reportOnly: true.
 app.use(
   helmet({
     contentSecurityPolicy: {
@@ -62,8 +66,10 @@ app.use(
         connectSrc: ["'self'"],
         frameAncestors: ["'none'"],
         baseUri: ["'self'"],
-        formAction: ["'self'"]
-      }
+        formAction: ["'self'"],
+        requireTrustedTypesFor: ["'script'"]
+      },
+      reportOnly: true,
     },
     hsts: {
       maxAge: 63072000, // 2 years

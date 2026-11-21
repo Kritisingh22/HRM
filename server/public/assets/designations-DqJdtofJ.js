@@ -1,1 +1,0 @@
-import{aY as e}from"./index-BeipLkC8.js";async function i(n){return e("POST","/api/departments",n)}async function o(n,a){return e("PATCH",`/api/departments/${encodeURIComponent(n)}`,a)}async function r(n){return e("POST","/api/designations",n)}async function s(n,a){return e("PATCH",`/api/designations/${encodeURIComponent(n)}`,a)}export{s as a,r as b,i as c,o as u};

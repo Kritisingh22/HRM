@@ -1,1 +1,0 @@
-import{b as u,u as c,r as s}from"./vendor-i5YK_Kyu.js";function i(){const e=u(),r=c(),[t,a]=s.useState(()=>e.state??{});s.useEffect(()=>{e.state&&a(e.state)},[e.key,e.state]);const o=()=>{a({}),r(e.pathname,{replace:!0})};return{query:(t.query??"").trim(),dept:t.dept??"",clear:o}}export{i as u};

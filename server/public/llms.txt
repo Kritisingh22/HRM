@@ -1,8 +1,0 @@
-# Cyethack HR Portal
-
-Private HR portal for employee management, payroll, leave, attendance, and HR analytics. This is an internal application — not indexed by search engines.
-
-## Pages
-
-- [Login](/login) — Sign in to the portal
-- [Dashboard](/ ) — Main dashboard after authentication

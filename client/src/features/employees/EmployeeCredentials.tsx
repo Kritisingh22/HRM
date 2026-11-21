@@ -412,13 +412,12 @@ export function ResetPasswordDialog({
             ]} />
           </div>
           <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: 16, marginTop: 12 }}>
-            <DetailList rows={{
+            <DetailList rows={[
               ['Username', result.credentials.username],
               ['Email', result.credentials.email],
               ['Must change password', result.credentials.mustChangePassword ? 'Yes' : 'No'],
             ]} />
           </div>
-        </div>
 
           <div style={{ marginTop: 16, padding: 12, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6 }}>
             <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-2)', marginBottom: 8 }}>
@@ -469,6 +468,7 @@ export function ResetPasswordDialog({
               </p>
             </div>
           </div>
+        </div>
       ) : (
         <div style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.6, padding: 10 }}>
           Share these credentials securely with the employee. The temporary password must be changed immediately after the first login.

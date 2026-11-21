@@ -118,80 +118,78 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(stored.user);
     setStatus('authenticated');
 
-    if (stored.source === 'api') {
+    if (stored.source !== 'api') return;
+
+    const go = (token: string) => {
+      void bootstrap(token).then((fresh) => {
+        if (cancelled) return;
+        setUser(fresh.user);
+        setMustChangePassword(Boolean(fresh.user.mustChangePassword));
+        invalidateGetCache();
+      }).catch(() => {
+        /* keep the stored user; the shell is already painted */
+      });
+      /* Session panel is nice-to-have: load after paint, pause when hidden. */
+      afterPaint(() => void refreshActivity(token));
+      afterPaint(() => void fetchAttendanceState());
+    };
+
+    if (tokenIsFresh(stored)) {
+      /* Access token still valid: skip auth/refresh entirely.
+         Enable the API session once with the stored user. */
       enableApiSession({
         role: stored.user.role,
         employeeId: stored.user.employeeId ?? null,
         name: stored.user.name,
         email: stored.user.email,
       });
-    }
-
-    if (stored.source === 'api') {
-      /* The access token is short-lived and is never kept in localStorage.
-       * A fresh/stored token goes straight to bootstrap; a stale (remember-me)
-       * marker without a token is restored from the httpOnly refresh cookie. */
-      const go = (token: string) => {
-        void bootstrap(token).then((fresh) => {
-          if (cancelled) return;
-          setUser(fresh.user);
-          setMustChangePassword(Boolean(fresh.user.mustChangePassword));
-          invalidateGetCache();
-        }).catch(() => {
-          /* keep the stored user; the shell is already painted */
-        });
-        /* Session panel is nice-to-have: load after paint, pause when hidden. */
-        afterPaint(() => void refreshActivity(token));
-        afterPaint(() => void fetchAttendanceState());
-      };
-
-      if (tokenIsFresh(stored)) {
-        /* Access token still valid: skip auth/refresh entirely. */
-        void go(stored.accessToken);
-        return;
-      }
-
-      if (stored.accessToken) {
-        /* Expired token: the serial me → refresh chain. */
-        api
-          .me(stored.accessToken)
-          .then((fresh) => {
-            if (cancelled) return;
-            setUser(fresh);
-            setMustChangePassword(Boolean(fresh.mustChangePassword));
-            setStatus('authenticated');
-            enableApiSession({
-              role: fresh.role,
-              employeeId: fresh.employeeId ?? null,
-              name: fresh.name,
-              email: fresh.email,
-            });
-            void go(stored.accessToken);
-          })
-          .catch(() => {
-            if (cancelled) return;
-            clearSession();
-            setStatus('guest');
-          });
-        return;
-      }
-
-      /* Remember-me marker without a token: renew from the refresh cookie. */
-      void renewRealSession().then((renewed) => {
-        if (cancelled || !renewed) {
-          if (!renewed) { clearSession(); setStatus('guest'); }
-          return;
-        }
-        setUser(renewed.user);
-        setMustChangePassword(Boolean(renewed.user.mustChangePassword));
-        void go(renewed.accessToken);
-      });
+      void go(stored.accessToken);
       return;
     }
-    return () => {
-      cancelled = true;
-    };
-  }, [refreshActivity, enableApiSession, fetchAttendanceState]);
+
+    if (stored.accessToken) {
+      /* Expired token: validate via /api/auth/me, then enable API session once. */
+      api
+        .me(stored.accessToken)
+        .then((fresh) => {
+          if (cancelled) return;
+          setUser(fresh);
+          setMustChangePassword(Boolean(fresh.mustChangePassword));
+          setStatus('authenticated');
+          enableApiSession({
+            role: fresh.role,
+            employeeId: fresh.employeeId ?? null,
+            name: fresh.name,
+            email: fresh.email,
+          });
+          void go(stored.accessToken);
+        })
+        .catch(() => {
+          if (cancelled) return;
+          clearSession();
+          setStatus('guest');
+        });
+      return;
+    }
+
+    /* Remember-me marker without a token: renew from the refresh cookie. */
+    void renewRealSession().then((renewed) => {
+      if (cancelled || !renewed) {
+        if (!renewed) { clearSession(); setStatus('guest'); }
+        return;
+      }
+      setUser(renewed.user);
+      setMustChangePassword(Boolean(renewed.user.mustChangePassword));
+      enableApiSession({
+        role: renewed.user.role,
+        employeeId: renewed.user.employeeId ?? null,
+        name: renewed.user.name,
+        email: renewed.user.email,
+      });
+      void go(renewed.accessToken);
+    });
+    return;
+  }, [refreshActivity, enableApiSession]);
 
   const login = useCallback(
     async (email: string, password: string, remember: boolean) => {
